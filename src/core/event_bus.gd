@@ -70,6 +70,12 @@ signal rope_deployment_started(anchor_quality: GameEnums.AnchorQuality)
 ## Emitted when rope is ready for descent
 signal rope_ready(rope_length: float)
 
+## Emitted when rappel begins
+signal rappel_started()
+
+## Emitted when rappel ends
+signal rappel_ended(outcome: int)
+
 ## Emitted during rappel
 signal rappel_progress(distance_remaining: float, speed: float)
 
@@ -107,6 +113,9 @@ signal surface_changed(old_surface: GameEnums.SurfaceType, new_surface: GameEnum
 
 ## Emitted when approaching cliff edge
 signal cliff_proximity_warning(distance: float, direction: Vector3)
+
+## Emitted when cliff distance changes during slide
+signal cliff_proximity_changed(distance: float)
 
 ## Emitted when exit zone detected during slide
 signal exit_zone_detected(position: Vector3, quality: float)
