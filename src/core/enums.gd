@@ -60,6 +60,7 @@ enum SurfaceType {
 	SNOW_SOFT,
 	SNOW_POWDER,
 	ICE,
+	ROCK,          # General rock surface
 	ROCK_DRY,
 	ROCK_WET,
 	SCREE,
@@ -233,10 +234,13 @@ enum CameraSignal {
 	SLOPE_CHANGE,
 	SPEED_CHANGE,
 	SLIDE_ENTRY,
+	DESCENT_START,     # Beginning of descent sequence
 	ROPE_DEPLOYMENT,
 	FATIGUE_THRESHOLD,
 	MICRO_SLIP,
 	CLIFF_PROXIMITY,
+	CRITICAL_MOMENT,   # High-stakes decision point
+	FATAL_MOMENT,      # Fatal event unfolding
 	# Secondary signals (mood)
 	WEATHER_SHIFT,
 	LIGHT_CHANGE,
@@ -298,6 +302,7 @@ const SURFACE_FRICTION := {
 	SurfaceType.SNOW_SOFT: 0.5,
 	SurfaceType.SNOW_POWDER: 0.6,
 	SurfaceType.ICE: 0.1,
+	SurfaceType.ROCK: 0.6,
 	SurfaceType.ROCK_DRY: 0.7,
 	SurfaceType.ROCK_WET: 0.2,
 	SurfaceType.SCREE: 0.6,
