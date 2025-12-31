@@ -15,9 +15,17 @@ extends Node
 
 const MainMenuScene := preload("res://src/ui/main_menu.tscn")
 const PlayerScene := preload("res://src/entities/player/player.tscn")
+const ResolutionScreenScene := preload("res://src/ui/resolution_screen.tscn")
+const PostGameScreenScene := preload("res://src/ui/post_game_screen.tscn")
 
 ## Active main menu instance
 var main_menu: MainMenu = null
+
+## Active resolution screen instance
+var resolution_screen: ResolutionScreen = null
+
+## Active post-game screen instance
+var post_game_screen: PostGameScreen = null
 
 # =============================================================================
 # GAMEPLAY REFERENCES
@@ -317,6 +325,15 @@ func _cleanup_descent() -> void:
 		environment_light.queue_free()
 		environment_light = null
 
+	# Clean up UI screens
+	_hide_resolution_screen()
+	_hide_post_game_screen()
+
+
+func _hide_resolution_screen() -> void:
+	if resolution_screen != null:
+		resolution_screen.hide_resolution()
+
 
 func _hide_main_menu() -> void:
 	if main_menu != null:
@@ -324,13 +341,51 @@ func _hide_main_menu() -> void:
 
 
 func _show_resolution() -> void:
-	# TODO: Show resolution screen
 	print("[Main] Showing resolution...")
+
+	# Get run context and outcome
+	var run := GameStateManager.current_run
+	if run == null:
+		push_error("[Main] No run context for resolution")
+		return
+
+	# Create resolution screen if not exists
+	if resolution_screen == null:
+		resolution_screen = ResolutionScreenScene.instantiate()
+		ui.add_child(resolution_screen)
+
+	# Show with run results
+	resolution_screen.show_resolution(run, run.outcome)
+
+	print("[Main] Resolution screen shown: %s" % GameEnums.ResolutionType.keys()[run.outcome])
 
 
 func _show_post_game() -> void:
-	# TODO: Show post-game analysis
-	print("[Main] Showing post-game...")
+	print("[Main] Showing post-game analysis...")
+
+	# Hide resolution screen
+	_hide_resolution_screen()
+
+	# Get run context
+	var run := GameStateManager.current_run
+	if run == null:
+		push_error("[Main] No run context for post-game")
+		return
+
+	# Create post-game screen if not exists
+	if post_game_screen == null:
+		post_game_screen = PostGameScreenScene.instantiate()
+		ui.add_child(post_game_screen)
+
+	# Show analysis
+	post_game_screen.show_analysis(run)
+
+	print("[Main] Post-game analysis shown")
+
+
+func _hide_post_game_screen() -> void:
+	if post_game_screen != null:
+		post_game_screen.hide_analysis()
 
 
 # =============================================================================
