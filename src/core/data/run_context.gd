@@ -222,22 +222,65 @@ func get_estimated_time_remaining() -> float:
 
 ## Get daylight remaining at current game time
 func get_daylight_remaining() -> float:
-	# Simplified: assume sunset at 18:00 for now
-	# TODO: Calculate based on latitude and date
-	var sunset := 18.0
+	var sunset := get_sunset_time()
 	if current_time >= sunset:
 		return 0.0
 	return sunset - current_time
 
 
-## Check if it's getting dark
+## Get sunrise time based on latitude and day of year
+func get_sunrise_time() -> float:
+	if start_conditions:
+		return start_conditions.calculate_sunrise()
+	return 6.0  # Default fallback
+
+
+## Get sunset time based on latitude and day of year
+func get_sunset_time() -> float:
+	if start_conditions:
+		return start_conditions.calculate_sunset()
+	return 18.0  # Default fallback
+
+
+## Check if it's getting dark (less than 1 hour of daylight)
 func is_getting_dark() -> bool:
 	return get_daylight_remaining() < 1.0
 
 
-## Check if it's fully dark
+## Check if it's fully dark (past sunset)
 func is_dark() -> bool:
 	return get_daylight_remaining() <= 0.0
+
+
+## Check if it's currently daytime
+func is_daytime() -> bool:
+	var sunrise := get_sunrise_time()
+	var sunset := get_sunset_time()
+	return current_time >= sunrise and current_time < sunset
+
+
+## Get the current sun elevation angle (for lighting)
+## Returns degrees above horizon (negative = below horizon)
+func get_sun_elevation() -> float:
+	var sunrise := get_sunrise_time()
+	var sunset := get_sunset_time()
+
+	if current_time < sunrise or current_time > sunset:
+		return -10.0  # Below horizon
+
+	# Normalize time to 0-1 between sunrise and sunset
+	var day_progress := (current_time - sunrise) / (sunset - sunrise)
+
+	# Peak elevation at solar noon (midpoint)
+	# Use sine curve: 0 at sunrise, peak at noon, 0 at sunset
+	var elevation := sin(day_progress * PI) * 60.0  # Max ~60° at noon
+
+	# Adjust for latitude (higher latitudes = lower maximum sun angle)
+	if start_conditions:
+		var latitude_factor := 1.0 - absf(start_conditions.latitude) / 90.0
+		elevation *= latitude_factor + 0.4  # Keep minimum of 40% of angle
+
+	return elevation
 
 
 # =============================================================================
