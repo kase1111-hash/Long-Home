@@ -1,0 +1,96 @@
+{
+	"name": "Sample Mountain",
+	"description": "A sample mountain for testing DEM terrain loading",
+	"difficulty": "moderate",
+	"elevation_range": {
+		"summit": 4200,
+		"base": 2800
+	},
+	"location": {
+		"latitude": 45.8,
+		"longitude": 6.9,
+		"region": "Alps"
+	},
+	"heightmap": {
+		"format": "png",
+		"filename": "heightmap",
+		"resolution": 512,
+		"height_scale": 1.0,
+		"height_offset": 0.0,
+		"flip_y": false
+	},
+	"bounds": {
+		"min_x": -500.0,
+		"max_x": 500.0,
+		"min_z": -500.0,
+		"max_z": 500.0,
+		"min_elevation": 2800.0,
+		"max_elevation": 4200.0
+	},
+	"chunks": {
+		"enabled": false,
+		"count_x": 1,
+		"count_z": 1,
+		"chunk_size": 64.0,
+		"chunk_resolution": 32,
+		"pattern": "chunk_{x}_{y}"
+	},
+	"surfaces": {
+		"has_overlay": false,
+		"filename": "surfaces",
+		"color_map": {
+			"snow_firm": { "r": 1.0, "g": 1.0, "b": 1.0 },
+			"snow_soft": { "r": 0.9, "g": 0.9, "b": 0.95 },
+			"ice": { "r": 0.7, "g": 0.85, "b": 1.0 },
+			"rock": { "r": 0.4, "g": 0.35, "b": 0.3 },
+			"scree": { "r": 0.5, "g": 0.45, "b": 0.4 }
+		}
+	},
+	"hazards": [
+		{
+			"type": "crevasse",
+			"x": 100.0,
+			"y": 3500.0,
+			"z": -50.0,
+			"radius": 15.0,
+			"severity": 0.9
+		},
+		{
+			"type": "cornice",
+			"x": -80.0,
+			"y": 4100.0,
+			"z": 120.0,
+			"radius": 20.0,
+			"severity": 0.8
+		}
+	],
+	"routes": [
+		{
+			"name": "Normal Route",
+			"difficulty": "moderate",
+			"waypoints": [
+				{ "x": 0.0, "y": 4200.0, "z": 0.0 },
+				{ "x": 50.0, "y": 3900.0, "z": 100.0 },
+				{ "x": 100.0, "y": 3500.0, "z": 200.0 },
+				{ "x": 80.0, "y": 3100.0, "z": 350.0 },
+				{ "x": 0.0, "y": 2800.0, "z": 450.0 }
+			]
+		}
+	],
+	"start_positions": [
+		{
+			"name": "Summit",
+			"x": 0.0,
+			"y": 4200.0,
+			"z": 0.0
+		}
+	],
+	"exit_zones": [
+		{
+			"name": "Base Camp",
+			"x": 0.0,
+			"z": 450.0,
+			"radius": 50.0
+		}
+	]
+}
