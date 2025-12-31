@@ -14,9 +14,29 @@ extends Node
 # =============================================================================
 
 const MainMenuScene := preload("res://src/ui/main_menu.tscn")
+const PlayerScene := preload("res://src/entities/player/player.tscn")
 
 ## Active main menu instance
 var main_menu: MainMenu = null
+
+# =============================================================================
+# GAMEPLAY REFERENCES
+# =============================================================================
+
+## Active player instance
+var player: PlayerController = null
+
+## Terrain service reference
+var terrain_service: TerrainService = null
+
+## Time service reference
+var time_service: TimeService = null
+
+## Weather service reference
+var weather_service: WeatherService = null
+
+## Environment light
+var environment_light: DirectionalLight3D = null
 
 # =============================================================================
 # LIFECYCLE
@@ -109,6 +129,9 @@ func _on_run_ended(run_context: RunContext, outcome: GameEnums.ResolutionType) -
 func _show_main_menu() -> void:
 	print("[Main] Showing main menu...")
 
+	# Clean up any active descent
+	_cleanup_descent()
+
 	# Hide world during menu
 	world.visible = false
 
@@ -123,7 +146,6 @@ func _show_main_menu() -> void:
 
 
 func _start_descent() -> void:
-	# TODO: Initialize descent gameplay
 	print("[Main] Starting descent...")
 
 	# Hide main menu
@@ -131,6 +153,169 @@ func _start_descent() -> void:
 
 	# Show world
 	world.visible = true
+
+	# Initialize gameplay systems
+	await _initialize_descent_systems()
+
+	print("[Main] Descent initialized")
+
+
+func _initialize_descent_systems() -> void:
+	var run := GameStateManager.current_run
+	if run == null:
+		push_error("[Main] Cannot start descent without active run")
+		return
+
+	# 1. Initialize terrain
+	await _setup_terrain(run.mountain_id)
+
+	# 2. Initialize environment services
+	_setup_environment(run)
+
+	# 3. Spawn player at start position
+	_spawn_player(run)
+
+	# 4. Setup lighting
+	_setup_lighting(run)
+
+	# Emit descent ready signal
+	EventBus.descent_ready.emit()
+
+
+func _setup_terrain(mountain_id: String) -> void:
+	print("[Main] Loading terrain for: %s" % mountain_id)
+
+	# Get or create terrain service
+	terrain_service = ServiceLocator.get_service("TerrainService") as TerrainService
+	if terrain_service == null:
+		terrain_service = TerrainService.new()
+		world.add_child(terrain_service)
+
+	# Load terrain
+	terrain_service.load_terrain(mountain_id)
+
+	# Wait for terrain to be ready
+	await get_tree().process_frame
+
+
+func _setup_environment(run: RunContext) -> void:
+	print("[Main] Setting up environment...")
+
+	# Initialize time service
+	time_service = ServiceLocator.get_service("TimeService") as TimeService
+	if time_service == null:
+		time_service = TimeService.new()
+		world.add_child(time_service)
+
+	# Set initial time from run conditions
+	time_service.current_time = run.start_conditions.time_of_day
+
+	# Initialize weather service
+	weather_service = ServiceLocator.get_service("WeatherService") as WeatherService
+	if weather_service == null:
+		weather_service = WeatherService.new()
+		world.add_child(weather_service)
+
+	# Set initial weather from run conditions
+	weather_service.current_weather = run.start_conditions.weather
+
+
+func _spawn_player(run: RunContext) -> void:
+	print("[Main] Spawning player...")
+
+	# Remove existing player if any
+	if player != null:
+		player.queue_free()
+		player = null
+
+	# Create new player
+	player = PlayerScene.instantiate()
+	world.add_child(player)
+
+	# Position at summit/start area
+	var start_pos := _get_start_position()
+	player.global_position = start_pos
+
+	# Link run context to player
+	player.body_state = run.body_state
+	player.gear_state = run.gear_state
+
+	# Update run context with start position
+	run.position = start_pos
+	run.start_elevation = start_pos.y
+	run.current_elevation = start_pos.y
+	run.target_elevation = 0.0  # Base camp at sea level (simplified)
+
+	print("[Main] Player spawned at: %s" % start_pos)
+
+
+func _get_start_position() -> Vector3:
+	# Find highest point in terrain as start
+	if terrain_service != null:
+		var bounds_max := terrain_service.terrain_bounds_max
+		var bounds_min := terrain_service.terrain_bounds_min
+
+		# Start near center, at terrain height
+		var center_x := (bounds_max.x + bounds_min.x) * 0.5
+		var center_z := (bounds_max.z + bounds_min.z) * 0.5
+
+		var height := terrain_service.get_height_at(Vector3(center_x, 0, center_z))
+		return Vector3(center_x, height + 1.0, center_z)
+
+	# Fallback position
+	return Vector3(0, 3000, 0)
+
+
+func _setup_lighting(run: RunContext) -> void:
+	# Create or get directional light for sun
+	if environment_light == null:
+		environment_light = DirectionalLight3D.new()
+		environment_light.name = "SunLight"
+		environment_light.shadow_enabled = true
+		environment_light.light_energy = 1.0
+		environment_light.light_color = Color(1.0, 0.95, 0.9)
+		world.add_child(environment_light)
+
+	# Position sun based on time of day
+	_update_sun_position(run.start_conditions.time_of_day)
+
+
+func _update_sun_position(game_time: float) -> void:
+	if environment_light == null:
+		return
+
+	# Simple sun arc calculation
+	# 6:00 = sunrise (east), 12:00 = noon (high), 18:00 = sunset (west)
+	var time_normalized := (game_time - 6.0) / 12.0  # 0 at sunrise, 1 at sunset
+	time_normalized = clampf(time_normalized, 0.0, 1.0)
+
+	# Sun angle: 0° at horizon, 60° at noon
+	var elevation_angle := sin(time_normalized * PI) * 60.0
+	var azimuth_angle := time_normalized * 180.0 - 90.0  # -90° (east) to 90° (west)
+
+	environment_light.rotation_degrees = Vector3(-elevation_angle, azimuth_angle, 0)
+
+	# Adjust light color/intensity based on time
+	if game_time < 7.0 or game_time > 17.0:
+		# Golden hour
+		environment_light.light_color = Color(1.0, 0.8, 0.6)
+		environment_light.light_energy = 0.7
+	else:
+		# Daytime
+		environment_light.light_color = Color(1.0, 0.98, 0.95)
+		environment_light.light_energy = 1.0
+
+
+func _cleanup_descent() -> void:
+	# Clean up player
+	if player != null:
+		player.queue_free()
+		player = null
+
+	# Clean up lighting
+	if environment_light != null:
+		environment_light.queue_free()
+		environment_light = null
 
 
 func _hide_main_menu() -> void:
