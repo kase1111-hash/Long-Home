@@ -207,6 +207,50 @@ signal decision_recorded(decision_type: String, context: Dictionary)
 ## Emitted when incident occurs (for replay)
 signal incident_recorded(incident_type: String, context: Dictionary)
 
+# =============================================================================
+# AUDIO SIGNALS
+# =============================================================================
+
+## Emitted when audio system is ready
+signal audio_ready()
+
+## Emitted when wind intensity changes significantly
+signal wind_audio_changed(intensity: float)
+
+## Emitted when breathing pattern changes
+signal breathing_changed(intensity: float)
+
+## Emitted when silence moment occurs (for camera coordination)
+signal silence_moment(is_active: bool)
+
+## Emitted when audio should duck for dramatic moment
+signal audio_duck_requested(reason: String)
+
+## Emitted when ducked audio should restore
+signal audio_restore_requested()
+
+# =============================================================================
+# TUTORIAL SIGNALS
+# =============================================================================
+
+## Emitted when tutorial starts
+signal tutorial_started(is_hard_mode: bool)
+
+## Emitted when tutorial phase changes
+signal tutorial_phase_changed(phase_name: String)
+
+## Emitted when player learns a lesson organically
+signal lesson_learned(lesson: String)
+
+## Emitted when instructor speaks
+signal instructor_spoke(line_id: String, text: String)
+
+## Emitted when instructor falls (hard mode)
+signal instructor_accident()
+
+## Emitted when tutorial completes
+signal tutorial_completed(rescued_instructor: bool)
+
 
 # =============================================================================
 # HELPER METHODS

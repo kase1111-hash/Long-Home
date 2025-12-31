@@ -12,6 +12,7 @@ enum GameState {
 	MOUNTAIN_SELECT,
 	LOADOUT_CONFIG,
 	PLANNING,
+	TUTORIAL,          # First-time player experience
 	DESCENT,
 	PAUSED,
 	MAP_CHECK,
