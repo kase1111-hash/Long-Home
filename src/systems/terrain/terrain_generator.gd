@@ -223,6 +223,8 @@ func _get_vertex_color(cell: TerrainCell) -> Color:
 			color = Color(1.0, 1.0, 1.0)
 		GameEnums.SurfaceType.ICE:
 			color = Color(0.8, 0.9, 1.0)
+		GameEnums.SurfaceType.ROCK:
+			color = Color(0.45, 0.4, 0.35)
 		GameEnums.SurfaceType.ROCK_DRY:
 			color = Color(0.5, 0.45, 0.4)
 		GameEnums.SurfaceType.ROCK_WET:
