@@ -1,6 +1,15 @@
 # Long-Home
 
-Core Thesis (Anchor This Early)
+A mountaineering descent simulation game built with Godot Engine.
+
+## Documentation
+
+- **[SPEC-SHEET.md](SPEC-SHEET.md)** - Complete game specification covering all 16 major systems
+- **[PROGRAMMING-ROADMAP.md](PROGRAMMING-ROADMAP.md)** - Implementation guide with code structure and data models
+
+---
+
+## Core Thesis
 
 The game is about consequence, not conquest.
 
