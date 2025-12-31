@@ -13,6 +13,12 @@ extends Resource
 ## Estimated daylight remaining in hours
 @export var daylight_remaining: float = 8.0
 
+## Latitude for sun calculations (degrees, 45 = Alps, 28 = Himalayas)
+@export_range(-90.0, 90.0) var latitude: float = 45.0
+
+## Day of year (1-365, affects sunrise/sunset times)
+@export_range(1, 365) var day_of_year: int = 180
+
 # =============================================================================
 # WEATHER CONDITIONS
 # =============================================================================
@@ -286,6 +292,8 @@ func duplicate_conditions() -> StartConditions:
 	var copy := StartConditions.new()
 	copy.time_of_day = time_of_day
 	copy.daylight_remaining = daylight_remaining
+	copy.latitude = latitude
+	copy.day_of_year = day_of_year
 	copy.weather = weather
 	copy.weather_stability = weather_stability
 	copy.wind_strength = wind_strength
@@ -298,3 +306,43 @@ func duplicate_conditions() -> StartConditions:
 	copy.body_state = body_state.duplicate_state()
 	copy.gear_state = gear_state.duplicate_state()
 	return copy
+
+
+# =============================================================================
+# SUN CALCULATIONS
+# =============================================================================
+
+## Calculate sunrise time based on latitude and day of year
+func calculate_sunrise() -> float:
+	var sun_times := _calculate_sun_times()
+	return sun_times.x
+
+
+## Calculate sunset time based on latitude and day of year
+func calculate_sunset() -> float:
+	var sun_times := _calculate_sun_times()
+	return sun_times.y
+
+
+## Calculate both sunrise and sunset times
+## Returns Vector2(sunrise, sunset) in hours
+func _calculate_sun_times() -> Vector2:
+	# Day length variation based on day of year and latitude
+	# Day 172 is approximately summer solstice in northern hemisphere
+	var day_angle := (day_of_year - 172.0) / 365.0 * TAU
+
+	# Day length variation in hours (±4 hours at 45° latitude)
+	# Scale by latitude (higher latitudes = more variation)
+	var day_length_variation := 4.0 * sin(day_angle) * (latitude / 45.0)
+
+	# Base 12-hour day, adjusted by variation
+	var half_day := 6.0 + day_length_variation / 2.0
+
+	var sunrise := 12.0 - half_day
+	var sunset := 12.0 + half_day
+
+	# Clamp to valid range
+	sunrise = clampf(sunrise, 0.0, 12.0)
+	sunset = clampf(sunset, 12.0, 24.0)
+
+	return Vector2(sunrise, sunset)
