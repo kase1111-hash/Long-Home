@@ -36,6 +36,12 @@ var terrain_service: TerrainService
 ## Generated mesh instances (chunk_coords -> MeshInstance3D)
 var chunk_meshes: Dictionary = {}
 
+## LOD meshes per chunk (chunk_coords -> Array[ArrayMesh])
+var chunk_lod_meshes: Dictionary = {}
+
+## Current LOD level per chunk (chunk_coords -> int)
+var chunk_current_lod: Dictionary = {}
+
 ## Generated collision shapes (chunk_coords -> StaticBody3D)
 var chunk_colliders: Dictionary = {}
 
@@ -44,6 +50,15 @@ var mesh_parent: Node3D
 
 ## Parent node for collision shapes
 var collider_parent: Node3D
+
+## Camera reference for LOD updates
+var camera: Camera3D = null
+
+## LOD update interval (seconds)
+var lod_update_interval: float = 0.25
+
+## Time since last LOD update
+var lod_update_timer: float = 0.0
 
 
 # =============================================================================
@@ -69,6 +84,24 @@ func _on_terrain_service_ready(service: Object) -> void:
 	terrain_service.chunk_loaded.connect(_on_chunk_loaded)
 
 	print("[TerrainGenerator] Connected to TerrainService")
+
+
+func _process(delta: float) -> void:
+	# Periodically update LOD based on camera position
+	lod_update_timer += delta
+	if lod_update_timer >= lod_update_interval:
+		lod_update_timer = 0.0
+		_update_lod_from_camera()
+
+
+func _update_lod_from_camera() -> void:
+	# Find camera if not set
+	if camera == null:
+		camera = get_viewport().get_camera_3d()
+		if camera == null:
+			return
+
+	update_lod(camera.global_position)
 
 
 # =============================================================================
@@ -99,13 +132,25 @@ func _clear_all_meshes() -> void:
 		collider.queue_free()
 	chunk_colliders.clear()
 
+	# Clear LOD data
+	chunk_lod_meshes.clear()
+	chunk_current_lod.clear()
 
-## Generate mesh for a terrain chunk
+
+## Generate mesh for a terrain chunk (generates all LOD levels)
 func _generate_chunk_mesh(chunk: TerrainChunk) -> void:
-	var mesh := _create_terrain_mesh(chunk, 1.0)  # Full resolution
+	# Generate meshes for all LOD levels
+	var lod_meshes: Array[ArrayMesh] = []
+	for resolution in lod_resolutions:
+		var mesh := _create_terrain_mesh(chunk, resolution)
+		lod_meshes.append(mesh)
 
+	# Store LOD meshes for this chunk
+	chunk_lod_meshes[chunk.chunk_coords] = lod_meshes
+
+	# Create mesh instance with highest detail (LOD 0)
 	var mesh_instance := MeshInstance3D.new()
-	mesh_instance.mesh = mesh
+	mesh_instance.mesh = lod_meshes[0] if not lod_meshes.is_empty() else null
 	mesh_instance.name = "Chunk_%d_%d" % [chunk.chunk_coords.x, chunk.chunk_coords.y]
 
 	if terrain_material:
@@ -116,6 +161,9 @@ func _generate_chunk_mesh(chunk: TerrainChunk) -> void:
 
 	mesh_parent.add_child(mesh_instance)
 	chunk_meshes[chunk.chunk_coords] = mesh_instance
+
+	# Initialize current LOD level
+	chunk_current_lod[chunk.chunk_coords] = 0
 
 
 ## Create terrain mesh from chunk data
@@ -326,15 +374,52 @@ func update_lod(camera_pos: Vector3) -> void:
 
 		var distance := camera_pos.distance_to(chunk_center)
 
-		# Determine LOD level
-		var lod_level := 0
+		# Determine LOD level based on distance thresholds
+		var target_lod := 0
 		for i in range(lod_distances.size()):
 			if distance > lod_distances[i]:
-				lod_level = i + 1
+				target_lod = i + 1
 
-		# TODO: Implement LOD mesh switching
-		# For now, just visibility culling at extreme distances
-		mesh_instance.visible = distance < lod_distances[-1] * 2.0
+		# Clamp to available LOD levels
+		target_lod = mini(target_lod, lod_resolutions.size() - 1)
+
+		# Get current LOD level for this chunk
+		var current_lod: int = chunk_current_lod.get(coords, 0)
+
+		# Switch mesh if LOD level changed
+		if target_lod != current_lod:
+			var lod_meshes: Array = chunk_lod_meshes.get(coords, [])
+			if target_lod < lod_meshes.size():
+				mesh_instance.mesh = lod_meshes[target_lod]
+				chunk_current_lod[coords] = target_lod
+
+		# Visibility culling for chunks beyond max LOD distance
+		var max_visible_distance := lod_distances[-1] * 2.0 if not lod_distances.is_empty() else 400.0
+		mesh_instance.visible = distance < max_visible_distance
+
+
+## Get current LOD level for a chunk
+func get_chunk_lod(chunk_coords: Vector2i) -> int:
+	return chunk_current_lod.get(chunk_coords, 0)
+
+
+## Force a specific LOD level for a chunk (useful for debugging)
+func set_chunk_lod(chunk_coords: Vector2i, lod_level: int) -> void:
+	if not chunk_meshes.has(chunk_coords):
+		return
+
+	var lod_meshes: Array = chunk_lod_meshes.get(chunk_coords, [])
+	lod_level = clampi(lod_level, 0, lod_meshes.size() - 1)
+
+	if lod_level < lod_meshes.size():
+		var mesh_instance: MeshInstance3D = chunk_meshes[chunk_coords]
+		mesh_instance.mesh = lod_meshes[lod_level]
+		chunk_current_lod[chunk_coords] = lod_level
+
+
+## Set the camera reference for LOD updates
+func set_camera(cam: Camera3D) -> void:
+	camera = cam
 
 
 # =============================================================================
@@ -355,9 +440,18 @@ func update_area(center: Vector3, radius: float) -> void:
 
 	# Regenerate affected chunk meshes
 	for coords in affected_chunks:
+		# Clean up existing mesh instance
 		if chunk_meshes.has(coords):
 			chunk_meshes[coords].queue_free()
+			chunk_meshes.erase(coords)
 
+		# Clean up LOD data for this chunk
+		if chunk_lod_meshes.has(coords):
+			chunk_lod_meshes.erase(coords)
+		if chunk_current_lod.has(coords):
+			chunk_current_lod.erase(coords)
+
+		# Regenerate the chunk with new LOD meshes
 		var chunk: TerrainChunk = terrain_service.chunks[coords]
 		_generate_chunk_mesh(chunk)
 
