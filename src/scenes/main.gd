@@ -10,6 +10,15 @@ extends Node
 @onready var ui: CanvasLayer = $UI
 
 # =============================================================================
+# UI SCENES
+# =============================================================================
+
+const MainMenuScene := preload("res://src/ui/main_menu.tscn")
+
+## Active main menu instance
+var main_menu: MainMenu = null
+
+# =============================================================================
 # LIFECYCLE
 # =============================================================================
 
@@ -98,13 +107,35 @@ func _on_run_ended(run_context: RunContext, outcome: GameEnums.ResolutionType) -
 # =============================================================================
 
 func _show_main_menu() -> void:
-	# TODO: Load main menu scene
 	print("[Main] Showing main menu...")
+
+	# Hide world during menu
+	world.visible = false
+
+	# Create main menu if not exists
+	if main_menu == null:
+		main_menu = MainMenuScene.instantiate()
+		ui.add_child(main_menu)
+	else:
+		main_menu.show_menu()
+
+	print("[Main] Main menu loaded")
 
 
 func _start_descent() -> void:
 	# TODO: Initialize descent gameplay
 	print("[Main] Starting descent...")
+
+	# Hide main menu
+	_hide_main_menu()
+
+	# Show world
+	world.visible = true
+
+
+func _hide_main_menu() -> void:
+	if main_menu != null:
+		main_menu.hide_menu()
 
 
 func _show_resolution() -> void:
