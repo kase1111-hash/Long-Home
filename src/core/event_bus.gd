@@ -22,6 +22,9 @@ signal run_ended(run_context: RunContext, outcome: GameEnums.ResolutionType)
 ## Emitted when game is paused/unpaused
 signal pause_state_changed(is_paused: bool)
 
+## Emitted when descent gameplay is fully initialized and ready
+signal descent_ready()
+
 # =============================================================================
 # PLAYER SIGNALS
 # =============================================================================
