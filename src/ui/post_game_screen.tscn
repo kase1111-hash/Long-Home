@@ -1,0 +1,134 @@
+[gd_scene load_steps=2 format=3 uid="uid://e9xvqp8m6post"]
+
+[ext_resource type="Script" path="res://src/ui/post_game_screen.gd" id="1_postgame"]
+
+[node name="PostGameScreen" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_postgame")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.06, 0.07, 0.09, 1)
+
+[node name="HSplitContainer" type="HSplitContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 40.0
+offset_top = 40.0
+offset_right = -40.0
+offset_bottom = -40.0
+grow_horizontal = 2
+grow_vertical = 2
+split_offset = -300
+
+[node name="TopoContainer" type="PanelContainer" parent="HSplitContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="TopoView" type="Control" parent="HSplitContainer/TopoContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="TopoBackground" type="ColorRect" parent="HSplitContainer/TopoContainer/TopoView"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.12, 0.13, 0.16, 1)
+
+[node name="GridLines" type="Control" parent="HSplitContainer/TopoContainer/TopoView"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="PathLine" type="Line2D" parent="HSplitContainer/TopoContainer/TopoView"]
+width = 2.0
+default_color = Color(0.9, 0.7, 0.3, 0.8)
+joint_mode = 2
+begin_cap_mode = 2
+end_cap_mode = 2
+
+[node name="TopoLabel" type="Label" parent="HSplitContainer/TopoContainer/TopoView"]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -60.0
+offset_top = 10.0
+offset_right = 60.0
+offset_bottom = 30.0
+grow_horizontal = 2
+text = "Your Path"
+horizontal_alignment = 1
+
+[node name="MomentsPanel" type="PanelContainer" parent="HSplitContainer"]
+layout_mode = 2
+size_flags_horizontal = 0
+custom_minimum_size = Vector2(280, 0)
+
+[node name="MomentsContainer" type="VBoxContainer" parent="HSplitContainer/MomentsPanel"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 6
+
+[node name="InsightLabel" type="Label" parent="HSplitContainer/MomentsPanel"]
+layout_mode = 2
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -130.0
+offset_top = -100.0
+offset_right = 130.0
+offset_bottom = -60.0
+grow_horizontal = 2
+grow_vertical = 0
+text = "You were moving fast when you needed margin."
+horizontal_alignment = 1
+autowrap_mode = 2
+
+[node name="ButtonContainer" type="HBoxContainer" parent="HSplitContainer/MomentsPanel"]
+layout_mode = 2
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -120.0
+offset_top = -50.0
+offset_right = 120.0
+offset_bottom = -10.0
+grow_horizontal = 2
+grow_vertical = 0
+alignment = 1
+theme_override_constants/separation = 20
+
+[node name="RetryButton" type="Button" parent="HSplitContainer/MomentsPanel/ButtonContainer"]
+custom_minimum_size = Vector2(100, 36)
+layout_mode = 2
+text = "Retry"
+
+[node name="ReturnButton" type="Button" parent="HSplitContainer/MomentsPanel/ButtonContainer"]
+custom_minimum_size = Vector2(100, 36)
+layout_mode = 2
+text = "Return"
