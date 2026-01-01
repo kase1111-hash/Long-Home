@@ -1,367 +1,390 @@
 # Long-Home
 
-A mountaineering descent simulation game built with Godot Engine.
+A mountaineering descent simulation game built with Godot Engine 4.2.
 
-## Documentation
+> *"The game is about consequence, not conquest. You don't win by reaching the summit. You win by returning intact, having made good decisions before and after the summit."*
 
-- **[SPEC-SHEET.md](SPEC-SHEET.md)** - Complete game specification covering all 16 major systems
-- **[PROGRAMMING-ROADMAP.md](PROGRAMMING-ROADMAP.md)** - Implementation guide with code structure and data models
+## Table of Contents
+
+- [Overview](#overview)
+- [Core Philosophy](#core-philosophy)
+- [Features](#features)
+- [Getting Started](#getting-started)
+- [Controls](#controls)
+- [Project Structure](#project-structure)
+- [Architecture](#architecture)
+- [Game Systems](#game-systems)
+- [Documentation](#documentation)
+- [Development Status](#development-status)
 
 ---
 
-## Core Thesis
+## Overview
 
-The game is about consequence, not conquest.
+**Long-Home** is a mountaineering descent simulation that focuses on the psychological tension of returning from a summit. Unlike traditional mountain games that celebrate the climb, Long-Home explores what happens after - when fatigue sets in, weather turns, and every decision carries weight.
 
-You don’t win by reaching the summit.
-You win by returning intact, having made good decisions before and after the summit.
+**Engine:** Godot 4.2
+**Language:** GDScript
+**Version:** 0.1.0
 
-That framing alone already differentiates it from 99% of mountain games.
+---
 
-Core Loop (Moment-to-Moment Play)
+## Core Philosophy
 
-1. Start State (Pre-Summit Conditions)
-You begin at the summit, but the difficulty is locked in beforehand:
+### Design Pillars
 
-Time of day (sun angle, shadows, freeze–thaw cycles)
+1. **Consequence over Conquest** - Focus on the descent, not the ascent
+2. **Judgment Under Fatigue** - Decision-making deteriorates with exhaustion
+3. **Organic Teaching** - No UI popups; players learn through environment and consequences
+4. **Diegetic First** - In-world perspective (maps are physical, info is earned)
+5. **Ethical Streaming** - Respectful handling of failure/death moments
+6. **Silence as Tool** - Audio and quiet moments create tension
+7. **Realistic Risk** - Based on actual mountaineering accident reports
 
-Weather window (stable, deteriorating, whiteout risk)
+### Key Mantras
 
-Gear loadout (rope length, crampons, layers, emergency bivy)
-
-Physical condition (fatigue, hydration, minor injuries)
-
-Knowledge (route beta, topo familiarity, previous ascent experience)
-
-Important: these aren’t “difficulty sliders.”
-They are trade-offs. Every advantage costs weight, time, or stamina.
-
-2. Descent Planning Phase (Low-pressure, High Stakes)
-Before moving:
-
-Study the topo map
-
-Choose descent line(s)
-
-Identify:
-
-High-risk zones
-
-Slideable slopes
-
-Mandatory rope sections
-
-Escape options
-
-Time-to-dark thresholds
-
-This phase should feel calm but heavy—like chess before the clock starts.
-
-3. Descent Execution (Real-Time Tension)
-You move downhill in continuous time:
-
-Momentum matters
-
-Speed increases risk
-
-Slowing down increases exposure (cold, weather, darkness)
-
-Key verbs:
-
-Walk / Downclimb
-
-Controlled slide
-
-Arrest slide
-
-Rappel
-
-Traverse
-
-Rest (rare, dangerous if misused)
-
-The game is not about button mashing.
-It’s about judgment under fatigue.
-
-4. Consequence Resolution
-Mistakes don’t always kill you instantly:
-
-Twisted ankle → slower movement
-
-Lost glove → cold penalty later
-
-Rope jam → time loss
-
-Small slide → gear damage
-
-The mountain remembers.
-
-5. Survival Return
-The goal is not “finish fast” — it’s:
-
-Finish alive
-
-Finish intact
-
-Finish with margin
-
-Speed becomes a secondary optimization, not the primary win condition.
-
-Difficulty Is a Function of Starting Conditions (This Is Key)
-
-Instead of:
-
-Easy / Normal / Hard
-
-You have:
-
-Environmental difficulty
-
-Preparation difficulty
-
-Knowledge difficulty
-
-Example:
-
-Clear weather + bad gear = medium
-
-Bad weather + good gear = hard
-
-Clear weather + light gear + fatigue = deceptively lethal
-
-This mirrors real mountaineering psychology beautifully.
-
-Terrain & World Design (Your Big Technical Pillar)
-1. Real Mountains, Real Topo
-
-Use:
-
-Public-domain USGS topo maps
-
-DEM (digital elevation models)
-
-Real slope angles
-
-Terrain generation rules:
-
-Steepness determines:
-
-Walkable vs downclimb vs slide vs rappel
-
-Aspect affects:
-
-Ice formation
-
-Sun melt
-
-Drainage logic:
-
-Creeks form in realistic gullies
-
-Wet rock near water = slip risk
-
-Cliffs form at contour compression thresholds
-
-You’re not “painting terrain.”
-You’re interpreting terrain.
-
-2. Terrain Is Read, Not Marked
-
-No glowing paths.
-
-Players must learn:
-
-How to read contour spacing
-
-What “safe-looking” terrain lies
-
-Why a wide slope might still be dangerous
-
-This gives the game educational gravity without tutorials.
-
-Sliding as a High-Skill Mechanic (Great Idea)
-
-Sliding should be:
-
-Fast
-
-Efficient
-
-Terrifying
-
-Rules:
-
-Only safe within certain slope angles
-
-Speed compounds quickly
-
-Surface matters (snow, scree, ice)
-
-Transition zones are deadly
-
-A perfect slide saves minutes.
-A misjudged slide ends the run.
-
-Sliding is where player mastery lives.
-
-Rope Use: Strategic, Not Automatic
-
-Ropes:
-
-Cost time to deploy
-
-Require anchors (terrain-dependent)
-
-Reduce fall risk but increase exposure time
-
-Bad rope decisions:
-
-Rope too early → nightfall later
-
-Rope too late → terminal mistake
-
-Sometimes:
-
-The best move is no rope
-
-Sometimes it’s non-negotiable
-
-This makes ropes feel like real tools, not abilities.
-
-Time Scaling (Very Important You Noted This)
-
-Example:
-
-1 real minute = 10 in-game minutes
-
-Or adjustable per mountain scale
-
-Time affects:
-
-Light
-
-Temperature
-
-Snow condition
-
-Weather roll probability
-
-Descending fast is good—but only if conditions allow it.
-
-What Else You Still Need (Critical Missing Systems)
-1. Risk Visibility System
-
-Not a HUD meter.
-
-Instead:
-
-Subtle cues:
-
-Sound changes
-
-Camera shake
-
-Breathing rate
-
-Micro-slips
-
-Players feel risk before seeing it
-
-This avoids gamification while keeping fairness.
-
-2. Knowledge Progression (No XP)
-
-You don’t “level up.”
-
-You learn:
-
-Mountains you’ve descended before feel familiar
-
-You recognize danger patterns faster
-
-Route memory reduces planning time
-
-Knowledge is persistent, not stats.
-
-3. Failure Philosophy
-
-Deaths shouldn’t feel random.
-They should feel:
-
-“I knew better.”
-
-Post-run:
-
-Show a replay on the topo
-
-Highlight where decisions compounded
-
-No blame, just clarity
-
-This makes failure addictive instead of frustrating.
-
-4. Emotional Tone
-
-No bombastic music.
-
-Soundscape:
-
-Wind
-
-Crampon scrape
-
-Rope tension
-
-Breathing
-
-Silence
-
-Let players sit with their thoughts. This is a return, not a victory lap.
-
-5. End States (Not Just Win/Lose)
-
-Outcomes:
-
-Clean return
-
-Injured return
-
-Forced bivy
-
-Rescue
-
-Fatality
-
-Some “losses” are still meaningful completions.
-
-Comparable Touchstones (But You’re Still Unique)
-
-Journey (emotional pacing)
-
-Death Stranding (terrain respect)
-
-The Long Dark (environment as antagonist)
-
-Real mountaineering accident reports (seriously—goldmine)
-
-But none of these focus on descent psychology the way you are.
-
-Big Picture: What You’re Really Building
-
-This is a game about:
-
-Hubris vs humility
-
-Preparation vs improvisation
-
-The quiet cost of success
-
-Most games ask:
-
-“Can you reach the top?”
-
-Yours asks:
-
-“Were you ready to come back?”
-
-That’s rare—and powerful.
+- *"The player should feel like they are reading the mountain, not a dashboard"*
+- *"The drone never steals focus from the mountain"*
+- *"The camera does not look away—but it does not exploit"*
+- *"Witness without harm"*
+
+---
+
+## Features
+
+### Implemented Systems (16 Major Systems)
+
+| System | Description |
+|--------|-------------|
+| **Terrain & World** | Real USGS topo data, DEM loading, slope analysis |
+| **Sliding Mechanics** | High-skill, terrifying descent with control spectrum |
+| **Rope System** | Strategic tool with time/safety trade-offs |
+| **Time & Environment** | Day/night cycles, weather, temperature |
+| **Body Condition** | Fatigue, cold exposure, injuries (diegetic feedback) |
+| **Risk Detection** | Invisible but omnipresent danger feedback |
+| **Drone Camera** | Documentary-style "witness" camera |
+| **Camera Director AI** | AI filmmaker controlling shots with 5 intent types |
+| **Fatal Event Handling** | Ethical 5-phase death sequence system |
+| **Ethical Streaming** | Streamer-friendly content handling |
+| **User Interface** | Minimalist, diegetic UI |
+| **Tutorial System** | "Knife edge" opening, diegetic instructor |
+| **End States** | Multiple failure/success types with replay |
+| **Audio Design** | Environmental soundscape (wind, crampon, breathing) |
+| **Streaming & Replay** | Recording, playback, and OBS integration |
+| **Save & Progression** | Route memory, knowledge tracking |
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- [Godot Engine 4.2+](https://godotengine.org/download)
+
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/kase1111-hash/Long-Home.git
+   cd Long-Home
+   ```
+
+2. Open the project in Godot:
+   ```bash
+   godot --editor project.godot
+   ```
+
+3. Run the game:
+   - Press `F5` in the Godot editor, or
+   - Click the "Play" button in the top-right corner
+
+### Running Tests
+
+```bash
+# From project root
+godot --headless --script tests/run_tests.gd
+```
+
+---
+
+## Controls
+
+### Movement
+
+| Action | Key |
+|--------|-----|
+| Move Forward | `W` |
+| Move Back | `S` |
+| Move Left | `A` |
+| Move Right | `D` |
+
+### Actions
+
+| Action | Key |
+|--------|-----|
+| Initiate Slide | `Space` |
+| Deploy Rope | `R` |
+| Check Self (Body Status) | `C` |
+| Open Map | `M` |
+| Lean Left (during slide) | `Q` |
+| Lean Right (during slide) | `E` |
+
+---
+
+## Project Structure
+
+```
+Long-Home/
+├── src/
+│   ├── core/                          # Architecture & state management
+│   │   ├── event_bus.gd              # 150+ signals for cross-system communication
+│   │   ├── enums.gd                  # Game enumerations & constants
+│   │   ├── service_locator.gd        # Dependency injection system
+│   │   ├── game_state_manager.gd     # Global state machine
+│   │   └── data/                     # Core data structures
+│   │       ├── run_context.gd        # Complete run state
+│   │       ├── body_state.gd         # Physical condition tracking
+│   │       ├── gear_state.gd         # Equipment state
+│   │       ├── start_conditions.gd   # Difficulty parameters
+│   │       └── injury.gd             # Injury data class
+│   │
+│   ├── entities/
+│   │   └── player/                   # Player controller (10 components)
+│   │       ├── player_controller.gd  # Main CharacterBody3D
+│   │       ├── player_movement.gd    # Movement physics
+│   │       ├── player_input.gd       # Input handling
+│   │       ├── player_animation_controller.gd
+│   │       ├── player_camera.gd      # First-person perspective
+│   │       ├── player_state_machine.gd
+│   │       ├── posture_system.gd     # Stance & posture
+│   │       ├── footstep_system.gd    # Footstep audio
+│   │       └── animation_data.gd
+│   │
+│   ├── systems/                      # Game mechanics
+│   │   ├── audio/                    # Audio management (9 files)
+│   │   ├── body/                     # Physical condition (4 files)
+│   │   ├── sliding/                  # Slide mechanics (5 files)
+│   │   ├── rope/                     # Rope system (7 files)
+│   │   ├── terrain/                  # Terrain analysis (8 files)
+│   │   ├── environment/              # Weather & time (5 files)
+│   │   ├── risk/                     # Risk detection (5 files)
+│   │   ├── drone/                    # Drone camera (5 files)
+│   │   ├── camera_director/          # AI film director (5 files)
+│   │   ├── fatal_event/              # Death sequence (5 files)
+│   │   ├── replay/                   # Recording & playback (5 files)
+│   │   ├── tutorial/                 # First-time experience (4 files)
+│   │   ├── save/                     # Persistence (5 files)
+│   │   └── streaming/                # OBS integration (1 file)
+│   │
+│   ├── ui/                           # User interface
+│   │   ├── main_menu.gd
+│   │   ├── selection/                # Gear & mountain selection
+│   │   ├── planning/                 # Route planning phase
+│   │   ├── hud/                      # In-game diegetic UI
+│   │   ├── pause/                    # Pause menu
+│   │   ├── analysis/                 # Post-game analysis
+│   │   ├── stats/                    # Statistics display
+│   │   ├── settings/                 # Game settings
+│   │   ├── post_game_screen.gd
+│   │   └── resolution_screen.gd
+│   │
+│   ├── data/                         # Game databases
+│   │   ├── gear_database.gd
+│   │   └── mountain_database.gd
+│   │
+│   └── scenes/
+│       └── main.gd                   # Main scene controller
+│
+├── data/                             # Game data files
+│   └── mountains/
+│       └── sample_mountain/
+│           └── manifest.json
+│
+├── tests/                            # Unit tests
+├── SPEC-SHEET.md                     # Complete game specification
+├── PROGRAMMING-ROADMAP.md            # Implementation guide
+├── project.godot                     # Godot configuration
+└── icon.svg                          # Project icon
+```
+
+---
+
+## Architecture
+
+### Core Systems
+
+The game uses a **Service Locator** pattern with an **Event Bus** for cross-system communication.
+
+#### Autoloaded Singletons
+
+| Service | Purpose |
+|---------|---------|
+| `EventBus` | Global event communication (150+ signals) |
+| `GameEnums` | Shared enumerations and constants |
+| `ServiceLocator` | Dependency injection registry |
+| `GameStateManager` | Global state machine |
+
+#### Game States
+
+```
+MAIN_MENU → MOUNTAIN_SELECT → LOADOUT_CONFIG → PLANNING → TUTORIAL → DESCENT → RESOLUTION → POST_GAME
+                                                              ↓
+                                                          PAUSED
+```
+
+#### Player Movement States
+
+```
+STANDING ↔ WALKING ↔ DOWNCLIMBING ↔ TRAVERSING
+    ↓
+SLIDING ↔ ARRESTED
+    ↓
+FALLING → INCAPACITATED
+
+ROPING (parallel state during rope operations)
+RESTING (temporary recovery state)
+```
+
+### Event-Driven Architecture
+
+The `EventBus` contains **150+ signals** organized by category:
+
+- **Game State** (5 signals): `game_state_changed`, `run_started`, `run_ended`, etc.
+- **Player** (6 signals): `player_movement_changed`, `micro_slip_occurred`, etc.
+- **Sliding** (4 signals): `slide_started`, `slide_state_updated`, etc.
+- **Rope** (7 signals): `rope_deployment_started`, `rappel_started`, etc.
+- **Body Condition** (4 signals): `fatigue_threshold_crossed`, `injury_occurred`, etc.
+- **Camera/Drone** (4 signals): `shot_intent_changed`, `drone_mode_changed`, etc.
+- **Fatal Events** (3 signals): `fatal_event_started`, `fatal_phase_changed`, etc.
+- **Audio** (5 signals): `audio_ready`, `wind_audio_changed`, etc.
+
+---
+
+## Game Systems
+
+### Sliding System
+
+The most complex mechanic - sliding is never fully safe.
+
+**Control Spectrum:**
+- **Controlled** (0.8-1.0): Player can steer and initiate stop
+- **Marginal** (0.5-0.8): Limited steering, stopping difficult
+- **Unstable** (0.2-0.5): Minimal control, exit zones only option
+- **Lost** (0.0-0.2): No control, outcome determined by terrain
+
+**Key Parameters:**
+- Minimum slide slope: 25°
+- Maximum slide slope: 45°
+- Terminal velocity: 25 m/s
+- Lean influence: 0.3 (indirect control)
+
+### Camera Director AI
+
+A three-layer AI that thinks in shots, not coordinates.
+
+**Layers:**
+1. **Situation Awareness** - Detects interesting moments via 15+ signals
+2. **Directorial Intent** - Selects shot type (5 types)
+3. **Camera Behavior** - Executes movement with human-like imperfection
+
+**Shot Types:**
+- **CONTEXT** - Wide, show scale
+- **TENSION** - Medium, close, stay near
+- **COMMITMENT** - Lower altitude, forward-tracking
+- **CONSEQUENCE** - Hold longer, let it play out
+- **RELEASE** - Pull back, breathe
+
+### Fatal Event System
+
+Ethically handles player death in 5 phases:
+
+1. **Moment of Error** (1.5s) - Camera hesitates, framing error
+2. **Loss of Control** (4s) - Wide shot, drone pulls away (not in)
+3. **Vanishing** (3s) - Subject disappears behind terrain
+4. **Aftermath** (6s) - Silence, wind only, emptiness
+5. **Acknowledgment** (5s) - Drone ascends, terrain enormity revealed
+
+**Ethical Constraints:**
+- Drone NEVER zooms in on impact
+- Drone NEVER confirms death
+- Death inferred by absence of recovery
+
+### Body Condition System
+
+All feedback is diegetic - no numerical displays.
+
+| Variable | Diegetic Expression |
+|----------|---------------------|
+| Fatigue | Breathing audio, camera sway, delayed inputs |
+| Cold Exposure | Frost on screen, shivering animations |
+| Hydration | Hand animation clumsiness |
+| Injuries | Localized movement penalties |
+
+**Self-Check Action:** Player can stop to check condition, revealing descriptive messages like:
+- *"Legs burning. Pace unsustainable."*
+- *"Fingers going numb. Need to keep moving."*
+
+---
+
+## Documentation
+
+| Document | Purpose |
+|----------|---------|
+| [SPEC-SHEET.md](SPEC-SHEET.md) | Complete game specification covering all 16 major systems |
+| [PROGRAMMING-ROADMAP.md](PROGRAMMING-ROADMAP.md) | Implementation guide with code structure and data models |
+
+---
+
+## Development Status
+
+### Implemented (v0.1.0)
+
+- [x] Core architecture (Event Bus, State Manager, Service Locator)
+- [x] Player controller with multi-state movement
+- [x] Sliding system with control spectrum
+- [x] Rope and anchor system
+- [x] Terrain system with DEM support
+- [x] Body condition tracking (fatigue, cold, injuries)
+- [x] Camera Director AI with 5 shot intents
+- [x] Drone camera system
+- [x] Fatal event handling (5 phases)
+- [x] Tutorial system ("knife edge" opening)
+- [x] Planning phase with topo maps
+- [x] Audio system with diegetic feedback
+- [x] Save and progression system
+- [x] OBS/streaming integration
+- [x] Replay and analysis tools
+
+### Planned
+
+- [ ] Avalanche system
+- [ ] Crevasse detection and traversal
+- [ ] Advanced rescue mechanics
+- [ ] More complex weather generation
+- [ ] Gear damage system
+- [ ] Real audio assets (currently placeholders)
+- [ ] Real USGS mountain data integration
+- [ ] Accessibility features
+
+---
+
+## Comparable Inspirations
+
+| Game | What Inspired |
+|------|---------------|
+| Journey | Emotional pacing, contemplative moments |
+| Death Stranding | Terrain respect, environment as antagonist |
+| The Long Dark | Survival mechanics, consequence-driven |
+| Real mountaineering reports | Authentic accident scenarios |
+
+**Unique differentiator:** None of these focus on descent psychology specifically.
+
+---
+
+## License
+
+*License information to be added.*
+
+---
+
+*Long-Home v0.1.0 - A mountaineering descent simulation*
