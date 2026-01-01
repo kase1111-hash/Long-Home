@@ -382,6 +382,26 @@ func is_subject_framed() -> bool:
 	return subject_in_frame
 
 
+## Stop tracking subject (for fatal events)
+func lose_subject() -> void:
+	subject = null
+	subject_in_frame = false
+
+
+## Add a temporary framing offset
+func add_framing_offset(offset: Vector2) -> void:
+	# Apply offset to camera rotation for imperfect framing
+	var offset_rotation := Vector3(offset.y * 5.0, offset.x * 5.0, 0.0)
+	rotation_degrees += offset_rotation
+
+
+## Frame using rule of thirds
+func frame_thirds(direction: Vector3) -> void:
+	# Adjust framing to put subject off-center
+	var offset := direction.normalized() * 0.15
+	add_framing_offset(Vector2(offset.x, offset.z))
+
+
 func is_in_dropout() -> bool:
 	return in_dropout
 

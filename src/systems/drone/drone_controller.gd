@@ -376,6 +376,33 @@ func arc_move(start_angle: float, end_angle: float, duration: float) -> void:
 
 
 # =============================================================================
+# FATAL EVENT SUPPORT
+# =============================================================================
+
+## Hold current position (stop all movement)
+func hold_position() -> void:
+	has_target = false
+	is_orbiting = false
+	orbit_subject = false
+	if drone:
+		target_position = drone.global_position
+
+
+## Pull back from current position
+func pull_back(distance: float, duration: float) -> void:
+	if drone == null:
+		return
+
+	# Calculate pullback direction (away from subject or backward)
+	var pullback_dir := -drone.global_transform.basis.z
+	if drone.subject:
+		pullback_dir = (drone.global_position - drone.subject.global_position).normalized()
+
+	var target := drone.global_position + pullback_dir * distance
+	set_target_position(target, distance / duration)
+
+
+# =============================================================================
 # QUERIES
 # =============================================================================
 
