@@ -235,15 +235,22 @@ enum CameraSignal {
 	SLOPE_CHANGE,
 	SPEED_CHANGE,
 	SLIDE_ENTRY,
+	SLIDE_EXIT,        # Slide ended
 	DESCENT_START,     # Beginning of descent sequence
 	ROPE_DEPLOYMENT,
 	FATIGUE_THRESHOLD,
 	MICRO_SLIP,
+	STUMBLE,           # Balance recovery
 	CLIFF_PROXIMITY,
 	CRITICAL_MOMENT,   # High-stakes decision point
 	FATAL_MOMENT,      # Fatal event unfolding
+	# Body signals
+	STANCE_CHANGE,     # Posture/movement state change
+	BREATH_HOLD,       # Holding breath / tension
+	INJURY,            # Injury occurred
 	# Secondary signals (mood)
-	WEATHER_SHIFT,
+	WEATHER_CHANGE,    # Weather state changed
+	WEATHER_SHIFT,     # Legacy alias
 	LIGHT_CHANGE,
 	ISOLATION,
 	SILENCE_MOMENT

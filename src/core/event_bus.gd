@@ -41,6 +41,9 @@ signal player_stability_changed(stability: float, posture: GameEnums.PostureStat
 ## Emitted when a micro-slip occurs
 signal micro_slip_occurred(severity: float, position: Vector3)
 
+## Emitted when player stumbles/balance recovery
+signal stumble_occurred(severity: float, recovered: bool)
+
 ## Emitted when player starts checking themselves
 signal self_check_started()
 
