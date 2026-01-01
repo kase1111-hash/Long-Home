@@ -86,6 +86,9 @@ var camera_director: CameraDirector
 ## Imperfection engine reference
 var imperfection_engine: ImperfectionEngine
 
+## OBS integration reference
+var obs_integration: OBSIntegration
+
 
 # =============================================================================
 # INITIALIZATION
@@ -96,9 +99,22 @@ func _ready() -> void:
 
 	ServiceLocator.get_service_async("CameraDirector", func(c): camera_director = c)
 	ServiceLocator.get_service_async("ImperfectionEngine", func(i): imperfection_engine = i)
+	ServiceLocator.get_service_async("OBSIntegration", func(o):
+		obs_integration = o
+		_connect_obs_signals()
+	)
 
 	_connect_events()
 	print("[StreamerTools] Initialized")
+
+
+func _connect_obs_signals() -> void:
+	if obs_integration == null:
+		return
+
+	obs_integration.stream_started.connect(_on_obs_stream_started)
+	obs_integration.stream_stopped.connect(_on_obs_stream_stopped)
+	obs_integration.connected.connect(_on_obs_connected)
 
 
 func _connect_events() -> void:
@@ -453,5 +469,49 @@ func get_summary() -> Dictionary:
 		"shot_bias": shot_bias,
 		"human_error": human_error_amount,
 		"excluded_clips": excluded_clips.size(),
-		"risk_warning_active": risk_warning_active
+		"risk_warning_active": risk_warning_active,
+		"obs_connected": obs_integration != null and obs_integration.is_connected,
+		"obs_streaming": obs_integration != null and obs_integration.is_streaming
 	}
+
+
+# =============================================================================
+# OBS EVENT HANDLERS
+# =============================================================================
+
+func _on_obs_connected() -> void:
+	print("[StreamerTools] OBS connected")
+	# Auto-enable streamer mode when OBS connects during stream
+	if obs_integration and obs_integration.is_streaming:
+		if not is_active:
+			enable_streamer_mode()
+
+
+func _on_obs_stream_started() -> void:
+	print("[StreamerTools] OBS stream started")
+	# Suggest enabling streamer mode
+	if not is_active:
+		EventBus.diegetic_message.emit("Stream detected. Enable Streamer Mode in settings.", 5.0)
+
+
+func _on_obs_stream_stopped() -> void:
+	print("[StreamerTools] OBS stream stopped")
+	# Allow delayed replays now that stream ended
+	if delay_fatal_replay:
+		EventBus.diegetic_message.emit("Stream ended. Fatal replays now available.", 3.0)
+
+
+## Check if currently streaming
+func is_currently_streaming() -> bool:
+	return obs_integration != null and obs_integration.is_streaming
+
+
+## Get OBS connection status
+func is_obs_connected() -> bool:
+	return obs_integration != null and obs_integration.is_connected
+
+
+## Save replay buffer via OBS
+func save_replay_buffer() -> void:
+	if obs_integration:
+		obs_integration.save_replay_buffer()

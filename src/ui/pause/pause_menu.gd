@@ -16,6 +16,7 @@ signal resume_pressed()
 signal map_check_pressed()
 signal self_check_pressed()
 signal settings_pressed()
+signal streaming_settings_pressed()
 signal abandon_pressed()
 
 # =============================================================================
@@ -54,6 +55,7 @@ var resume_button: Button
 var map_button: Button
 var self_check_button: Button
 var settings_button: Button
+var streaming_button: Button
 var abandon_button: Button
 var confirm_dialog: Control
 
@@ -146,6 +148,11 @@ func _build_ui() -> void:
 	settings_button = _create_button("Settings", "Adjust game settings")
 	settings_button.pressed.connect(_on_settings_pressed)
 	button_container.add_child(settings_button)
+
+	streaming_button = _create_button("Streaming", "OBS integration and streamer mode")
+	streaming_button.pressed.connect(_on_streaming_pressed)
+	button_container.add_child(streaming_button)
+	_update_streaming_button()
 
 	# Spacer before abandon
 	var spacer := Control.new()
@@ -417,6 +424,34 @@ func _on_self_check_pressed() -> void:
 func _on_settings_pressed() -> void:
 	settings_pressed.emit()
 	# Would show settings overlay
+
+
+func _on_streaming_pressed() -> void:
+	streaming_settings_pressed.emit()
+
+
+func _update_streaming_button() -> void:
+	# Show streaming status on button
+	var streamer_tools := ServiceLocator.get_service("StreamerTools") as StreamerTools
+	if streamer_tools == null:
+		return
+
+	var summary := streamer_tools.get_summary()
+	var label := "Streaming"
+
+	if summary.obs_streaming:
+		label = "Streaming [LIVE]"
+		streaming_button.add_theme_color_override("font_color", Color(0.9, 0.3, 0.3))
+	elif summary.obs_connected:
+		label = "Streaming [OBS]"
+		streaming_button.add_theme_color_override("font_color", Color(0.5, 0.8, 0.5))
+	elif summary.is_active:
+		label = "Streaming [ON]"
+		streaming_button.remove_theme_color_override("font_color")
+	else:
+		streaming_button.remove_theme_color_override("font_color")
+
+	streaming_button.text = label
 
 
 func _on_abandon_pressed() -> void:
