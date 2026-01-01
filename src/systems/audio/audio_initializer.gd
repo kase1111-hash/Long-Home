@@ -20,6 +20,8 @@ extends Node
 var audio_service: AudioService
 var ambient_manager: AmbientAudioManager
 var player_audio: PlayerAudioManager
+var ui_audio: UIAudioManager
+var gear_audio: GearAudioManager
 var placeholder_loader: PlaceholderAudioLoader
 
 
@@ -56,10 +58,26 @@ func _create_audio_nodes() -> void:
 	player_audio.name = "PlayerAudioManager"
 	add_child(player_audio)
 
+	# Create UIAudioManager
+	ui_audio = UIAudioManager.new()
+	ui_audio.name = "UIAudioManager"
+	add_child(ui_audio)
+
+	# Create GearAudioManager
+	gear_audio = GearAudioManager.new()
+	gear_audio.name = "GearAudioManager"
+	add_child(gear_audio)
+
 	# Create PlaceholderAudioLoader
 	placeholder_loader = PlaceholderAudioLoader.new()
 	placeholder_loader.name = "PlaceholderAudioLoader"
 	add_child(placeholder_loader)
+
+	# Link managers to audio service
+	audio_service.ambient_manager = ambient_manager
+	audio_service.player_audio = player_audio
+	audio_service.ui_audio = ui_audio
+	audio_service.gear_audio = gear_audio
 
 
 func _setup_audio_buses() -> void:
@@ -160,6 +178,16 @@ func get_ambient_manager() -> AmbientAudioManager:
 ## Get the player audio manager
 func get_player_audio() -> PlayerAudioManager:
 	return player_audio
+
+
+## Get the UI audio manager
+func get_ui_audio() -> UIAudioManager:
+	return ui_audio
+
+
+## Get the gear audio manager
+func get_gear_audio() -> GearAudioManager:
+	return gear_audio
 
 
 ## Reload audio (useful for hot-reloading during development)

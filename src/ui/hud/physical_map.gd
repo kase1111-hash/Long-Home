@@ -485,6 +485,11 @@ func open_map() -> void:
 	is_transitioning = true
 	visible = true
 
+	# Play map unfold sound
+	var audio_service = ServiceLocator.get_service("AudioService")
+	if audio_service:
+		audio_service.play_map_open()
+
 	# Update data
 	run_context = GameStateManager.get_current_run()
 	_update_player_position()
@@ -510,6 +515,11 @@ func close_map() -> void:
 		return
 
 	is_transitioning = true
+
+	# Play map fold sound
+	var audio_service = ServiceLocator.get_service("AudioService")
+	if audio_service:
+		audio_service.play_map_close()
 
 	# Animate closing - slide down
 	var tween := create_tween()
