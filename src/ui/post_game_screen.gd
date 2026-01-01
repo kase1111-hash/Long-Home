@@ -10,6 +10,7 @@ extends Control
 
 signal return_to_menu_pressed()
 signal retry_pressed()
+signal view_replay_pressed()
 
 # =============================================================================
 # REFERENCES
@@ -397,3 +398,12 @@ func _on_retry_pressed() -> void:
 	retry_pressed.emit()
 	# Return to planning with same mountain
 	GameStateManager.transition_to(GameEnums.GameState.PLANNING)
+
+
+func _on_view_replay_pressed() -> void:
+	view_replay_pressed.emit()
+
+
+## Get the run context for replay visualization
+func get_run_context() -> RunContext:
+	return run_context

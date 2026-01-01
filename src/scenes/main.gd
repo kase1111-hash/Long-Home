@@ -24,6 +24,7 @@ const PauseMenuScene := preload("res://src/ui/pause/pause_menu.tscn")
 const MapCheckScene := preload("res://src/ui/pause/map_check_overlay.tscn")
 const PhysicalMapScene := preload("res://src/ui/hud/physical_map.tscn")
 const SelfCheckScene := preload("res://src/ui/hud/self_check_screen.tscn")
+const TopoReplayScene := preload("res://src/ui/analysis/topo_replay_visualization.tscn")
 
 ## Active main menu instance
 var main_menu: MainMenu = null
@@ -54,6 +55,9 @@ var physical_map: PhysicalMap = null
 
 ## Active self-check screen
 var self_check_screen: SelfCheckScreen = null
+
+## Active topo replay visualization
+var topo_replay: TopoReplayVisualization = null
 
 # =============================================================================
 # GAMEPLAY REFERENCES
@@ -558,6 +562,7 @@ func _show_post_game() -> void:
 	# Create post-game screen if not exists
 	if post_game_screen == null:
 		post_game_screen = PostGameScreenScene.instantiate()
+		post_game_screen.view_replay_pressed.connect(_on_view_replay_pressed)
 		ui.add_child(post_game_screen)
 
 	# Show analysis
@@ -569,6 +574,40 @@ func _show_post_game() -> void:
 func _hide_post_game_screen() -> void:
 	if post_game_screen != null:
 		post_game_screen.hide_analysis()
+
+
+func _on_view_replay_pressed() -> void:
+	_show_topo_replay()
+
+
+func _show_topo_replay() -> void:
+	print("[Main] Showing topo replay visualization...")
+
+	# Get run context from post-game screen
+	var run := post_game_screen.get_run_context() if post_game_screen else GameStateManager.current_run
+	if run == null:
+		push_error("[Main] No run context for replay")
+		return
+
+	# Create topo replay if not exists
+	if topo_replay == null:
+		topo_replay = TopoReplayScene.instantiate()
+		topo_replay.close_requested.connect(_on_topo_replay_closed)
+		ui.add_child(topo_replay)
+
+	# Show visualization
+	topo_replay.show_visualization(run)
+
+	print("[Main] Topo replay shown")
+
+
+func _hide_topo_replay() -> void:
+	if topo_replay != null:
+		topo_replay.hide_visualization()
+
+
+func _on_topo_replay_closed() -> void:
+	_hide_topo_replay()
 
 
 # =============================================================================
