@@ -22,6 +22,7 @@ const LoadoutConfigScene := preload("res://src/ui/selection/loadout_config_scree
 const PlanningScene := preload("res://src/ui/planning/planning_screen.tscn")
 const PauseMenuScene := preload("res://src/ui/pause/pause_menu.tscn")
 const MapCheckScene := preload("res://src/ui/pause/map_check_overlay.tscn")
+const PhysicalMapScene := preload("res://src/ui/hud/physical_map.tscn")
 
 ## Active main menu instance
 var main_menu: MainMenu = null
@@ -46,6 +47,9 @@ var pause_menu: PauseMenu = null
 
 ## Active map check overlay
 var map_check_overlay: MapCheckOverlay = null
+
+## Active physical map (in-game)
+var physical_map: PhysicalMap = null
 
 # =============================================================================
 # GAMEPLAY REFERENCES
@@ -338,6 +342,9 @@ func _initialize_descent_systems() -> void:
 	# 4. Setup lighting
 	_setup_lighting(run)
 
+	# 5. Setup HUD elements
+	_setup_hud()
+
 	# Emit descent ready signal
 	EventBus.descent_ready.emit()
 
@@ -466,6 +473,17 @@ func _update_sun_position(game_time: float) -> void:
 		environment_light.light_energy = 1.0
 
 
+func _setup_hud() -> void:
+	print("[Main] Setting up HUD...")
+
+	# Create physical map if not exists
+	if physical_map == null:
+		physical_map = PhysicalMapScene.instantiate()
+		ui.add_child(physical_map)
+
+	print("[Main] HUD ready")
+
+
 func _cleanup_descent() -> void:
 	# Clean up player
 	if player != null:
@@ -476,6 +494,11 @@ func _cleanup_descent() -> void:
 	if environment_light != null:
 		environment_light.queue_free()
 		environment_light = null
+
+	# Clean up HUD
+	if physical_map != null:
+		physical_map.queue_free()
+		physical_map = null
 
 	# Clean up UI screens
 	_hide_resolution_screen()
@@ -605,8 +628,21 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
 		var state := GameStateManager.current_state
 		if state == GameEnums.GameState.DESCENT:
+			# Close physical map first if open
+			if physical_map != null and physical_map.is_open:
+				physical_map.close_map()
+				get_viewport().set_input_as_handled()
+				return
 			GameStateManager.toggle_pause()
 			get_viewport().set_input_as_handled()
+
+	# Physical map toggle during descent
+	if event.is_action_pressed("open_map"):
+		var state := GameStateManager.current_state
+		if state == GameEnums.GameState.DESCENT:
+			if physical_map != null:
+				physical_map.toggle_map()
+				get_viewport().set_input_as_handled()
 
 	# Debug shortcuts
 	if OS.is_debug_build():
