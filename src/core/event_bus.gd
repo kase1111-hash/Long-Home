@@ -256,6 +256,23 @@ signal tutorial_completed(rescued_instructor: bool)
 
 
 # =============================================================================
+# PLANNING SIGNALS
+# =============================================================================
+
+## Emitted when planning phase starts
+signal planning_started(mountain_id: String)
+
+## Emitted when route is updated during planning
+signal route_updated(waypoint_count: int)
+
+## Emitted when route planning is complete
+signal route_planned(route: PackedVector3Array)
+
+## Emitted when planning is cancelled
+signal planning_cancelled()
+
+
+# =============================================================================
 # HELPER METHODS
 # =============================================================================
 
