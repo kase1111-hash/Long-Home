@@ -25,6 +25,8 @@ const MapCheckScene := preload("res://src/ui/pause/map_check_overlay.tscn")
 const PhysicalMapScene := preload("res://src/ui/hud/physical_map.tscn")
 const SelfCheckScene := preload("res://src/ui/hud/self_check_screen.tscn")
 const TopoReplayScene := preload("res://src/ui/analysis/topo_replay_visualization.tscn")
+const StreamingSettingsScene := preload("res://src/ui/settings/streaming_settings.tscn")
+const OBSIntegrationScene := preload("res://src/systems/streaming/obs_integration.tscn")
 
 ## Active main menu instance
 var main_menu: MainMenu = null
@@ -58,6 +60,12 @@ var self_check_screen: SelfCheckScreen = null
 
 ## Active topo replay visualization
 var topo_replay: TopoReplayVisualization = null
+
+## Active streaming settings screen
+var streaming_settings: StreamingSettings = null
+
+## OBS integration instance
+var obs_integration: OBSIntegration = null
 
 # =============================================================================
 # GAMEPLAY REFERENCES
@@ -97,6 +105,9 @@ func _initialize_game() -> void:
 	EventBus.game_state_changed.connect(_on_game_state_changed)
 	EventBus.run_started.connect(_on_run_started)
 	EventBus.run_ended.connect(_on_run_ended)
+
+	# Initialize OBS integration
+	_initialize_obs_integration()
 
 	# Transition to main menu
 	GameStateManager.transition_to(GameEnums.GameState.MAIN_MENU)
@@ -614,6 +625,14 @@ func _on_topo_replay_closed() -> void:
 # PAUSE MENU
 # =============================================================================
 
+func _initialize_obs_integration() -> void:
+	# Create OBS integration for streaming support
+	if obs_integration == null:
+		obs_integration = OBSIntegrationScene.instantiate()
+		add_child(obs_integration)
+		print("[Main] OBS integration initialized")
+
+
 func _show_pause_menu() -> void:
 	print("[Main] Showing pause menu...")
 
@@ -624,6 +643,7 @@ func _show_pause_menu() -> void:
 	if pause_menu == null:
 		pause_menu = PauseMenuScene.instantiate()
 		pause_menu.self_check_pressed.connect(_on_self_check_pressed)
+		pause_menu.streaming_settings_pressed.connect(_on_streaming_settings_pressed)
 		ui.add_child(pause_menu)
 
 	pause_menu.show_menu()
@@ -670,7 +690,40 @@ func _on_self_check_closed() -> void:
 	if pause_menu != null:
 		pause_menu.visible = true
 		pause_menu.show_menu()
-	print("[Main] Game resumed")
+
+
+func _on_streaming_settings_pressed() -> void:
+	_show_streaming_settings()
+
+
+func _show_streaming_settings() -> void:
+	print("[Main] Showing streaming settings...")
+
+	# Hide pause menu but stay paused
+	if pause_menu != null:
+		pause_menu.visible = false
+
+	# Create streaming settings screen if not exists
+	if streaming_settings == null:
+		streaming_settings = StreamingSettingsScene.instantiate()
+		streaming_settings.close_requested.connect(_on_streaming_settings_closed)
+		ui.add_child(streaming_settings)
+
+	streaming_settings.show_settings()
+	print("[Main] Streaming settings shown")
+
+
+func _hide_streaming_settings() -> void:
+	if streaming_settings != null:
+		streaming_settings.hide_settings()
+
+
+func _on_streaming_settings_closed() -> void:
+	_hide_streaming_settings()
+	# Show pause menu again
+	if pause_menu != null:
+		pause_menu.visible = true
+		pause_menu.show_menu()
 
 
 func _show_map_check() -> void:

@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://bqv3k8mj5yhn2"]
+
+[ext_resource type="Script" path="res://src/systems/streaming/obs_integration.gd" id="1_obs"]
+
+[node name="OBSIntegration" type="Node"]
+script = ExtResource("1_obs")
