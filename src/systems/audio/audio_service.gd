@@ -51,6 +51,8 @@ const BUS_UI := "UI"
 ## Child audio managers
 var ambient_manager: AmbientAudioManager
 var player_audio: PlayerAudioManager
+var ui_audio: UIAudioManager
+var gear_audio: GearAudioManager
 
 ## Is audio ducked
 var is_ducked: bool = false
@@ -434,6 +436,105 @@ func play_effect_3d(stream: AudioStream, position: Vector3, volume_db: float = 0
 	add_child(player)
 	player.play()
 	player.finished.connect(player.queue_free)
+
+
+## Play a footstep sound (called from FootstepSystem)
+func play_footstep(sound_name: String, volume_db: float, pitch: float, position: Vector3) -> void:
+	if not audio_enabled:
+		return
+
+	# Use player audio manager if available
+	if player_audio and player_audio.has_method("play_footstep_sound"):
+		player_audio.play_footstep_sound(sound_name, volume_db, pitch)
+	else:
+		# Fallback: create one-shot 3D player
+		var player := AudioStreamPlayer3D.new()
+		player.volume_db = volume_db
+		player.pitch_scale = pitch
+		player.bus = BUS_PLAYER
+		player.global_position = position
+		player.max_distance = 30.0
+		add_child(player)
+
+		# Generate simple footstep sound procedurally
+		player.stream = _generate_footstep_placeholder()
+		player.play()
+		player.finished.connect(player.queue_free)
+
+
+func _generate_footstep_placeholder() -> AudioStreamWAV:
+	var sample_rate := 44100
+	var duration := 0.08
+	var samples := int(duration * sample_rate)
+	var data := PackedByteArray()
+	data.resize(samples * 2)
+
+	for i in samples:
+		var t := float(i) / sample_rate
+		var envelope := exp(-t * 40.0)
+		var wave := sin(TAU * 200.0 * t) * envelope * 0.4
+		wave += randf_range(-0.1, 0.1) * envelope
+		var sample := int(wave * 32767)
+		data[i * 2] = sample & 0xFF
+		data[i * 2 + 1] = (sample >> 8) & 0xFF
+
+	var stream := AudioStreamWAV.new()
+	stream.format = AudioStreamWAV.FORMAT_16_BITS
+	stream.mix_rate = sample_rate
+	stream.data = data
+	return stream
+
+
+# =============================================================================
+# UI & GEAR AUDIO
+# =============================================================================
+
+## Play a UI sound
+func play_ui_sound(sound_name: String) -> void:
+	if ui_audio:
+		ui_audio.play_sound(sound_name)
+
+
+## Play menu select sound
+func play_menu_select() -> void:
+	if ui_audio:
+		ui_audio.play_menu_select()
+
+
+## Play menu confirm sound
+func play_menu_confirm() -> void:
+	if ui_audio:
+		ui_audio.play_menu_confirm()
+
+
+## Play map open sound
+func play_map_open() -> void:
+	if ui_audio:
+		ui_audio.play_map_open()
+
+
+## Play map close sound
+func play_map_close() -> void:
+	if ui_audio:
+		ui_audio.play_map_close()
+
+
+## Play gear sound at position
+func play_gear_sound(sound_name: String, position: Vector3) -> void:
+	if gear_audio:
+		gear_audio.play_sound_3d(sound_name, position)
+
+
+## Play rope deployment
+func play_rope_deploy(position: Vector3) -> void:
+	if gear_audio:
+		gear_audio.play_rope_deploy(position)
+
+
+## Play ice axe self-arrest
+func play_self_arrest(position: Vector3) -> void:
+	if gear_audio:
+		gear_audio.play_self_arrest(position)
 
 
 # =============================================================================
