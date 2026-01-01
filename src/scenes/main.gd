@@ -17,6 +17,9 @@ const MainMenuScene := preload("res://src/ui/main_menu.tscn")
 const PlayerScene := preload("res://src/entities/player/player.tscn")
 const ResolutionScreenScene := preload("res://src/ui/resolution_screen.tscn")
 const PostGameScreenScene := preload("res://src/ui/post_game_screen.tscn")
+const MountainSelectScene := preload("res://src/ui/selection/mountain_select_screen.tscn")
+const LoadoutConfigScene := preload("res://src/ui/selection/loadout_config_screen.tscn")
+const PlanningScene := preload("res://src/ui/planning/planning_screen.tscn")
 
 ## Active main menu instance
 var main_menu: MainMenu = null
@@ -26,6 +29,15 @@ var resolution_screen: ResolutionScreen = null
 
 ## Active post-game screen instance
 var post_game_screen: PostGameScreen = null
+
+## Active mountain select screen
+var mountain_select_screen: MountainSelectScreen = null
+
+## Active loadout config screen
+var loadout_config_screen: LoadoutConfigScreen = null
+
+## Active planning screen
+var planning_screen: PlanningScreen = null
 
 # =============================================================================
 # GAMEPLAY REFERENCES
@@ -111,6 +123,12 @@ func _on_game_state_changed(old_state: GameEnums.GameState, new_state: GameEnums
 	match new_state:
 		GameEnums.GameState.MAIN_MENU:
 			_show_main_menu()
+		GameEnums.GameState.MOUNTAIN_SELECT:
+			_show_mountain_select()
+		GameEnums.GameState.LOADOUT_CONFIG:
+			_show_loadout_config()
+		GameEnums.GameState.PLANNING:
+			_show_planning()
 		GameEnums.GameState.DESCENT:
 			_start_descent()
 		GameEnums.GameState.RESOLUTION:
@@ -140,6 +158,11 @@ func _show_main_menu() -> void:
 	# Clean up any active descent
 	_cleanup_descent()
 
+	# Hide other screens
+	_hide_mountain_select()
+	_hide_loadout_config()
+	_hide_planning()
+
 	# Hide world during menu
 	world.visible = false
 
@@ -151,6 +174,113 @@ func _show_main_menu() -> void:
 		main_menu.show_menu()
 
 	print("[Main] Main menu loaded")
+
+
+func _show_mountain_select() -> void:
+	print("[Main] Showing mountain select...")
+
+	# Hide main menu
+	_hide_main_menu()
+
+	# Hide other screens
+	_hide_loadout_config()
+	_hide_planning()
+
+	# Create mountain select screen if not exists
+	if mountain_select_screen == null:
+		mountain_select_screen = MountainSelectScene.instantiate()
+		ui.add_child(mountain_select_screen)
+	else:
+		mountain_select_screen.visible = true
+		mountain_select_screen.refresh()
+
+	print("[Main] Mountain select loaded")
+
+
+func _hide_mountain_select() -> void:
+	if mountain_select_screen != null:
+		mountain_select_screen.visible = false
+
+
+func _show_loadout_config() -> void:
+	print("[Main] Showing loadout config...")
+
+	# Hide other screens
+	_hide_main_menu()
+	_hide_mountain_select()
+	_hide_planning()
+
+	# Create loadout config screen if not exists
+	if loadout_config_screen == null:
+		loadout_config_screen = LoadoutConfigScene.instantiate()
+		ui.add_child(loadout_config_screen)
+	else:
+		loadout_config_screen.visible = true
+
+	print("[Main] Loadout config loaded")
+
+
+func _hide_loadout_config() -> void:
+	if loadout_config_screen != null:
+		loadout_config_screen.visible = false
+
+
+func _show_planning() -> void:
+	print("[Main] Showing planning screen...")
+
+	# Hide other screens
+	_hide_main_menu()
+	_hide_mountain_select()
+	_hide_loadout_config()
+
+	# Get mountain and loadout for planning
+	var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
+	var mountain := mountain_db.get_selected_mountain() if mountain_db else null
+
+	# Create planning screen if not exists
+	if planning_screen == null:
+		planning_screen = PlanningScene.instantiate()
+		ui.add_child(planning_screen)
+		planning_screen.planning_complete.connect(_on_planning_complete)
+	else:
+		planning_screen.visible = true
+
+	print("[Main] Planning screen loaded")
+
+
+func _hide_planning() -> void:
+	if planning_screen != null:
+		planning_screen.visible = false
+
+
+func _on_planning_complete(route: PackedVector3Array) -> void:
+	# Get selected mountain and loadout
+	var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
+	var mountain := mountain_db.get_selected_mountain() if mountain_db else null
+
+	if mountain == null:
+		push_error("[Main] No mountain selected for descent")
+		return
+
+	# Get loadout from loadout screen
+	var loadout: GearState = null
+	if loadout_config_screen != null:
+		loadout = loadout_config_screen.get_loadout()
+	else:
+		loadout = GearState.create_standard_loadout()
+
+	# Create start conditions
+	var conditions := StartConditions.create_moderate()
+	conditions.gear_state = loadout
+	conditions.mountain_id = mountain.id
+	conditions.knowledge_level = mountain_db.get_knowledge_level(mountain.id)
+
+	# Start run with planned route
+	var run := GameStateManager.start_run(mountain.id, conditions)
+	if run:
+		run.set_meta("planned_route", route)
+
+	# Transition handled by planning screen
 
 
 func _start_descent() -> void:
