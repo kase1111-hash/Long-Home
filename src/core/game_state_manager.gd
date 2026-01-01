@@ -62,10 +62,12 @@ func _setup_valid_transitions() -> void:
 		],
 		GameEnums.GameState.PAUSED: [
 			GameEnums.GameState.DESCENT,
+			GameEnums.GameState.MAP_CHECK,
 			GameEnums.GameState.MAIN_MENU  # Abandon run
 		],
 		GameEnums.GameState.MAP_CHECK: [
-			GameEnums.GameState.DESCENT
+			GameEnums.GameState.DESCENT,
+			GameEnums.GameState.PAUSED
 		],
 		GameEnums.GameState.RESOLUTION: [
 			GameEnums.GameState.POST_GAME
@@ -226,9 +228,9 @@ func _set_paused(paused: bool) -> void:
 # MAP CHECK
 # =============================================================================
 
-## Enter map check mode (during descent)
+## Enter map check mode (during descent or pause)
 func enter_map_check() -> bool:
-	if current_state != GameEnums.GameState.DESCENT:
+	if current_state != GameEnums.GameState.DESCENT and current_state != GameEnums.GameState.PAUSED:
 		return false
 	return transition_to(GameEnums.GameState.MAP_CHECK)
 
@@ -237,6 +239,9 @@ func enter_map_check() -> bool:
 func exit_map_check() -> bool:
 	if current_state != GameEnums.GameState.MAP_CHECK:
 		return false
+	# Return to previous state (DESCENT or PAUSED)
+	if previous_state == GameEnums.GameState.PAUSED:
+		return transition_to(GameEnums.GameState.PAUSED)
 	return transition_to(GameEnums.GameState.DESCENT)
 
 
