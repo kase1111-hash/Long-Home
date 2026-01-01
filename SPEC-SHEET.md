@@ -20,16 +20,18 @@ Players don't win by reaching the summit. They win by returning intact, having m
 4. [Sliding Mechanics](#4-sliding-mechanics)
 5. [Rope System](#5-rope-system)
 6. [Time & Environmental Systems](#6-time--environmental-systems)
-7. [Risk & Feedback Systems](#7-risk--feedback-systems)
-8. [Drone Camera System](#8-drone-camera-system)
-9. [Camera Director AI](#9-camera-director-ai)
-10. [Fatal Event Handling](#10-fatal-event-handling)
-11. [Ethical Streaming Framework](#11-ethical-streaming-framework)
-12. [User Interface Design](#12-user-interface-design)
-13. [First-Time Player Experience](#13-first-time-player-experience)
-14. [End States & Progression](#14-end-states--progression)
-15. [Audio Design](#15-audio-design)
-16. [Comparable Titles](#16-comparable-titles)
+7. [Body Condition System](#7-body-condition-system)
+8. [Risk & Feedback Systems](#8-risk--feedback-systems)
+9. [Drone Camera System](#9-drone-camera-system)
+10. [Camera Director AI](#10-camera-director-ai)
+11. [Fatal Event Handling](#11-fatal-event-handling)
+12. [Ethical Streaming Framework](#12-ethical-streaming-framework)
+13. [User Interface Design](#13-user-interface-design)
+14. [First-Time Player Experience](#14-first-time-player-experience)
+15. [End States & Progression](#15-end-states--progression)
+16. [Audio Design](#16-audio-design)
+17. [Streaming & Replay System](#17-streaming--replay-system)
+18. [Comparable Titles](#18-comparable-titles)
 
 ---
 
@@ -288,7 +290,107 @@ Controlled descent → Marginal control → Accelerating instability → Loss of
 
 ---
 
-## 7. Risk & Feedback Systems
+## 7. Body Condition System
+
+### Philosophy: Diegetic Feedback Only
+
+The player's physical state is never represented by numbers or bars. All body condition information is conveyed through sensory feedback that a real mountaineer would experience.
+
+### Core State Variables
+
+| Variable | Range | Description |
+|----------|-------|-------------|
+| **Fatigue** | 0-1 | Overall physical exhaustion |
+| **Cold Exposure** | 0-1 | Systemic cold accumulation |
+| **Hydration** | 1-0 | Decreasing fluid levels |
+| **Mental State** | 1-0 | Focus and decision-making clarity |
+| **Injuries** | Array | Collection of active injuries |
+
+### Fatigue System
+
+**Fatigue Accumulation:**
+- Increases with movement speed
+- Increases with slope difficulty
+- Increases with pack weight
+- Increases when cold or injured
+- Decreases slightly during rest (but rest has exposure costs)
+
+**Fatigue Thresholds:**
+
+| Level | Effect |
+|-------|--------|
+| 0.3 | Breathing audio changes |
+| 0.5 | Movement slows, stability decreases |
+| 0.7 | Input delay, camera sway |
+| 0.9 | Critical - high fall risk |
+| 1.0 | Collapse |
+
+### Cold Exposure
+
+**Heat Loss Factors:**
+- Temperature delta (ambient vs body)
+- Wind speed (major multiplier)
+- Wet conditions (snow, sweat)
+- Clothing insulation (subtracts from loss)
+
+**Extremity Priority:**
+
+| Body Part | Effect When Cold |
+|-----------|-----------------|
+| Hands | Dexterity loss, rope handling degraded |
+| Feet | Stability loss, crampon effectiveness reduced |
+| Core | Systemic performance loss, eventual hypothermia |
+
+### Injury System
+
+**Injury Types:**
+
+| Type | Causes | Effects |
+|------|--------|---------|
+| Sprain | Falls, bad landings | Movement penalty, pain |
+| Strain | Overexertion | Strength reduction |
+| Laceration | Rock impact, gear | Bleeding, infection risk |
+| Fracture | Major impacts | Severe movement penalty |
+| Frostbite | Cold exposure | Permanent capability loss |
+
+**Injury Severity Scale:**
+- Minor (0.0-0.3): Manageable, affects performance slightly
+- Moderate (0.3-0.6): Significant impact, requires adaptation
+- Severe (0.6-0.9): Critical, may require rescue
+- Critical (0.9-1.0): Life-threatening
+
+### Self-Check Action
+
+Players can stop to "check themselves," revealing their condition through descriptive messages:
+
+**Example Messages:**
+- "Legs burning. Pace unsustainable."
+- "Fingers going numb. Need to keep moving."
+- "Shoulder aches from the pack. Nothing serious."
+- "Hands shaking. Cold or exhaustion?"
+- "Vision narrowing. Rest or push through?"
+
+**Cost:** Self-check takes time, during which:
+- Cold exposure continues
+- Weather may worsen
+- Daylight depletes
+
+### Capability Modifiers
+
+Body state affects all actions through computed modifiers:
+
+| Modifier | Affected By | Impacts |
+|----------|-------------|---------|
+| Movement | Fatigue, injuries, cold | Speed, stability |
+| Stability | Fatigue, injuries, cold | Fall probability |
+| Rope Handling | Hand cold, fatigue | Deployment time, jam chance |
+| Slide Control | Fatigue, injuries | Control spectrum |
+| Input Delay | High fatigue, mental state | Response time |
+| Camera Sway | Fatigue, injuries | Visual stability |
+
+---
+
+## 8. Risk & Feedback Systems
 
 ### Risk Visibility System
 
@@ -324,7 +426,7 @@ Players don't "level up." They learn:
 
 ---
 
-## 8. Drone Camera System
+## 9. Drone Camera System
 
 ### Fictional Grounding
 
@@ -400,7 +502,7 @@ Using scout drone means:
 
 ---
 
-## 9. Camera Director AI
+## 10. Camera Director AI
 
 ### Core Philosophy
 
@@ -528,7 +630,7 @@ Creates filmic arc over full descent.
 
 ---
 
-## 10. Fatal Event Handling
+## 11. Fatal Event Handling
 
 ### Core Principle
 
@@ -602,7 +704,7 @@ Creates filmic arc over full descent.
 
 ---
 
-## 11. Ethical Streaming Framework
+## 12. Ethical Streaming Framework
 
 ### North Star
 
@@ -691,7 +793,7 @@ System organically exceeds Twitch/YouTube requirements:
 
 ---
 
-## 12. User Interface Design
+## 13. User Interface Design
 
 ### UI North Star
 
@@ -759,7 +861,7 @@ Options exist but are opt-in:
 
 ---
 
-## 13. First-Time Player Experience
+## 14. First-Time Player Experience
 
 ### Design Goal
 
@@ -822,7 +924,7 @@ Same opening, but:
 
 ---
 
-## 14. End States & Progression
+## 15. End States & Progression
 
 ### Failure Philosophy
 
@@ -859,7 +961,7 @@ Deaths shouldn't feel random. They should feel:
 
 ---
 
-## 15. Audio Design
+## 16. Audio Design
 
 ### Emotional Tone
 
@@ -902,7 +1004,110 @@ Deaths shouldn't feel random. They should feel:
 
 ---
 
-## 16. Comparable Titles
+## 17. Streaming & Replay System
+
+### Recording System
+
+The game continuously records run data for post-game analysis and replay.
+
+**Recorded Data:**
+
+| Data Type | Frequency | Purpose |
+|-----------|-----------|---------|
+| Player State | 30 fps | Position, velocity, movement state |
+| Camera State | 30 fps | Drone position, shot intent |
+| Events | On occurrence | Slides, falls, rope deployments, decisions |
+| Audio State | Snapshots | For reconstruction |
+| Weather State | On change | Environmental context |
+
+### Compression Strategy
+
+- Delta compression for continuous position data
+- Keyframes every 5 seconds
+- Event-based recording for discrete state changes
+- Efficient storage format for long descents
+
+### Replay Playback
+
+**Features:**
+
+| Feature | Normal Runs | Fatal Runs |
+|---------|-------------|------------|
+| Speed control | Full range | Normal speed only |
+| Camera angles | Selectable | Fixed (ethical constraint) |
+| Topo overlay | Available | Available |
+| Moment highlighting | All moments | Pre-loss only |
+
+**Topo Replay Visualization:**
+- Path drawn slowly on topographic map
+- Key moments highlighted with icons
+- Decision points marked
+- Slide entries/exits shown
+- Fatigue thresholds indicated
+- Minimal text insights (not judgmental)
+
+### OBS Integration
+
+**Supported Features:**
+
+| Feature | Description |
+|---------|-------------|
+| Scene Switching | Auto-switch between gameplay and drone view |
+| Source Visibility | Toggle HUD elements for stream |
+| Custom Overlays | Streamer information panels |
+| Event Triggers | Auto-highlight on key moments |
+| Chat Integration | Optional viewer interaction |
+
+### Streamer Tools
+
+**Available Controls:**
+
+| Control | Effect |
+|---------|--------|
+| Shot Intent Bias | Prefer wide vs close shots |
+| Human Error Slider | Increase/decrease camera imperfection |
+| Shot Lock Toggle | Hold current shot type |
+| Warning Overlay | Show/hide content warnings |
+| Delayed Replay | Queue fatal replays for stream end |
+
+**Unavailable Controls (Ethical Constraints):**
+- Force specific camera angles
+- Teleport drone
+- Override safety limits
+- Zoom during fatal events
+- Slow-motion on deaths
+
+### Highlight Generation
+
+**Auto-Highlight Criteria:**
+- Successful long slides
+- Close calls with recovery
+- Rope deployments in difficult terrain
+- Weather transitions
+- Safe arrivals after danger
+
+**Excluded from Auto-Highlights:**
+- Fatal moments
+- Uncontrolled slides
+- Impact events
+
+**Highlight Naming Convention:**
+- "Upper Face Descent – Weather Turn" (not "Brutal Fall")
+- "Ridge Traverse – Wind Challenge" (not "Near Death")
+- Focus on terrain and conditions, not drama
+
+### Speedrun Timer
+
+**Optional Display:**
+- Real-time elapsed
+- Game-time elapsed
+- Segment splits (by terrain section)
+- Personal best comparison
+- No leaderboard pressure (personal tracking only)
+
+---
+
+## 18. Comparable Titles
 
 | Title | Comparison Point |
 |-------|------------------|
@@ -930,4 +1135,4 @@ Deaths shouldn't feel random. They should feel:
 
 ---
 
-*Specification compiled from project documentation. Version 1.0*
+*Specification compiled from project documentation. Version 1.1*

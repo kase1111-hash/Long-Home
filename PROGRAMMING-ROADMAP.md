@@ -1,31 +1,79 @@
 # Long-Home: Programming Roadmap
 
-This document provides implementation guidance for each game system, broken into phases, components, and technical considerations.
+This document provides implementation guidance for each game system, showing what has been built and how to extend it.
+
+**Implementation Status:** All 16 major systems are implemented with 111 GDScript files.
 
 ---
 
 ## Table of Contents
 
-1. [Core Architecture](#1-core-architecture)
-2. [Terrain System](#2-terrain-system)
-3. [Player Controller](#3-player-controller)
-4. [Sliding System](#4-sliding-system)
-5. [Rope & Anchor System](#5-rope--anchor-system)
-6. [Time & Weather System](#6-time--weather-system)
-7. [Body Condition System](#7-body-condition-system)
-8. [Risk Detection System](#8-risk-detection-system)
-9. [Drone Camera System](#9-drone-camera-system)
-10. [Camera Director AI](#10-camera-director-ai)
-11. [Fatal Event System](#11-fatal-event-system)
-12. [UI System](#12-ui-system)
-13. [Audio System](#13-audio-system)
-14. [Streaming & Replay System](#14-streaming--replay-system)
-15. [Tutorial & Onboarding](#15-tutorial--onboarding)
-16. [Save & Progression System](#16-save--progression-system)
+1. [Core Architecture](#1-core-architecture) ✅
+2. [Terrain System](#2-terrain-system) ✅
+3. [Player Controller](#3-player-controller) ✅
+4. [Sliding System](#4-sliding-system) ✅
+5. [Rope & Anchor System](#5-rope--anchor-system) ✅
+6. [Time & Weather System](#6-time--weather-system) ✅
+7. [Body Condition System](#7-body-condition-system) ✅
+8. [Risk Detection System](#8-risk-detection-system) ✅
+9. [Drone Camera System](#9-drone-camera-system) ✅
+10. [Camera Director AI](#10-camera-director-ai) ✅
+11. [Fatal Event System](#11-fatal-event-system) ✅
+12. [UI System](#12-ui-system) ✅
+13. [Audio System](#13-audio-system) ✅
+14. [Streaming & Replay System](#14-streaming--replay-system) ✅
+15. [Tutorial & Onboarding](#15-tutorial--onboarding) ✅
+16. [Save & Progression System](#16-save--progression-system) ✅
+
+---
+
+## File Structure Overview
+
+```
+src/
+├── core/                              # 9 files
+│   ├── event_bus.gd                  # 150+ signals
+│   ├── enums.gd                      # GameEnums
+│   ├── service_locator.gd            # DI container
+│   ├── game_state_manager.gd         # State machine
+│   └── data/                         # Data classes
+│       ├── run_context.gd
+│       ├── body_state.gd
+│       ├── gear_state.gd
+│       ├── start_conditions.gd
+│       └── injury.gd
+├── entities/player/                   # 10 files
+├── systems/
+│   ├── audio/                         # 9 files
+│   ├── body/                          # 4 files
+│   ├── sliding/                       # 5 files
+│   ├── rope/                          # 7 files
+│   ├── terrain/                       # 8 files
+│   ├── environment/                   # 5 files
+│   ├── risk/                          # 5 files
+│   ├── drone/                         # 5 files
+│   ├── camera_director/               # 5 files
+│   ├── fatal_event/                   # 5 files
+│   ├── replay/                        # 5 files
+│   ├── tutorial/                      # 4 files
+│   ├── save/                          # 5 files
+│   └── streaming/                     # 1 file
+├── ui/                                # 16 files
+├── data/                              # 2 files
+└── scenes/                            # 1 file
+```
 
 ---
 
 ## 1. Core Architecture
+
+**Status:** ✅ Implemented
+
+**Files:**
+- `src/core/event_bus.gd` - 150+ signals organized by category
+- `src/core/enums.gd` - All game enumerations
+- `src/core/service_locator.gd` - Dependency injection
+- `src/core/game_state_manager.gd` - Global state machine
 
 ### 1.1 Game State Machine
 
@@ -101,6 +149,18 @@ RunContext:
 ---
 
 ## 2. Terrain System
+
+**Status:** ✅ Implemented
+
+**Files:**
+- `src/systems/terrain/terrain_service.gd` - Main coordinator
+- `src/systems/terrain/terrain_generator.gd` - Generation/loading
+- `src/systems/terrain/terrain_chunk.gd` - Terrain cells
+- `src/systems/terrain/terrain_cell.gd` - Cell data
+- `src/systems/terrain/dem_loader.gd` - DEM file loading
+- `src/systems/terrain/slope_analyzer.gd` - Slope calculations
+- `src/systems/terrain/surface_classifier.gd` - Surface type detection
+- `src/systems/terrain/topo_map_generator.gd` - Topo map rendering
 
 ### 2.1 Terrain Data Pipeline
 
@@ -188,6 +248,19 @@ USGS DEM Data → Parser → HeightmapGenerator → TerrainMesh → PhysicsColli
 
 ## 3. Player Controller
 
+**Status:** ✅ Implemented
+
+**Files:**
+- `src/entities/player/player_controller.gd` - Main CharacterBody3D
+- `src/entities/player/player_movement.gd` - Movement physics
+- `src/entities/player/player_input.gd` - Input handling
+- `src/entities/player/player_animation_controller.gd` - Animation state
+- `src/entities/player/player_camera.gd` - First-person perspective
+- `src/entities/player/player_state_machine.gd` - State management
+- `src/entities/player/posture_system.gd` - Stance & stability
+- `src/entities/player/footstep_system.gd` - Footstep audio
+- `src/entities/player/animation_data.gd` - Animation resources
+
 ### 3.1 Movement State Machine
 
 ```
@@ -260,6 +333,15 @@ States:
 ---
 
 ## 4. Sliding System
+
+**Status:** ✅ Implemented
+
+**Files:**
+- `src/systems/sliding/slide_system.gd` - Core physics
+- `src/systems/sliding/slide_controller.gd` - Input handling
+- `src/systems/sliding/slide_state_manager.gd` - Control spectrum
+- `src/systems/sliding/slide_feedback.gd` - Audio/visual feedback
+- `src/systems/sliding/exit_zone_detector.gd` - Safe exit detection
 
 ### 4.1 Slide Physics
 
@@ -375,6 +457,17 @@ SlideControlLevel:
 
 ## 5. Rope & Anchor System
 
+**Status:** ✅ Implemented
+
+**Files:**
+- `src/systems/rope/rope_service.gd` - Main coordinator
+- `src/systems/rope/rope.gd` - Rope instance
+- `src/systems/rope/rope_inventory.gd` - Rope management
+- `src/systems/rope/rope_deployment_system.gd` - Deployment logic
+- `src/systems/rope/rappel_controller.gd` - Rappel mechanics
+- `src/systems/rope/anchor_detector.gd` - Anchor detection
+- `src/systems/rope/anchor_point.gd` - Anchor data
+
 ### 5.1 Rope Mechanics
 
 **Implementation Steps:**
@@ -446,6 +539,15 @@ SlideControlLevel:
 ---
 
 ## 6. Time & Weather System
+
+**Status:** ✅ Implemented
+
+**Files:**
+- `src/systems/environment/environment_service.gd` - Coordinator
+- `src/systems/environment/time_service.gd` - Day/night cycle
+- `src/systems/environment/weather_service.gd` - Storm/conditions
+- `src/systems/environment/temperature_system.gd` - Temperature
+- `src/systems/environment/surface_condition_manager.gd` - Surface changes
 
 ### 6.1 Time Simulation
 
@@ -519,6 +621,18 @@ WeatherStates:
 ---
 
 ## 7. Body Condition System
+
+**Status:** ✅ Implemented
+
+**Files:**
+- `src/systems/body/body_condition_service.gd` - Coordinator
+- `src/systems/body/fatigue_manager.gd` - Fatigue tracking
+- `src/systems/body/cold_exposure_manager.gd` - Cold system
+- `src/systems/body/injury_manager.gd` - Injury management
+
+**Data Classes:**
+- `src/core/data/body_state.gd` - Physical condition state
+- `src/core/data/injury.gd` - Injury data
 
 ### 7.1 Physical State Tracking
 
@@ -613,6 +727,15 @@ BodyState:
 
 ## 8. Risk Detection System
 
+**Status:** ✅ Implemented
+
+**Files:**
+- `src/systems/risk/risk_detection_service.gd` - Main coordinator
+- `src/systems/risk/risk_calculator.gd` - Stateless calculations
+- `src/systems/risk/risk_zone_analyzer.gd` - Zone analysis
+- `src/systems/risk/fall_predictor.gd` - Fall probability
+- `src/systems/risk/risk_feedback.gd` - Subtle cues
+
 ### 8.1 Risk Calculation Engine
 
 **Implementation Steps:**
@@ -673,6 +796,15 @@ BodyState:
 ---
 
 ## 9. Drone Camera System
+
+**Status:** ✅ Implemented
+
+**Files:**
+- `src/systems/drone/drone_service.gd` - Coordinator
+- `src/systems/drone/drone_entity.gd` - 3D drone object
+- `src/systems/drone/drone_controller.gd` - Movement/positioning
+- `src/systems/drone/drone_camera.gd` - Camera setup
+- `src/systems/drone/drone_battery.gd` - Power system
 
 ### 9.1 Drone Entity
 
@@ -752,6 +884,15 @@ BodyState:
 ---
 
 ## 10. Camera Director AI
+
+**Status:** ✅ Implemented
+
+**Files:**
+- `src/systems/camera_director/camera_director.gd` - Main AI
+- `src/systems/camera_director/signal_detector.gd` - Moment detection
+- `src/systems/camera_director/intent_selector.gd` - Shot type selection
+- `src/systems/camera_director/emotional_rhythm_engine.gd` - Pacing
+- `src/systems/camera_director/imperfection_engine.gd` - Human-like flaws
 
 ### 10.1 Signal Detection Layer
 
@@ -890,6 +1031,15 @@ BodyState:
 
 ## 11. Fatal Event System
 
+**Status:** ✅ Implemented
+
+**Files:**
+- `src/systems/fatal_event/fatal_event_manager.gd` - Main coordinator
+- `src/systems/fatal_event/fatality_detector.gd` - Death detection
+- `src/systems/fatal_event/fatal_phase_handler.gd` - 5 phases of death
+- `src/systems/fatal_event/fatal_audio_controller.gd` - Audio transitions
+- `src/systems/fatal_event/ethical_constraints.gd` - Streaming safety
+
 ### 11.1 Death Detection
 
 **Implementation Steps:**
@@ -963,6 +1113,27 @@ BodyState:
 
 ## 12. UI System
 
+**Status:** ✅ Implemented
+
+**Files:**
+- `src/ui/main_menu.gd` - Start screen
+- `src/ui/selection/mountain_select_screen.gd` - Mountain selection
+- `src/ui/selection/loadout_config_screen.gd` - Gear configuration
+- `src/ui/planning/planning_screen.gd` - Route planning
+- `src/ui/planning/topo_map_display.gd` - Topo rendering
+- `src/ui/planning/elevation_profile_display.gd` - Elevation view
+- `src/ui/planning/route_planner.gd` - Route tools
+- `src/ui/planning/planning_service.gd` - Planning coordinator
+- `src/ui/hud/physical_map.gd` - In-game map
+- `src/ui/hud/self_check_screen.gd` - Body status
+- `src/ui/pause/pause_menu.gd` - Pause menu
+- `src/ui/pause/map_check_overlay.gd` - Pause map
+- `src/ui/analysis/topo_replay_visualization.gd` - Post-run replay
+- `src/ui/stats/stats_display.gd` - Statistics
+- `src/ui/settings/streaming_settings.gd` - Stream options
+- `src/ui/post_game_screen.gd` - Results
+- `src/ui/resolution_screen.gd` - Outcome display
+
 ### 12.1 Diegetic UI Framework
 
 **Implementation Steps:**
@@ -1022,6 +1193,19 @@ BodyState:
 ---
 
 ## 13. Audio System
+
+**Status:** ✅ Implemented
+
+**Files:**
+- `src/systems/audio/audio_service.gd` - Central coordinator
+- `src/systems/audio/ambient_audio_manager.gd` - Wind, environment
+- `src/systems/audio/player_audio_manager.gd` - Breathing, footsteps
+- `src/systems/audio/gear_audio_manager.gd` - Rope, crampon sounds
+- `src/systems/audio/ui_audio_manager.gd` - Menu sounds
+- `src/systems/audio/procedural_audio.gd` - Generated sounds
+- `src/systems/audio/audio_initializer.gd` - Setup
+- `src/systems/audio/audio_config.gd` - Configuration
+- `src/systems/audio/placeholder_audio_loader.gd` - Placeholder assets
 
 ### 13.1 Environmental Audio
 
@@ -1089,6 +1273,16 @@ BodyState:
 
 ## 14. Streaming & Replay System
 
+**Status:** ✅ Implemented
+
+**Files:**
+- `src/systems/replay/recording_service.gd` - Records run data
+- `src/systems/replay/replay_player.gd` - Plays back runs
+- `src/systems/replay/highlight_generator.gd` - Extracts best moments
+- `src/systems/replay/speedrun_timer.gd` - Optional timing
+- `src/systems/replay/streamer_tools.gd` - Streamer features
+- `src/systems/streaming/obs_integration.gd` - OBS/streamer tools
+
 ### 14.1 Replay Recording
 
 **Implementation Steps:**
@@ -1150,6 +1344,14 @@ BodyState:
 
 ## 15. Tutorial & Onboarding
 
+**Status:** ✅ Implemented
+
+**Files:**
+- `src/systems/tutorial/tutorial_manager.gd` - Main coordinator
+- `src/systems/tutorial/knife_edge_scene.gd` - Opening tutorial
+- `src/systems/tutorial/instructor.gd` - NPC guide
+- `src/systems/tutorial/tutorial_triggers.gd` - Event triggers
+
 ### 15.1 Opening Sequence
 
 **Implementation Steps:**
@@ -1185,6 +1387,15 @@ BodyState:
 ---
 
 ## 16. Save & Progression System
+
+**Status:** ✅ Implemented
+
+**Files:**
+- `src/systems/save/save_manager.gd` - Save coordination
+- `src/systems/save/player_profile.gd` - Player data
+- `src/systems/save/progression_tracker.gd` - Skills & achievements
+- `src/systems/save/route_memory.gd` - Route familiarity
+- `src/systems/save/run_history.gd` - Previous descents
 
 ### 16.1 Run Data
 
@@ -1229,38 +1440,58 @@ BodyState:
 
 ---
 
-## Implementation Priority Recommendation
+## Implementation Status Summary
 
-### Phase 1: Core Foundation
-1. Terrain System (import, analysis, queries)
-2. Player Controller (movement, posture)
-3. Basic Camera (third-person follow)
-4. Time System (scaling, lighting)
+All 16 major systems have been implemented. Below is the completion status:
 
-### Phase 2: Core Mechanics
-1. Sliding System (physics, control, outcomes)
-2. Rope System (deployment, rappel)
-3. Body Condition (fatigue, cold, injury)
-4. Risk Detection (calculation, probability)
+| Phase | Systems | Status |
+|-------|---------|--------|
+| **Phase 1: Core Foundation** | Terrain, Player, Camera, Time | ✅ Complete |
+| **Phase 2: Core Mechanics** | Sliding, Rope, Body Condition, Risk | ✅ Complete |
+| **Phase 3: Camera & Polish** | Drone, Camera Director AI, Audio, UI | ✅ Complete |
+| **Phase 4: Experience** | Fatal Event, Tutorial, Replay, Streaming | ✅ Complete |
+| **Phase 5: Content** | Mountains, Weather, Progression, Save | ✅ Complete |
 
-### Phase 3: Camera & Polish
-1. Drone Camera (physics, constraints)
-2. Camera Director AI (signals, intents, behavior)
-3. Audio System (environmental, player, drone)
-4. UI System (diegetic feedback, map)
+### Future Development Areas
 
-### Phase 4: Experience
-1. Fatal Event System (phases, ethics)
-2. Tutorial/Onboarding
-3. Replay System
-4. Streaming Features
+The following areas are planned for future development:
 
-### Phase 5: Content & Refinement
-1. Multiple mountains
-2. Weather variations
-3. Progression system
-4. Balancing and tuning
+| Feature | Priority | Notes |
+|---------|----------|-------|
+| Avalanche System | Medium | Terrain-triggered avalanches |
+| Crevasse System | Medium | Hidden crevasse detection |
+| Advanced Rescue | Low | Multi-person rescue scenarios |
+| Complex Weather | Medium | More dynamic storm generation |
+| Gear Damage | Low | Cumulative equipment degradation |
+| Real Audio Assets | High | Replace placeholder audio |
+| Real USGS Data | High | Actual mountain DEM files |
+| Accessibility | Medium | Expanded accessibility options |
+
+### File Statistics
+
+| Category | File Count |
+|----------|------------|
+| Core Architecture | 9 |
+| Player Entity | 10 |
+| Audio Systems | 9 |
+| Terrain Systems | 8 |
+| Rope Systems | 7 |
+| Camera Director | 5 |
+| Drone Systems | 5 |
+| Fatal Event | 5 |
+| Replay Systems | 5 |
+| Risk Systems | 5 |
+| Save Systems | 5 |
+| Environment | 5 |
+| Sliding Systems | 5 |
+| Body Systems | 4 |
+| Tutorial Systems | 4 |
+| UI Systems | 16 |
+| Data Systems | 2 |
+| Streaming | 1 |
+| Scenes | 1 |
+| **Total** | **111** |
 
 ---
 
-*Programming Roadmap v1.0 - Companion to SPEC-SHEET.md*
+*Programming Roadmap v1.1 - Companion to SPEC-SHEET.md*
