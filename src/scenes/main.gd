@@ -20,6 +20,8 @@ const PostGameScreenScene := preload("res://src/ui/post_game_screen.tscn")
 const MountainSelectScene := preload("res://src/ui/selection/mountain_select_screen.tscn")
 const LoadoutConfigScene := preload("res://src/ui/selection/loadout_config_screen.tscn")
 const PlanningScene := preload("res://src/ui/planning/planning_screen.tscn")
+const PauseMenuScene := preload("res://src/ui/pause/pause_menu.tscn")
+const MapCheckScene := preload("res://src/ui/pause/map_check_overlay.tscn")
 
 ## Active main menu instance
 var main_menu: MainMenu = null
@@ -38,6 +40,12 @@ var loadout_config_screen: LoadoutConfigScreen = null
 
 ## Active planning screen
 var planning_screen: PlanningScreen = null
+
+## Active pause menu
+var pause_menu: PauseMenu = null
+
+## Active map check overlay
+var map_check_overlay: MapCheckOverlay = null
 
 # =============================================================================
 # GAMEPLAY REFERENCES
@@ -131,10 +139,24 @@ func _on_game_state_changed(old_state: GameEnums.GameState, new_state: GameEnums
 			_show_planning()
 		GameEnums.GameState.DESCENT:
 			_start_descent()
+		GameEnums.GameState.PAUSED:
+			_show_pause_menu()
+		GameEnums.GameState.MAP_CHECK:
+			_show_map_check()
 		GameEnums.GameState.RESOLUTION:
 			_show_resolution()
 		GameEnums.GameState.POST_GAME:
 			_show_post_game()
+
+	# Handle exiting pause/map states
+	match old_state:
+		GameEnums.GameState.PAUSED:
+			if new_state != GameEnums.GameState.MAP_CHECK:
+				_hide_pause_menu()
+		GameEnums.GameState.MAP_CHECK:
+			_hide_map_check()
+			if new_state == GameEnums.GameState.PAUSED:
+				_on_return_to_pause_from_map()
 
 
 func _on_run_started(run_context: RunContext) -> void:
@@ -519,10 +541,73 @@ func _hide_post_game_screen() -> void:
 
 
 # =============================================================================
+# PAUSE MENU
+# =============================================================================
+
+func _show_pause_menu() -> void:
+	print("[Main] Showing pause menu...")
+
+	# Pause the game tree
+	get_tree().paused = true
+
+	# Create pause menu if not exists
+	if pause_menu == null:
+		pause_menu = PauseMenuScene.instantiate()
+		ui.add_child(pause_menu)
+
+	pause_menu.show_menu()
+	print("[Main] Game paused")
+
+
+func _hide_pause_menu() -> void:
+	if pause_menu != null:
+		pause_menu.hide_menu()
+
+	# Unpause the game tree
+	get_tree().paused = false
+	print("[Main] Game resumed")
+
+
+func _show_map_check() -> void:
+	print("[Main] Showing map check...")
+
+	# Hide pause menu but stay paused
+	if pause_menu != null:
+		pause_menu.visible = false
+
+	# Create map check overlay if not exists
+	if map_check_overlay == null:
+		map_check_overlay = MapCheckScene.instantiate()
+		ui.add_child(map_check_overlay)
+
+	map_check_overlay.show_overlay()
+	print("[Main] Map check shown")
+
+
+func _hide_map_check() -> void:
+	if map_check_overlay != null:
+		map_check_overlay.hide_overlay()
+
+
+func _on_return_to_pause_from_map() -> void:
+	# Show pause menu again when returning from map check to pause
+	if pause_menu != null:
+		pause_menu.visible = true
+		pause_menu.show_menu()
+
+
+# =============================================================================
 # INPUT
 # =============================================================================
 
 func _unhandled_input(event: InputEvent) -> void:
+	# Pause toggle during descent
+	if event.is_action_pressed("ui_cancel"):
+		var state := GameStateManager.current_state
+		if state == GameEnums.GameState.DESCENT:
+			GameStateManager.toggle_pause()
+			get_viewport().set_input_as_handled()
+
 	# Debug shortcuts
 	if OS.is_debug_build():
 		if event.is_action_pressed("ui_home"):
