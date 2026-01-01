@@ -80,8 +80,13 @@ func _fade_in() -> void:
 # =============================================================================
 
 func _check_for_save() -> bool:
-	# Placeholder - will check for actual save data
-	return false
+	var save_manager := ServiceLocator.get_service("SaveManager") as SaveManager
+	if save_manager == null:
+		return false
+
+	# Check if player has any runs
+	var profile := save_manager.get_profile()
+	return profile != null and profile.total_runs > 0
 
 
 # =============================================================================
