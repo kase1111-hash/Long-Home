@@ -14,6 +14,7 @@ extends Control
 
 signal resume_pressed()
 signal map_check_pressed()
+signal self_check_pressed()
 signal settings_pressed()
 signal abandon_pressed()
 
@@ -51,6 +52,7 @@ var status_panel: PanelContainer
 var button_container: VBoxContainer
 var resume_button: Button
 var map_button: Button
+var self_check_button: Button
 var settings_button: Button
 var abandon_button: Button
 var confirm_dialog: Control
@@ -136,6 +138,10 @@ func _build_ui() -> void:
 	map_button = _create_button("Check Map", "View your position and planned route")
 	map_button.pressed.connect(_on_map_pressed)
 	button_container.add_child(map_button)
+
+	self_check_button = _create_button("Check Body", "Assess your physical condition")
+	self_check_button.pressed.connect(_on_self_check_pressed)
+	button_container.add_child(self_check_button)
 
 	settings_button = _create_button("Settings", "Adjust game settings")
 	settings_button.pressed.connect(_on_settings_pressed)
@@ -402,6 +408,10 @@ func _on_map_pressed() -> void:
 	map_check_pressed.emit()
 	# Transition to map check state (pause remains)
 	GameStateManager.enter_map_check()
+
+
+func _on_self_check_pressed() -> void:
+	self_check_pressed.emit()
 
 
 func _on_settings_pressed() -> void:

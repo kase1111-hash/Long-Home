@@ -23,6 +23,7 @@ const PlanningScene := preload("res://src/ui/planning/planning_screen.tscn")
 const PauseMenuScene := preload("res://src/ui/pause/pause_menu.tscn")
 const MapCheckScene := preload("res://src/ui/pause/map_check_overlay.tscn")
 const PhysicalMapScene := preload("res://src/ui/hud/physical_map.tscn")
+const SelfCheckScene := preload("res://src/ui/hud/self_check_screen.tscn")
 
 ## Active main menu instance
 var main_menu: MainMenu = null
@@ -50,6 +51,9 @@ var map_check_overlay: MapCheckOverlay = null
 
 ## Active physical map (in-game)
 var physical_map: PhysicalMap = null
+
+## Active self-check screen
+var self_check_screen: SelfCheckScreen = null
 
 # =============================================================================
 # GAMEPLAY REFERENCES
@@ -500,6 +504,10 @@ func _cleanup_descent() -> void:
 		physical_map.queue_free()
 		physical_map = null
 
+	if self_check_screen != null:
+		self_check_screen.queue_free()
+		self_check_screen = null
+
 	# Clean up UI screens
 	_hide_resolution_screen()
 	_hide_post_game_screen()
@@ -576,6 +584,7 @@ func _show_pause_menu() -> void:
 	# Create pause menu if not exists
 	if pause_menu == null:
 		pause_menu = PauseMenuScene.instantiate()
+		pause_menu.self_check_pressed.connect(_on_self_check_pressed)
 		ui.add_child(pause_menu)
 
 	pause_menu.show_menu()
@@ -588,6 +597,40 @@ func _hide_pause_menu() -> void:
 
 	# Unpause the game tree
 	get_tree().paused = false
+
+
+func _on_self_check_pressed() -> void:
+	_show_self_check()
+
+
+func _show_self_check() -> void:
+	print("[Main] Showing self-check...")
+
+	# Hide pause menu but stay paused
+	if pause_menu != null:
+		pause_menu.visible = false
+
+	# Create self-check screen if not exists
+	if self_check_screen == null:
+		self_check_screen = SelfCheckScene.instantiate()
+		self_check_screen.close_requested.connect(_on_self_check_closed)
+		ui.add_child(self_check_screen)
+
+	self_check_screen.show_check()
+	print("[Main] Self-check shown")
+
+
+func _hide_self_check() -> void:
+	if self_check_screen != null:
+		self_check_screen.hide_check()
+
+
+func _on_self_check_closed() -> void:
+	_hide_self_check()
+	# Show pause menu again
+	if pause_menu != null:
+		pause_menu.visible = true
+		pause_menu.show_menu()
 	print("[Main] Game resumed")
 
 
