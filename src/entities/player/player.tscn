@@ -1,7 +1,9 @@
-[gd_scene load_steps=5 format=3 uid="uid://c6mxp3q8k2yva"]
+[gd_scene load_steps=7 format=3 uid="uid://c6mxp3q8k2yva"]
 
 [ext_resource type="Script" path="res://src/entities/player/player_controller.gd" id="1_controller"]
 [ext_resource type="Script" path="res://src/entities/player/player_camera.gd" id="2_camera"]
+[ext_resource type="Script" path="res://src/entities/player/player_animation_controller.gd" id="3_anim"]
+[ext_resource type="Script" path="res://src/entities/player/footstep_system.gd" id="4_footstep"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_1"]
 radius = 0.3
@@ -25,6 +27,12 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
 
 [node name="Body" type="MeshInstance3D" parent="PlayerMesh"]
 mesh = SubResource("CapsuleMesh_1")
+
+[node name="AnimationController" type="Node" parent="."]
+script = ExtResource("3_anim")
+
+[node name="FootstepSystem" type="Node" parent="."]
+script = ExtResource("4_footstep")
 
 [node name="CameraPivot" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)
