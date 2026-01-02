@@ -232,6 +232,9 @@ signal audio_duck_requested(reason: String)
 ## Emitted when ducked audio should restore
 signal audio_restore_requested()
 
+## Emitted when footstep audio plays (fallback for audio service)
+signal footstep_occurred(surface: GameEnums.SurfaceType, position: Vector3, volume: float)
+
 # =============================================================================
 # TUTORIAL SIGNALS
 # =============================================================================

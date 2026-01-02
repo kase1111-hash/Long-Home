@@ -25,7 +25,7 @@ A mountaineering descent simulation game built with Godot Engine 4.2.
 
 **Engine:** Godot 4.2
 **Language:** GDScript
-**Version:** 0.1.0
+**Version:** 0.1.0-alpha
 
 ---
 
@@ -330,6 +330,7 @@ All feedback is diegetic - no numerical displays.
 
 | Document | Purpose |
 |----------|---------|
+| [CHANGELOG.md](CHANGELOG.md) | Version history and release notes |
 | [SPEC-SHEET.md](SPEC-SHEET.md) | Complete game specification covering all 16 major systems |
 | [PROGRAMMING-ROADMAP.md](PROGRAMMING-ROADMAP.md) | Implementation guide with code structure and data models |
 
@@ -387,4 +388,4 @@ All feedback is diegetic - no numerical displays.
 
 ---
 
-*Long-Home v0.1.0 - A mountaineering descent simulation*
+*Long-Home v0.1.0-alpha - A mountaineering descent simulation*
