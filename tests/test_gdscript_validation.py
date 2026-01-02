@@ -125,8 +125,8 @@ class GDScriptValidator:
             for match in re.finditer(r'GameEnums\.(\w+)\.(\w+)', stripped):
                 enum_type = match.group(1)
                 enum_value = match.group(2)
-                # Skip method calls like .keys(), .values(), .size()
-                if enum_value not in ('keys', 'values', 'size', 'has', 'find_key'):
+                # Skip method calls like .keys(), .values(), .size(), .get()
+                if enum_value not in ('keys', 'values', 'size', 'has', 'find_key', 'get'):
                     # Skip constants (all uppercase names like SLOPE_THRESHOLDS)
                     if not enum_type.isupper():
                         gd_file.enums_used.append(f"{enum_type}.{enum_value}")

@@ -59,12 +59,15 @@ enum PostureState {
 enum SurfaceType {
 	SNOW_FIRM,
 	SNOW_SOFT,
+	SNOW_PACKED,   # Consolidated snow (similar to firm)
 	SNOW_POWDER,
 	ICE,
 	ROCK,          # General rock surface
 	ROCK_DRY,
 	ROCK_WET,
 	SCREE,
+	GRASS,         # Lower elevation vegetation
+	MUD,           # Wet soil
 	MIXED
 }
 
@@ -84,7 +87,9 @@ enum TerrainZone {
 enum WeatherState {
 	CLEAR,
 	PARTLY_CLOUDY,
+	OVERCAST,      # Heavy cloud cover
 	CLOUDY,
+	SNOW,          # Active snowfall
 	DETERIORATING,
 	STORM,
 	WHITEOUT,
@@ -96,6 +101,7 @@ enum WindStrength {
 	LIGHT,
 	MODERATE,
 	STRONG,
+	GALE,          # Very strong wind
 	SEVERE
 }
 

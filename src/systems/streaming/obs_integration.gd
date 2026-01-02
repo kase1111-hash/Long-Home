@@ -450,10 +450,10 @@ func _on_run_started(_context: RunContext) -> void:
 
 func _on_run_ended(_context: RunContext, outcome: GameEnums.ResolutionType) -> void:
 	match outcome:
-		GameEnums.ResolutionType.DEATH:
+		GameEnums.ResolutionType.FATALITY:
 			suggest_scene(scene_ending)
 			create_marker("Run End - Fatal")
-		GameEnums.ResolutionType.SUCCESS:
+		GameEnums.ResolutionType.CLEAN_RETURN:
 			create_marker("Run End - Success")
 		_:
 			create_marker("Run End")
