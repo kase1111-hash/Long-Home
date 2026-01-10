@@ -1,6 +1,6 @@
 # Long-Home
 
-A mountaineering descent simulation game built with Godot Engine 4.2.
+An atmospheric indie game and narrative-driven mountaineering descent simulation built with Godot Engine 4.2.
 
 > *"The game is about consequence, not conquest. You don't win by reaching the summit. You win by returning intact, having made good decisions before and after the summit."*
 
@@ -16,12 +16,15 @@ A mountaineering descent simulation game built with Godot Engine 4.2.
 - [Game Systems](#game-systems)
 - [Documentation](#documentation)
 - [Development Status](#development-status)
+- [Related Repositories](#related-repositories)
 
 ---
 
 ## Overview
 
-**Long-Home** is a mountaineering descent simulation that focuses on the psychological tension of returning from a summit. Unlike traditional mountain games that celebrate the climb, Long-Home explores what happens after - when fatigue sets in, weather turns, and every decision carries weight.
+**Long-Home** is an atmospheric indie Godot game that delivers a narrative-driven mountaineering descent simulation focusing on the psychological tension of returning from a summit. This indie survival game explores what traditional mountain games ignore - what happens after the climb, when fatigue sets in, weather turns, and every decision carries weight.
+
+As a first-person mountain survival experience, Long-Home combines realistic terrain simulation with consequence-driven gameplay. The game emphasizes environmental storytelling and diegetic feedback systems, creating an immersive alpine descent where players must read the mountain rather than a dashboard.
 
 **Engine:** Godot 4.2
 **Language:** GDScript
@@ -379,6 +382,47 @@ All feedback is diegetic - no numerical displays.
 | Real mountaineering reports | Authentic accident scenarios |
 
 **Unique differentiator:** None of these focus on descent psychology specifically.
+
+---
+
+## Related Repositories
+
+Long-Home is part of a larger ecosystem of projects exploring natural language interfaces, AI agents, and indie game development.
+
+### Game Development
+
+| Repository | Description |
+|------------|-------------|
+| [Shredsquatch](https://github.com/kase1111-hash/Shredsquatch) | 3D first-person snowboarding infinite runner (SkiFree homage) |
+| [Midnight-pulse](https://github.com/kase1111-hash/Midnight-pulse) | Procedurally generated night drive with synthwave aesthetics |
+
+### NatLangChain Ecosystem
+
+| Repository | Description |
+|------------|-------------|
+| [NatLangChain](https://github.com/kase1111-hash/NatLangChain) | Prose-first, intent-native blockchain protocol for natural language |
+| [IntentLog](https://github.com/kase1111-hash/IntentLog) | Git for human reasoning - tracks "why" changes happen via prose commits |
+| [RRA-Module](https://github.com/kase1111-hash/RRA-Module) | Revenant Repo Agent - converts abandoned repos into autonomous licensing agents |
+| [mediator-node](https://github.com/kase1111-hash/mediator-node) | LLM mediation layer for matching, negotiation, and closure proposals |
+| [ILR-module](https://github.com/kase1111-hash/ILR-module) | IP & Licensing Reconciliation for dispute resolution |
+| [Finite-Intent-Executor](https://github.com/kase1111-hash/Finite-Intent-Executor) | Posthumous execution of predefined intent (Solidity smart contract) |
+
+### Agent-OS Ecosystem
+
+| Repository | Description |
+|------------|-------------|
+| [Agent-OS](https://github.com/kase1111-hash/Agent-OS) | Natural-language native operating system for AI agents |
+| [synth-mind](https://github.com/kase1111-hash/synth-mind) | NLOS-based agent with six psychological modules for emergent continuity |
+| [boundary-daemon-](https://github.com/kase1111-hash/boundary-daemon-) | Trust enforcement layer defining cognition boundaries for Agent OS |
+| [memory-vault](https://github.com/kase1111-hash/memory-vault) | Secure, offline-capable, owner-sovereign storage for cognitive artifacts |
+| [value-ledger](https://github.com/kase1111-hash/value-ledger) | Economic accounting layer for cognitive work (ideas, effort, novelty) |
+| [learning-contracts](https://github.com/kase1111-hash/learning-contracts) | Safety protocols for AI learning and data management |
+
+### Security Infrastructure
+
+| Repository | Description |
+|------------|-------------|
+| [Boundary-SIEM](https://github.com/kase1111-hash/Boundary-SIEM) | Security Information and Event Management for AI systems |
 
 ---
 
