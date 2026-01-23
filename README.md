@@ -428,7 +428,7 @@ Long-Home is part of a larger ecosystem of projects exploring natural language i
 
 ## License
 
-*License information to be added.*
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
