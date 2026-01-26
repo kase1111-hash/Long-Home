@@ -143,16 +143,25 @@ func get_service_async(service_name: String, callback: Callable) -> void:
 
 ## Wait for a service to be available (for use with await)
 func wait_for_service(service_name: String) -> Object:
+	# Check if already available before awaiting
 	if _services.has(service_name):
 		return _services[service_name]
 
-	# Wait for the service to be registered
-	while not _services.has(service_name):
-		await service_registered
-		if _services.has(service_name):
-			return _services[service_name]
+	# Use callback-based approach to avoid race condition with signals
+	var result: Object = null
+	var completed := false
 
-	return _services[service_name]
+	var callback := func(service: Object) -> void:
+		result = service
+		completed = true
+
+	get_service_async(service_name, callback)
+
+	# Wait until callback is invoked
+	while not completed:
+		await get_tree().process_frame
+
+	return result
 
 
 ## Check if all core services are ready

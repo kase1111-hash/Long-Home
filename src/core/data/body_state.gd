@@ -86,10 +86,14 @@ func get_rope_handling_modifier() -> float:
 	# Fatigue affects precision
 	modifier *= 1.0 - (fatigue * 0.2)
 
-	# Injury effects
+	# Injury effects - use additive penalty to avoid exponential stacking
+	var injury_penalty := 0.0
 	for injury in injuries:
-		modifier *= injury.get_capability_modifier("rope_handling")
-		modifier *= injury.get_capability_modifier("dexterity")
+		# Take the worse of rope_handling or dexterity modifier per injury
+		var rope_mod := injury.get_capability_modifier("rope_handling")
+		var dex_mod := injury.get_capability_modifier("dexterity")
+		injury_penalty += (1.0 - minf(rope_mod, dex_mod))
+	modifier *= maxf(0.1, 1.0 - injury_penalty)
 
 	return clampf(modifier, 0.1, 1.0)
 

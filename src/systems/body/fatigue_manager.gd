@@ -141,10 +141,11 @@ func _calculate_fatigue_rate() -> float:
 	# Activity level (movement speed)
 	rate *= 1.0 + activity_level * (speed_multiplier - 1.0)
 
-	# Slope effect
+	# Slope effect (capped to prevent extreme values on very steep terrain)
 	if current_slope > slope_threshold:
 		var slope_extra := current_slope - slope_threshold
-		rate *= 1.0 + slope_extra * slope_fatigue_per_degree
+		var slope_multiplier := 1.0 + slope_extra * slope_fatigue_per_degree
+		rate *= minf(slope_multiplier, 5.0)  # Cap at 5x multiplier
 
 	# Weight effect
 	if carried_weight > base_weight:

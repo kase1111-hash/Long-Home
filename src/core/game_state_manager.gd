@@ -152,7 +152,7 @@ func start_run(mountain_id: String, conditions: StartConditions) -> RunContext:
 		_abandon_run()
 
 	current_run = RunContext.create_new_run(mountain_id, conditions)
-	current_run.start_elevation = conditions.body_state.fatigue  # Will be set by terrain system
+	current_run.start_elevation = 0.0  # Will be set by terrain system after spawn
 
 	EventBus.run_started.emit(current_run)
 
