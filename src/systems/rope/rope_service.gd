@@ -223,11 +223,13 @@ func analyze_terrain_ahead(look_distance: float = 30.0) -> TerrainAnalysis:
 
 	# Check available anchors
 	var anchors := anchor_detector.get_all_anchors()
-	analysis.anchors_available = anchors.size()
-	for anchor in anchors:
-		var quality := anchor.get_effective_quality()
-		if quality > analysis.best_anchor_quality:
-			analysis.best_anchor_quality = quality
+	if anchors:
+		analysis.anchors_available = anchors.size()
+		for anchor in anchors:
+			if anchor and anchor.has_method("get_effective_quality"):
+				var quality := anchor.get_effective_quality()
+				if quality > analysis.best_anchor_quality:
+					analysis.best_anchor_quality = quality
 
 	# Calculate rappel distance
 	analysis.rappel_distance = inventory.get_total_length()

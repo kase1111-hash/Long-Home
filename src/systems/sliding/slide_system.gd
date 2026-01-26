@@ -143,7 +143,12 @@ class SlideState:
 	var distance: float = 0.0
 
 	func get_control_level() -> GameEnums.SlideControlLevel:
-		return GameEnums.get_slide_control_level(control)
+		# Validate control value to handle potential NaN or infinite values from physics
+		var safe_control := control
+		if not is_finite(safe_control):
+			safe_control = 0.0
+		safe_control = clampf(safe_control, 0.0, 1.0)
+		return GameEnums.get_slide_control_level(safe_control)
 
 
 # =============================================================================
