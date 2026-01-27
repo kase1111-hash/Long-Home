@@ -122,7 +122,13 @@ class WeatherWindow:
 	var wind_strength: GameEnums.WindStrength = GameEnums.WindStrength.CALM
 
 	func is_active(current_time: float) -> bool:
-		return current_time >= start_time and current_time < end_time
+		# Handle midnight wrapping (e.g., start=22, end=2 means 22:00-02:00)
+		if end_time > start_time:
+			# Normal case: window doesn't cross midnight
+			return current_time >= start_time and current_time < end_time
+		else:
+			# Window wraps around midnight
+			return current_time >= start_time or current_time < end_time
 
 
 # =============================================================================

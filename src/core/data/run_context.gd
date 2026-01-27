@@ -162,7 +162,8 @@ func update_time(delta_real: float) -> void:
 	real_time_elapsed += delta_real
 	var delta_game := delta_real * GameEnums.TIME_SCALE / 3600.0  # Convert to hours
 	game_time_elapsed += delta_game
-	current_time = fmod(start_conditions.time_of_day + game_time_elapsed, 24.0)
+	var start_time := start_conditions.time_of_day if start_conditions else 6.0
+	current_time = fmod(start_time + game_time_elapsed, 24.0)
 
 
 ## Record a decision
@@ -186,7 +187,7 @@ func record_incident(incident_type: String, details: Dictionary = {}) -> void:
 		"real_time": real_time_elapsed,
 		"position": position,
 		"velocity": velocity,
-		"body_state": body_state.duplicate_state(),
+		"body_state": body_state.duplicate_state() if body_state else null,
 		"details": details
 	}
 	incidents.append(incident)
@@ -314,9 +315,9 @@ func get_run_summary() -> Dictionary:
 		"end_elevation": current_elevation,
 		"decisions_count": decisions.size(),
 		"incidents_count": incidents.size(),
-		"final_fatigue": body_state.fatigue,
-		"injuries": body_state.injuries.size(),
-		"difficulty": start_conditions.get_difficulty_score()
+		"final_fatigue": body_state.fatigue if body_state else 0.0,
+		"injuries": body_state.injuries.size() if body_state else 0,
+		"difficulty": start_conditions.get_difficulty_score() if start_conditions else 0.0
 	}
 
 
