@@ -112,24 +112,37 @@ func _read_raw_input() -> void:
 		lean_input += 1.0
 
 
+## Maximum age for buffered inputs (seconds) before they are discarded
+const MAX_INPUT_AGE: float = 0.5
+
 func _process_buffered_input(delta: float) -> void:
 	if current_delay <= 0.001:
 		# No delay - direct input
 		move_input = raw_move_input
 		return
 
-	# Add current input to buffer
+	# Add current input to buffer with timestamp
 	input_buffer.append({
 		"input": raw_move_input,
-		"time": current_delay
+		"time": current_delay,
+		"age": 0.0
 	})
 
-	# Process buffer
+	# Process buffer - track age and ready inputs
 	var processed := []
+	var stale := []
 	for entry in input_buffer:
 		entry.time -= delta
+		entry.age += delta
 		if entry.time <= 0:
 			processed.append(entry)
+		elif entry.age > MAX_INPUT_AGE:
+			# Input too old - discard to prevent stale inputs from accumulating
+			stale.append(entry)
+
+	# Remove stale inputs
+	for entry in stale:
+		input_buffer.erase(entry)
 
 	# Use oldest ready input
 	if processed.size() > 0:
@@ -144,7 +157,7 @@ func _process_buffered_input(delta: float) -> void:
 			var blend := 1.0 - (input_buffer[0].time / current_delay)
 			move_input = move_input.lerp(target, blend * 0.5)
 
-	# Limit buffer size
+	# Limit buffer size (secondary safeguard)
 	while input_buffer.size() > 10:
 		input_buffer.pop_front()
 

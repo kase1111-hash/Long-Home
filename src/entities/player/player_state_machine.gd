@@ -192,16 +192,17 @@ class StandingState extends PlayerState:
 
 	func check_transitions() -> GameEnums.PlayerMovementState:
 		# Check for movement input
-		if player.input_handler.has_active_input():
+		if player.input_handler and player.input_handler.has_active_input():
 			return GameEnums.PlayerMovementState.WALKING
 
 		# Check for rest input
-		if player.input_handler.is_action_just_pressed("check_self"):
+		if player.input_handler and player.input_handler.is_action_just_pressed("check_self"):
 			return GameEnums.PlayerMovementState.RESTING
 
 		# Check for rope deployment
-		if player.input_handler.is_action_just_pressed("rope_deploy"):
-			if player.needs_rope() or player.current_cell and player.current_cell.slope_angle > 40:
+		if player.input_handler and player.input_handler.is_action_just_pressed("rope_deploy"):
+			var cell := player.current_cell
+			if player.needs_rope() or (cell != null and cell.slope_angle > 40):
 				return GameEnums.PlayerMovementState.ROPING
 
 		return GameEnums.PlayerMovementState.STANDING
@@ -217,16 +218,17 @@ class WalkingState extends PlayerState:
 
 	func check_transitions() -> GameEnums.PlayerMovementState:
 		# No input -> standing
-		if not player.input_handler.has_active_input():
+		if player.input_handler == null or not player.input_handler.has_active_input():
 			return GameEnums.PlayerMovementState.STANDING
 
 		# Steep terrain -> downclimbing
-		if player.current_cell:
-			if player.current_cell.slope_angle > 35 and not player.current_cell.is_slideable:
+		var cell := player.current_cell
+		if cell != null:
+			if cell.slope_angle > 35 and not cell.is_slideable:
 				return GameEnums.PlayerMovementState.DOWNCLIMBING
 
 		# Slide initiation
-		if player.input_handler.is_action_just_pressed("slide_initiate"):
+		if player.input_handler and player.input_handler.is_action_just_pressed("slide_initiate"):
 			if player.can_initiate_slide():
 				return GameEnums.PlayerMovementState.SLIDING
 
@@ -240,17 +242,19 @@ class WalkingState extends PlayerState:
 class DownclimbingState extends PlayerState:
 	func enter() -> void:
 		EventBus.emit_camera_signal(GameEnums.CameraSignal.SLOPE_CHANGE, 0.7)
+		var cell := player.current_cell
 		EventBus.record_decision("start_downclimb", {
-			"slope": player.current_cell.slope_angle if player.current_cell else 0.0
+			"slope": cell.slope_angle if cell != null else 0.0
 		})
 
 	func check_transitions() -> GameEnums.PlayerMovementState:
 		# Moderate terrain -> walking
-		if player.current_cell and player.current_cell.slope_angle < 30:
+		var cell := player.current_cell
+		if cell != null and cell.slope_angle < 30:
 			return GameEnums.PlayerMovementState.WALKING
 
 		# Rope deployment
-		if player.input_handler.is_action_just_pressed("rope_deploy"):
+		if player.input_handler and player.input_handler.is_action_just_pressed("rope_deploy"):
 			return GameEnums.PlayerMovementState.ROPING
 
 		return GameEnums.PlayerMovementState.DOWNCLIMBING
@@ -262,11 +266,12 @@ class DownclimbingState extends PlayerState:
 
 class TraversingState extends PlayerState:
 	func check_transitions() -> GameEnums.PlayerMovementState:
-		if not player.input_handler.has_active_input():
+		if player.input_handler == null or not player.input_handler.has_active_input():
 			return GameEnums.PlayerMovementState.STANDING
 
 		# Check if no longer on traverse terrain
-		if player.current_cell and player.current_cell.slope_angle < 20:
+		var cell := player.current_cell
+		if cell != null and cell.slope_angle < 20:
 			return GameEnums.PlayerMovementState.WALKING
 
 		return GameEnums.PlayerMovementState.TRAVERSING
@@ -279,14 +284,16 @@ class TraversingState extends PlayerState:
 class SlidingState extends PlayerState:
 	func enter() -> void:
 		EventBus.emit_camera_signal(GameEnums.CameraSignal.SLIDE_ENTRY, 1.0)
+		var cell := player.current_cell
+		var slope_angle := cell.slope_angle if cell != null else 0.0
 		EventBus.record_decision("start_slide", {
 			"position": player.global_position,
-			"slope": player.current_cell.slope_angle if player.current_cell else 0.0,
+			"slope": slope_angle,
 			"speed": player.smooth_velocity.length()
 		})
 		EventBus.slide_started.emit(
 			player.smooth_velocity.length(),
-			player.current_cell.slope_angle if player.current_cell else 0.0
+			slope_angle
 		)
 
 	func exit() -> void:
@@ -295,23 +302,28 @@ class SlidingState extends PlayerState:
 			player.smooth_velocity.length()
 		)
 
-	func update(delta: float) -> void:
+	func update(_delta: float) -> void:
 		# Sliding physics handled by SlideSystem
 		# This is placeholder - full implementation in SlideSystem
 		pass
 
 	func check_transitions() -> GameEnums.PlayerMovementState:
+		var cell := player.current_cell
+		var is_slow := player.smooth_velocity.length() < 2.0
+
 		# Exit slide when slope decreases and speed low
-		if player.current_cell:
-			var is_flat := player.current_cell.slope_angle < 20
-			var is_slow := player.smooth_velocity.length() < 2.0
+		if cell != null:
+			var is_flat := cell.slope_angle < 20
 
 			if is_flat and is_slow:
 				return GameEnums.PlayerMovementState.STANDING
 
 			# Check for exit zone
-			if player.current_cell.is_exit_zone and is_slow:
+			if cell.is_exit_zone and is_slow:
 				return GameEnums.PlayerMovementState.STANDING
+		elif is_slow:
+			# No terrain data but moving slowly - exit slide
+			return GameEnums.PlayerMovementState.STANDING
 
 		return GameEnums.PlayerMovementState.SLIDING
 
@@ -385,7 +397,8 @@ class ArrestedState extends PlayerState:
 
 		# Failed arrest -> continue sliding or falling
 		if arrest_time > 3.0:
-			if player.current_cell and player.current_cell.is_slideable:
+			var cell := player.current_cell
+			if cell != null and cell.is_slideable:
 				return GameEnums.PlayerMovementState.SLIDING
 			else:
 				return GameEnums.PlayerMovementState.FALLING
@@ -399,14 +412,16 @@ class ArrestedState extends PlayerState:
 
 class RestingState extends PlayerState:
 	func enter() -> void:
-		player.input_handler.start_self_check()
+		if player.input_handler:
+			player.input_handler.start_self_check()
 
 	func exit() -> void:
-		player.input_handler.end_self_check()
+		if player.input_handler:
+			player.input_handler.end_self_check()
 
 	func check_transitions() -> GameEnums.PlayerMovementState:
 		# Any significant input exits rest
-		if player.input_handler.has_active_input():
+		if player.input_handler and player.input_handler.has_active_input():
 			return GameEnums.PlayerMovementState.STANDING
 
 		return GameEnums.PlayerMovementState.RESTING

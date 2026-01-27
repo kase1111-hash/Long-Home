@@ -73,11 +73,11 @@ enum SurfaceType {
 
 enum TerrainZone {
 	WALKABLE,          # < 25 degrees
-	STEEP,             # 25-35 degrees
-	SLIDEABLE,         # 25-40 degrees (overlaps with steep)
-	DOWNCLIMB,         # 35-50 degrees
-	RAPPEL_REQUIRED,   # 50-70 degrees
-	CLIFF              # > 70 degrees
+	STEEP,             # 25-30 degrees (can walk with caution)
+	SLIDEABLE,         # 30-35 degrees (primary sliding terrain)
+	DOWNCLIMB,         # 35-50 degrees (must face slope)
+	RAPPEL_REQUIRED,   # 50-70 degrees (rope required)
+	CLIFF              # > 70 degrees (vertical/near-vertical)
 }
 
 # =============================================================================
@@ -293,7 +293,8 @@ enum KnowledgeLevel {
 
 const SLOPE_THRESHOLDS := {
 	"walkable_max": 25.0,
-	"slide_min": 25.0,
+	"steep_max": 30.0,       # Upper bound for STEEP zone (25-30 degrees)
+	"slide_min": 30.0,       # Sliding terrain starts at 30 degrees
 	"slide_max": 40.0,
 	"downclimb_min": 35.0,
 	"downclimb_max": 50.0,
@@ -314,12 +315,15 @@ const FATIGUE_THRESHOLDS := {
 const SURFACE_FRICTION := {
 	SurfaceType.SNOW_FIRM: 0.3,
 	SurfaceType.SNOW_SOFT: 0.5,
+	SurfaceType.SNOW_PACKED: 0.35,  # Similar to firm, slightly more grip
 	SurfaceType.SNOW_POWDER: 0.6,
 	SurfaceType.ICE: 0.1,
 	SurfaceType.ROCK: 0.6,
 	SurfaceType.ROCK_DRY: 0.7,
 	SurfaceType.ROCK_WET: 0.2,
 	SurfaceType.SCREE: 0.6,
+	SurfaceType.GRASS: 0.55,        # Moderate grip, can be slippery when wet
+	SurfaceType.MUD: 0.25,          # Low friction, very slippery
 	SurfaceType.MIXED: 0.4
 }
 
@@ -328,6 +332,7 @@ const SURFACE_FRICTION := {
 # =============================================================================
 
 ## Get terrain zone for a given slope angle in degrees
+## Note: STEEP (25-30°) and SLIDEABLE (30-40°) are now distinct ranges
 static func get_terrain_zone(slope_angle: float) -> TerrainZone:
 	if slope_angle >= SLOPE_THRESHOLDS.cliff_min:
 		return TerrainZone.CLIFF
@@ -341,6 +346,16 @@ static func get_terrain_zone(slope_angle: float) -> TerrainZone:
 		return TerrainZone.STEEP
 	else:
 		return TerrainZone.WALKABLE
+
+
+## Check if terrain is in the steep zone (25-30 degrees)
+static func is_steep_terrain(slope_angle: float) -> bool:
+	return slope_angle >= SLOPE_THRESHOLDS.walkable_max and slope_angle < SLOPE_THRESHOLDS.steep_max
+
+
+## Check if terrain is slideable (30-40 degrees)
+static func is_slideable_terrain(slope_angle: float) -> bool:
+	return slope_angle >= SLOPE_THRESHOLDS.slide_min and slope_angle < SLOPE_THRESHOLDS.downclimb_min
 
 ## Get slide control level from 0-1 value
 static func get_slide_control_level(control: float) -> SlideControlLevel:
