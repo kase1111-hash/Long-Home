@@ -124,6 +124,9 @@ func _create_states() -> void:
 # =============================================================================
 
 func update(delta: float) -> void:
+	if player == null:
+		return
+
 	state_time += delta
 
 	if current_state:
@@ -151,11 +154,14 @@ func transition_to(new_state: GameEnums.PlayerMovementState) -> void:
 	if current_state:
 		current_state.exit()
 
-	current_state = states.get(new_state)
-	state_time = 0.0
+	var next := states.get(new_state)
+	if next == null:
+		push_warning("[PlayerStateMachine] No state instance for: %s" % GameEnums.PlayerMovementState.keys()[new_state])
+		return
 
-	if current_state:
-		current_state.enter()
+	current_state = next
+	state_time = 0.0
+	current_state.enter()
 
 
 # =============================================================================
@@ -283,24 +289,22 @@ class TraversingState extends PlayerState:
 
 class SlidingState extends PlayerState:
 	func enter() -> void:
+		if player == null:
+			return
 		EventBus.emit_camera_signal(GameEnums.CameraSignal.SLIDE_ENTRY, 1.0)
 		var cell := player.current_cell
 		var slope_angle := cell.slope_angle if cell != null else 0.0
+		var speed := player.smooth_velocity.length() if player.smooth_velocity else 0.0
 		EventBus.record_decision("start_slide", {
 			"position": player.global_position,
 			"slope": slope_angle,
-			"speed": player.smooth_velocity.length()
+			"speed": speed
 		})
-		EventBus.slide_started.emit(
-			player.smooth_velocity.length(),
-			slope_angle
-		)
+		EventBus.slide_started.emit(speed, slope_angle)
 
 	func exit() -> void:
-		EventBus.slide_ended.emit(
-			GameEnums.SlideOutcome.CLEAN_STOP,
-			player.smooth_velocity.length()
-		)
+		var speed := player.smooth_velocity.length() if player and player.smooth_velocity else 0.0
+		EventBus.slide_ended.emit(GameEnums.SlideOutcome.CLEAN_STOP, speed)
 
 	func update(_delta: float) -> void:
 		# Sliding physics handled by SlideSystem
@@ -308,8 +312,10 @@ class SlidingState extends PlayerState:
 		pass
 
 	func check_transitions() -> GameEnums.PlayerMovementState:
+		if player == null:
+			return GameEnums.PlayerMovementState.SLIDING
 		var cell := player.current_cell
-		var is_slow := player.smooth_velocity.length() < 2.0
+		var is_slow := player.smooth_velocity.length() < 2.0 if player.smooth_velocity else true
 
 		# Exit slide when slope decreases and speed low
 		if cell != null:
@@ -382,9 +388,10 @@ class ArrestedState extends PlayerState:
 
 	func enter() -> void:
 		arrest_time = 0.0
+		var speed := player.smooth_velocity.length() if player and player.smooth_velocity else 0.0
 		EventBus.record_incident("self_arrest", {
-			"position": player.global_position,
-			"speed": player.smooth_velocity.length()
+			"position": player.global_position if player else Vector3.ZERO,
+			"speed": speed
 		})
 
 	func update(delta: float) -> void:
@@ -392,7 +399,10 @@ class ArrestedState extends PlayerState:
 		# Gradually stop
 
 	func check_transitions() -> GameEnums.PlayerMovementState:
-		if player.smooth_velocity.length() < 0.5:
+		if player == null:
+			return GameEnums.PlayerMovementState.ARRESTED
+		var current_speed := player.smooth_velocity.length() if player.smooth_velocity else 0.0
+		if current_speed < 0.5:
 			return GameEnums.PlayerMovementState.STANDING
 
 		# Failed arrest -> continue sliding or falling

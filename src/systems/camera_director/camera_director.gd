@@ -72,6 +72,9 @@ var drone_service: DroneService
 ## Is director active
 var is_active: bool = false
 
+## Whether all required services are available
+var _services_ready: bool = false
+
 ## Current shot start time
 var shot_start_time: float = 0.0
 
@@ -81,8 +84,17 @@ var current_shot_intent: GameEnums.ShotIntent = GameEnums.ShotIntent.CONTEXT
 ## Shots executed this session
 var shot_count: int = 0
 
-## Decisions made this session
+## Decisions made this session (ring buffer, max 100 entries)
 var decision_history: Array[Dictionary] = []
+
+## Ring buffer write index for decision history
+var _decision_write_index: int = 0
+
+## Maximum decision history entries
+const MAX_DECISION_HISTORY: int = 100
+
+## Whether the ring buffer has wrapped
+var _decision_buffer_wrapped: bool = false
 
 ## Is currently executing a scripted sequence
 var in_sequence: bool = false
@@ -109,17 +121,32 @@ var last_subject_position: Vector3 = Vector3.ZERO
 func _ready() -> void:
 	ServiceLocator.register_service("CameraDirector", self)
 
-	# Get component references
-	ServiceLocator.get_service_async("SignalDetector", func(s): signal_detector = s)
+	# Get component references with readiness tracking
+	ServiceLocator.get_service_async("SignalDetector", func(s):
+		signal_detector = s
+		_check_services_ready()
+	)
 	ServiceLocator.get_service_async("IntentSelector", func(s):
 		intent_selector = s
 		intent_selector.intent_changed.connect(_on_intent_changed)
+		_check_services_ready()
 	)
-	ServiceLocator.get_service_async("EmotionalRhythmEngine", func(s): rhythm_engine = s)
-	ServiceLocator.get_service_async("DroneService", func(s): drone_service = s)
+	ServiceLocator.get_service_async("EmotionalRhythmEngine", func(s):
+		rhythm_engine = s
+		_check_services_ready()
+	)
+	ServiceLocator.get_service_async("DroneService", func(s):
+		drone_service = s
+		_check_services_ready()
+	)
 
 	_connect_events()
 	print("[CameraDirector] Initialized - The show begins")
+
+
+func _check_services_ready() -> void:
+	_services_ready = (signal_detector != null and intent_selector != null
+		and rhythm_engine != null and drone_service != null)
 
 
 func _connect_events() -> void:
@@ -138,7 +165,7 @@ func _connect_events() -> void:
 # =============================================================================
 
 func _process(delta: float) -> void:
-	if not is_active or not ai_enabled:
+	if not is_active or not ai_enabled or not _services_ready:
 		return
 
 	_update_prediction(delta)
@@ -388,6 +415,8 @@ func _on_descent_ready() -> void:
 	is_active = true
 	shot_count = 0
 	decision_history.clear()
+	_decision_write_index = 0
+	_decision_buffer_wrapped = false
 
 	# Start with establishing shot
 	call_context_shot("descent_start")
@@ -447,11 +476,14 @@ func _record_decision(decision: String, reason: String) -> void:
 		"intent": GameEnums.ShotIntent.keys()[current_shot_intent]
 	}
 
-	decision_history.append(entry)
+	# Ring buffer: overwrite oldest entry instead of pop_front() which is O(n)
+	if decision_history.size() < MAX_DECISION_HISTORY:
+		decision_history.append(entry)
+	else:
+		decision_history[_decision_write_index] = entry
+		_decision_buffer_wrapped = true
 
-	# Keep history manageable
-	if decision_history.size() > 100:
-		decision_history.pop_front()
+	_decision_write_index = (_decision_write_index + 1) % MAX_DECISION_HISTORY
 
 	director_decision.emit(decision, reason)
 
@@ -499,4 +531,12 @@ func get_summary() -> Dictionary:
 
 
 func get_decision_history() -> Array[Dictionary]:
-	return decision_history
+	if not _decision_buffer_wrapped:
+		return decision_history
+
+	# Return in chronological order when ring buffer has wrapped
+	var ordered: Array[Dictionary] = []
+	for i in range(MAX_DECISION_HISTORY):
+		var idx := (_decision_write_index + i) % MAX_DECISION_HISTORY
+		ordered.append(decision_history[idx])
+	return ordered

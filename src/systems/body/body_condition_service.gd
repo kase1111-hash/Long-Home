@@ -47,6 +47,15 @@ var overall_condition: float = 1.0
 ## Previous condition (for change detection)
 var previous_condition: float = 1.0
 
+## Timer for throttled body state emission
+var body_state_emit_timer: float = 0.0
+
+## Interval between body state emissions (seconds)
+var body_state_emit_interval: float = 0.5
+
+## Whether body state has changed since last emission
+var body_state_dirty: bool = false
+
 ## Is player doing self-check
 var is_self_checking: bool = false
 
@@ -111,8 +120,12 @@ func _process(delta: float) -> void:
 	_check_collapse()
 	_process_self_check(delta)
 
-	# Emit body state update periodically
-	EventBus.body_state_updated.emit(body_state)
+	# Emit body state update only when changed and at throttled intervals
+	body_state_emit_timer += delta
+	if body_state_dirty and body_state_emit_timer >= body_state_emit_interval:
+		EventBus.body_state_updated.emit(body_state)
+		body_state_emit_timer = 0.0
+		body_state_dirty = false
 
 
 func _update_overall_condition() -> void:
@@ -139,6 +152,9 @@ func _update_overall_condition() -> void:
 	overall_condition = clampf(condition, 0.0, 1.0)
 
 	# Check for significant change
+	if absf(overall_condition - previous_condition) > 0.01:
+		body_state_dirty = true
+
 	if absf(overall_condition - previous_condition) > 0.1:
 		condition_changed.emit(overall_condition)
 
@@ -213,6 +229,7 @@ func _complete_self_check() -> void:
 func set_activity_level(level: float) -> void:
 	fatigue_manager.set_activity_level(level)
 	cold_manager.set_activity_level(level)
+	body_state_dirty = true
 
 
 ## Update slope (from terrain)
@@ -237,26 +254,31 @@ func set_insulation(level: float) -> void:
 
 ## Apply impact damage
 func apply_impact(force: float, direction: Vector3, context: Dictionary = {}) -> Injury:
+	body_state_dirty = true
 	return injury_manager.process_impact(force, direction, context)
 
 
 ## Apply slide damage
 func apply_slide_impact(speed: float, surface: GameEnums.SurfaceType) -> Injury:
+	body_state_dirty = true
 	return injury_manager.process_slide_impact(speed, surface)
 
 
 ## Apply fall damage
 func apply_fall(height: float, surface: GameEnums.SurfaceType) -> Injury:
+	body_state_dirty = true
 	return injury_manager.process_fall(height, surface)
 
 
 ## Apply sudden cold exposure
 func apply_cold_exposure(amount: float) -> void:
+	body_state_dirty = true
 	cold_manager.apply_sudden_exposure(amount)
 
 
 ## Apply burst fatigue
 func apply_fatigue(amount: float) -> void:
+	body_state_dirty = true
 	fatigue_manager.apply_burst_fatigue(amount)
 
 
