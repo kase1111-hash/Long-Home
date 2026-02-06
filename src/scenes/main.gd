@@ -130,13 +130,22 @@ func _debug_quick_start() -> void:
 	# Create test conditions
 	var conditions := StartConditions.create_moderate()
 
-	# Start a test run
+	# Transition through states with frame delays to let signal handlers complete
 	GameStateManager.transition_to(GameEnums.GameState.MOUNTAIN_SELECT)
+	await get_tree().process_frame
+
 	GameStateManager.transition_to(GameEnums.GameState.LOADOUT_CONFIG)
+	await get_tree().process_frame
+
 	GameStateManager.transition_to(GameEnums.GameState.PLANNING)
+	await get_tree().process_frame
 
 	var run := GameStateManager.start_run("test_mountain", conditions)
-	print("[Main] Test run created: %s" % run.run_id)
+	if run:
+		print("[Main] Test run created: %s" % run.run_id)
+	else:
+		push_error("[Main] DEBUG: Failed to create test run")
+		return
 
 	GameStateManager.transition_to(GameEnums.GameState.DESCENT)
 
