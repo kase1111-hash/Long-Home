@@ -6,7 +6,7 @@ Long-Home is an atmospheric, narrative-driven mountaineering descent simulation 
 
 **Philosophy:** "The game is about consequence, not conquest. You don't win by reaching the summit. You win by returning intact, having made good decisions."
 
-**Status:** v0.1.0-alpha | ~111 GDScript files | ~46,254 lines of code
+**Status:** v0.1.0-alpha | 111 GDScript files
 
 ## Tech Stack
 
@@ -20,7 +20,7 @@ Long-Home is an atmospheric, narrative-driven mountaineering descent simulation 
 
 ### Core Patterns
 
-1. **Event Bus Pattern** - `EventBus` singleton with 150+ signals for cross-system communication
+1. **Event Bus Pattern** - `EventBus` singleton with 69 signals for cross-system communication
 2. **Service Locator Pattern** - `ServiceLocator` singleton for dependency injection
 3. **State Machine Pattern** - `GameStateManager` for game lifecycle, `PlayerStateMachine` for player states
 4. **Component-Based Architecture** - Player uses composable component systems
@@ -51,26 +51,29 @@ ServiceLocator.register_service("ServiceName", self)
 
 ```
 src/
-├── core/           # Singletons, data classes (EventBus, ServiceLocator, RunContext)
-├── player/         # Player controller and components (10 files)
-├── systems/        # Game systems (73 files)
-│   ├── terrain/    # Terrain generation and queries
-│   ├── sliding/    # Slide physics (most complex system)
-│   ├── rope/       # Rope and rappelling
-│   ├── environment/# Weather, time, temperature
-│   ├── body/       # Fatigue, cold, injuries
-│   ├── drone/      # Drone camera system
-│   ├── camera/     # AI Camera Director
-│   ├── fatal/      # Ethical death handling
-│   ├── risk/       # Risk detection
-│   ├── audio/      # Sound management
-│   ├── ui/         # User interface (17 files)
-│   ├── tutorial/   # Onboarding
-│   ├── save/       # Persistence
-│   └── streaming/  # Recording and replay
-├── scenes/         # .tscn scene files
-└── data/           # Gear and mountain databases
-tests/              # Python validation scripts
+├── core/               # Singletons, data classes (EventBus, ServiceLocator, RunContext)
+│   └── data/           # Core data structures (RunContext, BodyState, GearState, etc.)
+├── entities/
+│   └── player/         # Player controller and components (9 files)
+├── systems/            # Game systems (73 files)
+│   ├── terrain/        # Terrain generation and queries (8 files)
+│   ├── sliding/        # Slide physics (5 files)
+│   ├── rope/           # Rope and rappelling (7 files)
+│   ├── environment/    # Weather, time, temperature (5 files)
+│   ├── body/           # Fatigue, cold, injuries (4 files)
+│   ├── drone/          # Drone camera system (5 files)
+│   ├── camera_director/# AI Camera Director (5 files)
+│   ├── fatal_event/    # Ethical death handling (5 files)
+│   ├── risk/           # Risk detection (5 files)
+│   ├── audio/          # Sound management (9 files)
+│   ├── tutorial/       # Onboarding (4 files)
+│   ├── save/           # Persistence (5 files)
+│   ├── replay/         # Recording and playback (5 files)
+│   └── streaming/      # OBS integration (1 file)
+├── ui/                 # User interface (17 files)
+├── data/               # Gear and mountain databases (2 files)
+└── scenes/             # Scene management (1 file)
+tests/                  # Python validation scripts
 ```
 
 ## Key Systems
@@ -118,7 +121,6 @@ godot --editor project.godot
 godot project.godot
 
 # Run tests
-godot --headless --script tests/run_tests.gd
 python tests/test_gdscript_validation.py
 python tests/test_procedural_generation.py
 ```
@@ -194,14 +196,16 @@ print("[SystemName] Debug message")
 
 | Task | Key Files |
 |------|-----------|
-| Player mechanics | `src/player/player_controller.gd`, `player_movement.gd`, `player_state_machine.gd` |
+| Player mechanics | `src/entities/player/player_controller.gd`, `player_movement.gd`, `player_state_machine.gd` |
 | Adding events | `src/core/event_bus.gd` |
 | New service | `src/core/service_locator.gd` |
 | Terrain queries | `src/systems/terrain/terrain_service.gd` |
 | Sliding physics | `src/systems/sliding/slide_system.gd` |
+| Camera director | `src/systems/camera_director/camera_director.gd` |
+| Fatal events | `src/systems/fatal_event/fatal_event_manager.gd` |
 | Game states | `src/core/game_state_manager.gd` |
-| Run data | `src/core/run_context.gd` |
-| UI screens | `src/systems/ui/` |
+| Run data | `src/core/data/run_context.gd` |
+| UI screens | `src/ui/` |
 
 ## Documentation
 
@@ -211,4 +215,5 @@ print("[SystemName] Debug message")
 - `CONTRIBUTING.md` - Contributor guidelines and PR process
 - `CHANGELOG.md` - Version history
 - `SECURITY.md` - Security policy
-- `AUDIT-REPORT.md` - Software audit findings
+- `AUDIT-REPORT.md` - Software audit findings and known bugs
+- `EVALUATION-REPORT.md` - Project quality and purpose evaluation

@@ -124,10 +124,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Known Limitations
 - Audio uses placeholder sounds (real assets pending)
+- Tutorial instructor dialogue and interactive teaching moments incomplete
+- Scout drone (diegetic easy-mode recon) not yet implemented
 - Single sample mountain included (more mountains planned)
 - Avalanche and crevasse systems not yet implemented
 - Gear damage system not yet implemented
 - Accessibility features pending
+- Known bugs documented in AUDIT-REPORT.md (terrain zone classification, null safety, weather window)
 
 ---
 
