@@ -43,6 +43,7 @@ Thank you for your interest in contributing to Long-Home! This document provides
 2. Run the test suite to verify everything works:
    ```bash
    python tests/test_gdscript_validation.py
+   python tests/test_procedural_generation.py
    ```
 
 ## How to Contribute
@@ -60,6 +61,7 @@ Thank you for your interest in contributing to Long-Home! This document provides
 1. Check the [issue tracker](https://github.com/kase1111-hash/Long-Home/issues) to see if someone is already working on it
 2. For new features, open an issue first to discuss the approach
 3. Review the [SPEC-SHEET.md](SPEC-SHEET.md) and [PROGRAMMING-ROADMAP.md](PROGRAMMING-ROADMAP.md) to understand the architecture
+4. Review the [AUDIT-REPORT.md](AUDIT-REPORT.md) for known bugs and issues
 
 ## Coding Standards
 

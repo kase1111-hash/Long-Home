@@ -55,26 +55,24 @@ As a first-person mountain survival experience, Long-Home combines realistic ter
 
 ## Features
 
-### Implemented Systems (16 Major Systems)
+### 16 Major Systems
 
-| System | Description |
-|--------|-------------|
-| **Terrain & World** | Real USGS topo data, DEM loading, slope analysis |
-| **Sliding Mechanics** | High-skill, terrifying descent with control spectrum |
-| **Rope System** | Strategic tool with time/safety trade-offs |
-| **Time & Environment** | Day/night cycles, weather, temperature |
-| **Body Condition** | Fatigue, cold exposure, injuries (diegetic feedback) |
-| **Risk Detection** | Invisible but omnipresent danger feedback |
-| **Drone Camera** | Documentary-style "witness" camera |
-| **Camera Director AI** | AI filmmaker controlling shots with 5 intent types |
-| **Fatal Event Handling** | Ethical 5-phase death sequence system |
-| **Ethical Streaming** | Streamer-friendly content handling |
-| **User Interface** | Minimalist, diegetic UI |
-| **Tutorial System** | "Knife edge" opening, diegetic instructor |
-| **End States** | Multiple failure/success types with replay |
-| **Audio Design** | Environmental soundscape (wind, crampon, breathing) |
-| **Streaming & Replay** | Recording, playback, and OBS integration |
-| **Save & Progression** | Route memory, knowledge tracking |
+| System | Status | Description |
+|--------|--------|-------------|
+| **Terrain & World** | Complete | DEM loading, slope analysis, 11 surface types, 6 terrain zones |
+| **Sliding Mechanics** | Complete | High-skill descent with control spectrum |
+| **Rope System** | Complete | Deployment, anchors, rappelling with time/safety trade-offs |
+| **Time & Environment** | Complete | Day/night cycles, 9 weather states, temperature |
+| **Body Condition** | Complete | Fatigue, cold exposure, injuries (diegetic feedback) |
+| **Risk Detection** | Complete | Terrain analysis, fall prediction, diegetic risk cues |
+| **Drone Camera** | Partial | Spectator drone implemented; scout drone not yet implemented |
+| **Camera Director AI** | Complete | AI filmmaker with 5 shot intent types |
+| **Fatal Event Handling** | Complete | Ethical 5-phase death sequence system |
+| **User Interface** | Complete | Minimalist, diegetic UI across all game phases |
+| **Tutorial System** | Structural | Framework exists; instructor dialogue and interactions incomplete |
+| **Audio Design** | Structural | System architecture in place; uses placeholder audio assets |
+| **Streaming & Replay** | Complete | Recording, playback, OBS integration, highlights |
+| **Save & Progression** | Complete | Route memory, run history, player profiles |
 
 ---
 
@@ -104,8 +102,11 @@ As a first-person mountain survival experience, Long-Home combines realistic ter
 ### Running Tests
 
 ```bash
-# From project root
-godot --headless --script tests/run_tests.gd
+# Static analysis validation
+python tests/test_gdscript_validation.py
+
+# Procedural generation tests
+python tests/test_procedural_generation.py
 ```
 
 ---
@@ -140,7 +141,7 @@ godot --headless --script tests/run_tests.gd
 Long-Home/
 ├── src/
 │   ├── core/                          # Architecture & state management
-│   │   ├── event_bus.gd              # 150+ signals for cross-system communication
+│   │   ├── event_bus.gd              # 69 signals for cross-system communication
 │   │   ├── enums.gd                  # Game enumerations & constants
 │   │   ├── service_locator.gd        # Dependency injection system
 │   │   ├── game_state_manager.gd     # Global state machine
@@ -152,7 +153,7 @@ Long-Home/
 │   │       └── injury.gd             # Injury data class
 │   │
 │   ├── entities/
-│   │   └── player/                   # Player controller (10 components)
+│   │   └── player/                   # Player controller (9 components)
 │   │       ├── player_controller.gd  # Main CharacterBody3D
 │   │       ├── player_movement.gd    # Movement physics
 │   │       ├── player_input.gd       # Input handling
@@ -222,7 +223,7 @@ The game uses a **Service Locator** pattern with an **Event Bus** for cross-syst
 
 | Service | Purpose |
 |---------|---------|
-| `EventBus` | Global event communication (150+ signals) |
+| `EventBus` | Global event communication (69 signals) |
 | `GameEnums` | Shared enumerations and constants |
 | `ServiceLocator` | Dependency injection registry |
 | `GameStateManager` | Global state machine |
@@ -250,7 +251,7 @@ RESTING (temporary recovery state)
 
 ### Event-Driven Architecture
 
-The `EventBus` contains **150+ signals** organized by category:
+The `EventBus` contains **69 signals** organized by category:
 
 - **Game State** (5 signals): `game_state_changed`, `run_started`, `run_ended`, etc.
 - **Player** (6 signals): `player_movement_changed`, `micro_slip_occurred`, etc.
@@ -333,15 +334,20 @@ All feedback is diegetic - no numerical displays.
 
 | Document | Purpose |
 |----------|---------|
-| [CHANGELOG.md](CHANGELOG.md) | Version history and release notes |
 | [SPEC-SHEET.md](SPEC-SHEET.md) | Complete game specification covering all 16 major systems |
 | [PROGRAMMING-ROADMAP.md](PROGRAMMING-ROADMAP.md) | Implementation guide with code structure and data models |
+| [CHANGELOG.md](CHANGELOG.md) | Version history and release notes |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contributor guidelines, coding standards, and PR process |
+| [AUDIT-REPORT.md](AUDIT-REPORT.md) | Software audit findings and known bugs |
+| [EVALUATION-REPORT.md](EVALUATION-REPORT.md) | Project quality and purpose evaluation |
+| [SECURITY.md](SECURITY.md) | Security policy and vulnerability reporting |
+| [claude.md](claude.md) | Quick developer reference for the codebase |
 
 ---
 
 ## Development Status
 
-### Implemented (v0.1.0)
+### Complete (v0.1.0)
 
 - [x] Core architecture (Event Bus, State Manager, Service Locator)
 - [x] Player controller with multi-state movement
@@ -350,14 +356,19 @@ All feedback is diegetic - no numerical displays.
 - [x] Terrain system with DEM support
 - [x] Body condition tracking (fatigue, cold, injuries)
 - [x] Camera Director AI with 5 shot intents
-- [x] Drone camera system
+- [x] Drone camera system (spectator mode)
 - [x] Fatal event handling (5 phases)
-- [x] Tutorial system ("knife edge" opening)
 - [x] Planning phase with topo maps
-- [x] Audio system with diegetic feedback
 - [x] Save and progression system
 - [x] OBS/streaming integration
 - [x] Replay and analysis tools
+- [x] Risk detection system
+
+### Partial / Structural
+
+- [ ] Tutorial system (framework exists; instructor dialogue incomplete)
+- [ ] Audio system (architecture in place; uses placeholder assets)
+- [ ] Scout drone (diegetic easy-mode drone not yet implemented)
 
 ### Planned
 
@@ -366,7 +377,7 @@ All feedback is diegetic - no numerical displays.
 - [ ] Advanced rescue mechanics
 - [ ] More complex weather generation
 - [ ] Gear damage system
-- [ ] Real audio assets (currently placeholders)
+- [ ] Real audio assets to replace placeholders
 - [ ] Real USGS mountain data integration
 - [ ] Accessibility features
 

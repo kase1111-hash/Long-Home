@@ -2,7 +2,7 @@
 
 This document provides implementation guidance for each game system, showing what has been built and how to extend it.
 
-**Implementation Status:** All 16 major systems are implemented with 111 GDScript files.
+**Implementation Status:** All 16 major systems have scaffolding in place across 111 GDScript files. Most systems are fully implemented; Audio and Tutorial systems are structural with placeholder content. See per-system status below.
 
 ---
 
@@ -16,13 +16,13 @@ This document provides implementation guidance for each game system, showing wha
 6. [Time & Weather System](#6-time--weather-system) ✅
 7. [Body Condition System](#7-body-condition-system) ✅
 8. [Risk Detection System](#8-risk-detection-system) ✅
-9. [Drone Camera System](#9-drone-camera-system) ✅
+9. [Drone Camera System](#9-drone-camera-system) ⚠️ Partial
 10. [Camera Director AI](#10-camera-director-ai) ✅
 11. [Fatal Event System](#11-fatal-event-system) ✅
 12. [UI System](#12-ui-system) ✅
-13. [Audio System](#13-audio-system) ✅
+13. [Audio System](#13-audio-system) ⚠️ Structural
 14. [Streaming & Replay System](#14-streaming--replay-system) ✅
-15. [Tutorial & Onboarding](#15-tutorial--onboarding) ✅
+15. [Tutorial & Onboarding](#15-tutorial--onboarding) ⚠️ Structural
 16. [Save & Progression System](#16-save--progression-system) ✅
 
 ---
@@ -32,7 +32,7 @@ This document provides implementation guidance for each game system, showing wha
 ```
 src/
 ├── core/                              # 9 files
-│   ├── event_bus.gd                  # 150+ signals
+│   ├── event_bus.gd                  # 69 signals
 │   ├── enums.gd                      # GameEnums
 │   ├── service_locator.gd            # DI container
 │   ├── game_state_manager.gd         # State machine
@@ -42,7 +42,7 @@ src/
 │       ├── gear_state.gd
 │       ├── start_conditions.gd
 │       └── injury.gd
-├── entities/player/                   # 10 files
+├── entities/player/                   # 9 files
 ├── systems/
 │   ├── audio/                         # 9 files
 │   ├── body/                          # 4 files
@@ -58,7 +58,7 @@ src/
 │   ├── tutorial/                      # 4 files
 │   ├── save/                          # 5 files
 │   └── streaming/                     # 1 file
-├── ui/                                # 16 files
+├── ui/                                # 17 files
 ├── data/                              # 2 files
 └── scenes/                            # 1 file
 ```
@@ -70,7 +70,7 @@ src/
 **Status:** ✅ Implemented
 
 **Files:**
-- `src/core/event_bus.gd` - 150+ signals organized by category
+- `src/core/event_bus.gd` - 69 signals organized by category
 - `src/core/enums.gd` - All game enumerations
 - `src/core/service_locator.gd` - Dependency injection
 - `src/core/game_state_manager.gd` - Global state machine
@@ -248,7 +248,7 @@ USGS DEM Data → Parser → HeightmapGenerator → TerrainMesh → PhysicsColli
 
 ## 3. Player Controller
 
-**Status:** ✅ Implemented
+**Status:** ✅ Implemented (9 files)
 
 **Files:**
 - `src/entities/player/player_controller.gd` - Main CharacterBody3D
@@ -797,7 +797,7 @@ BodyState:
 
 ## 9. Drone Camera System
 
-**Status:** ✅ Implemented
+**Status:** ⚠️ Partial — Spectator drone implemented; scout drone (diegetic easy-mode recon) not yet implemented
 
 **Files:**
 - `src/systems/drone/drone_service.gd` - Coordinator
@@ -1194,7 +1194,7 @@ BodyState:
 
 ## 13. Audio System
 
-**Status:** ✅ Implemented
+**Status:** ⚠️ Structural — System architecture implemented with placeholder audio. Real audio assets pending.
 
 **Files:**
 - `src/systems/audio/audio_service.gd` - Central coordinator
@@ -1344,7 +1344,7 @@ BodyState:
 
 ## 15. Tutorial & Onboarding
 
-**Status:** ✅ Implemented
+**Status:** ⚠️ Structural — Framework and trigger system exist; instructor dialogue and interactive teaching moments incomplete
 
 **Files:**
 - `src/systems/tutorial/tutorial_manager.gd` - Main coordinator
@@ -1442,14 +1442,14 @@ BodyState:
 
 ## Implementation Status Summary
 
-All 16 major systems have been implemented. Below is the completion status:
+All 16 major systems have scaffolding in place. 13 are fully implemented; 3 are structural or partial. Below is the completion status:
 
 | Phase | Systems | Status |
 |-------|---------|--------|
 | **Phase 1: Core Foundation** | Terrain, Player, Camera, Time | ✅ Complete |
 | **Phase 2: Core Mechanics** | Sliding, Rope, Body Condition, Risk | ✅ Complete |
-| **Phase 3: Camera & Polish** | Drone, Camera Director AI, Audio, UI | ✅ Complete |
-| **Phase 4: Experience** | Fatal Event, Tutorial, Replay, Streaming | ✅ Complete |
+| **Phase 3: Camera & Polish** | Drone, Camera Director AI, Audio, UI | ⚠️ Drone partial (scout mode missing), Audio structural (placeholder assets) |
+| **Phase 4: Experience** | Fatal Event, Tutorial, Replay, Streaming | ⚠️ Tutorial structural (dialogue incomplete) |
 | **Phase 5: Content** | Mountains, Weather, Progression, Save | ✅ Complete |
 
 ### Future Development Areas
@@ -1472,7 +1472,7 @@ The following areas are planned for future development:
 | Category | File Count |
 |----------|------------|
 | Core Architecture | 9 |
-| Player Entity | 10 |
+| Player Entity | 9 |
 | Audio Systems | 9 |
 | Terrain Systems | 8 |
 | Rope Systems | 7 |
@@ -1486,7 +1486,7 @@ The following areas are planned for future development:
 | Sliding Systems | 5 |
 | Body Systems | 4 |
 | Tutorial Systems | 4 |
-| UI Systems | 16 |
+| UI Systems | 17 |
 | Data Systems | 2 |
 | Streaming | 1 |
 | Scenes | 1 |
