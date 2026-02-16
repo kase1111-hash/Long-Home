@@ -321,16 +321,6 @@ func anticipate_movement(velocity: Vector3, anticipation_time: float = 0.5) -> v
 	look_at_position(anticipated_pos)
 
 
-## Frame subject with rule of thirds
-func frame_thirds(offset_direction: Vector3 = Vector3.RIGHT) -> void:
-	if target == null:
-		return
-
-	# Offset camera to put subject at thirds intersection
-	var thirds_offset := offset_direction.normalized() * 2.0
-	look_ahead_offset = thirds_offset
-
-
 ## Execute a slow reveal (gradual FOV change)
 func slow_reveal(target_fov_value: float, duration: float) -> void:
 	var tween := create_tween()
@@ -384,7 +374,7 @@ func is_subject_framed() -> bool:
 
 ## Stop tracking subject (for fatal events)
 func lose_subject() -> void:
-	subject = null
+	target = null
 	subject_in_frame = false
 
 

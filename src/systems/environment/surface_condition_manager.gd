@@ -258,9 +258,9 @@ func _get_aspect_sun_factor(position: Vector3) -> float:
 
 	var sun_dir := time_service.get_sun_direction()
 	var slope_normal := Vector3(
-		-sin(deg_to_rad(cell.aspect_angle)),
+		-sin(deg_to_rad(cell.aspect)),
 		cos(deg_to_rad(cell.slope_angle)),
-		-cos(deg_to_rad(cell.aspect_angle))
+		-cos(deg_to_rad(cell.aspect))
 	).normalized()
 
 	# Dot product gives sun exposure

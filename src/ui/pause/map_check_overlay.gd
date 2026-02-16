@@ -389,7 +389,7 @@ func _update_info_panel() -> void:
 
 	# Time section
 	_add_section_header(content, "Time")
-	_add_info_row(content, "Elapsed", _format_time(run_context.elapsed_time))
+	_add_info_row(content, "Elapsed", _format_time(run_context.real_time_elapsed))
 	_add_info_row(content, "Current Time", "%.0f:00" % run_context.current_time)
 
 	var daylight := maxf(0, 18.0 - run_context.current_time)

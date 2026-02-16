@@ -219,6 +219,8 @@ func _check_zone_proximity() -> void:
 	var state := slide_system.current_state
 	var position := state.position
 
+	var zones_to_remove: Array[ExitZone] = []
+
 	for zone in tracked_zones:
 		# Check if approaching
 		if zone.distance < approach_warning_distance and zone == best_zone:
@@ -234,7 +236,10 @@ func _check_zone_proximity() -> void:
 			var dot := to_zone.normalized().dot(state.velocity.normalized())
 			if dot < -0.5:  # Moving away from zone
 				exit_zone_missed.emit(zone)
-				tracked_zones.erase(zone)
+				zones_to_remove.append(zone)
+
+	for zone in zones_to_remove:
+		tracked_zones.erase(zone)
 
 
 # =============================================================================

@@ -267,12 +267,6 @@ func stop_orbit() -> void:
 	is_orbiting = false
 
 
-## Hold current position
-func hold_position() -> void:
-	has_target = false
-	is_orbiting = false
-
-
 ## Track subject with offset
 func track_subject(offset: Vector3) -> void:
 	if drone == null or drone.subject == null:
@@ -383,7 +377,6 @@ func arc_move(start_angle: float, end_angle: float, duration: float) -> void:
 func hold_position() -> void:
 	has_target = false
 	is_orbiting = false
-	orbit_subject = false
 	if drone:
 		target_position = drone.global_position
 

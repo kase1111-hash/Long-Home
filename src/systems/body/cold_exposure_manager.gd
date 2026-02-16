@@ -81,6 +81,9 @@ var is_shivering: bool = false
 ## Frostbite warnings issued
 var frostbite_warnings: Dictionary = {}
 
+## Was hypothermic last check (prevents signal spam)
+var was_hypothermic: bool = false
+
 
 # =============================================================================
 # INITIALIZATION
@@ -213,8 +216,10 @@ func _check_thresholds() -> void:
 			shivering_stopped.emit()
 
 	# Hypothermia
-	if body_state.cold_exposure >= hypothermia_threshold:
+	var is_hypothermic := body_state.cold_exposure >= hypothermia_threshold
+	if is_hypothermic and not was_hypothermic:
 		hypothermia_onset.emit()
+	was_hypothermic = is_hypothermic
 
 	# Extremity warnings
 	for part in body_state.extremity_cold:

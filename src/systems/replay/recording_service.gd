@@ -258,7 +258,7 @@ func _record_frame(is_keyframe: bool) -> void:
 		frame.player_position = player.global_position
 		frame.player_velocity = player.smooth_velocity
 		frame.player_rotation = player.rotation.y
-		frame.movement_state = player.movement_state
+		frame.movement_state = player.current_state
 
 	# Camera state
 	if drone_camera and record_camera_state:
@@ -298,8 +298,9 @@ func start_recording(run_context: RunContext = null) -> void:
 
 	if run_context:
 		current_recording.mountain_id = run_context.mountain_id
-		current_recording.metadata["difficulty"] = run_context.difficulty
-		current_recording.metadata["weather_seed"] = run_context.weather_seed
+		if run_context.start_conditions:
+			current_recording.metadata["difficulty"] = run_context.start_conditions.get_difficulty_score()
+		current_recording.metadata["run_id"] = run_context.run_id
 
 	recording_started.emit()
 	print("[RecordingService] Recording started")

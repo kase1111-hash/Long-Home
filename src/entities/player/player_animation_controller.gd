@@ -519,7 +519,7 @@ func _on_slide_started(_entry_speed: float, _slope_angle: float) -> void:
 	pass
 
 
-func _on_slide_ended(_outcome: String, _final_speed: float) -> void:
+func _on_slide_ended(_outcome: GameEnums.SlideOutcome, _final_speed: float) -> void:
 	# Could trigger slide end animation
 	pass
 

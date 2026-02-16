@@ -212,7 +212,7 @@ func _execute_loss_of_control() -> void:
 		var controller := drone_service.drone.controller
 		if controller:
 			controller.set_target_position(pullback_target, 0.3)
-			controller.orbit_subject = false  # Stop orbiting
+			controller.is_orbiting = false  # Stop orbiting
 
 	# Camera director: consequence, not action
 	if camera_director:
