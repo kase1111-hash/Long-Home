@@ -123,7 +123,7 @@ func record_run(run_context: RunContext, outcome: GameEnums.ResolutionType) -> H
 	entry.mountain_id = run_context.mountain_id
 	entry.timestamp = Time.get_unix_time_from_system()
 	entry.outcome = outcome
-	entry.duration = run_context.elapsed_time
+	entry.duration = run_context.real_time_elapsed
 	entry.descent_meters = run_context.start_elevation - run_context.current_elevation
 
 	# Start conditions

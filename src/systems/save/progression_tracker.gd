@@ -314,7 +314,7 @@ func _check_endurance_achievements(run_context: RunContext, outcome: GameEnums.R
 		_unlock_achievement("long_descent")
 
 	# Marathon
-	if run_context.elapsed_time >= 6 * 3600:
+	if run_context.real_time_elapsed >= 6 * 3600:
 		_unlock_achievement("marathon")
 
 
@@ -323,7 +323,7 @@ func _check_conditions_achievements(run_context: RunContext, outcome: GameEnums.
 		return
 
 	# Storm survivor
-	if run_context.current_weather >= GameEnums.WeatherState.STORM:
+	if run_context.current_weather == GameEnums.WeatherState.STORM or run_context.current_weather == GameEnums.WeatherState.WHITEOUT:
 		_unlock_achievement("storm_survivor")
 
 	# Night descent
@@ -343,7 +343,7 @@ func _update_skills(run_context: RunContext, outcome: GameEnums.ResolutionType) 
 		_add_skill_experience("route_reading", exp)
 
 	# Pacing improves with longer runs
-	var time_minutes := run_context.elapsed_time / 60.0
+	var time_minutes := run_context.real_time_elapsed / 60.0
 	if time_minutes > 30:
 		_add_skill_experience("pacing", time_minutes * 0.1)
 

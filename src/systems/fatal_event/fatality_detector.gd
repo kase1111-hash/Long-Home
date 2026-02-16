@@ -278,7 +278,7 @@ func _on_movement_changed(old_state: GameEnums.PlayerMovementState, new_state: G
 		# Fall ended - check landing
 		if player:
 			var fall_distance := fall_start_height - player.global_position.y
-			var surface := player.current_cell.surface if player.current_cell else GameEnums.SurfaceType.ROCK
+			var surface := player.current_cell.surface_type if player.current_cell else GameEnums.SurfaceType.ROCK_DRY
 			check_fall_landing(fall_distance, surface, player.global_position)
 
 

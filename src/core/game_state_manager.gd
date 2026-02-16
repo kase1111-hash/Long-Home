@@ -52,8 +52,13 @@ func _setup_valid_transitions() -> void:
 			GameEnums.GameState.MOUNTAIN_SELECT
 		],
 		GameEnums.GameState.PLANNING: [
+			GameEnums.GameState.TUTORIAL,
 			GameEnums.GameState.DESCENT,
 			GameEnums.GameState.LOADOUT_CONFIG
+		],
+		GameEnums.GameState.TUTORIAL: [
+			GameEnums.GameState.DESCENT,
+			GameEnums.GameState.PLANNING
 		],
 		GameEnums.GameState.DESCENT: [
 			GameEnums.GameState.PAUSED,

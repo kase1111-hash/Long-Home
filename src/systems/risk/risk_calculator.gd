@@ -151,8 +151,10 @@ func _calculate_surface_risk(context: RiskContext) -> float:
 			return 0.3
 		GameEnums.SurfaceType.ICE:
 			return 0.9
-		GameEnums.SurfaceType.ROCK:
+		GameEnums.SurfaceType.ROCK, GameEnums.SurfaceType.ROCK_DRY:
 			return 0.5
+		GameEnums.SurfaceType.ROCK_WET:
+			return 0.7
 		GameEnums.SurfaceType.SCREE:
 			return 0.7
 		_:
@@ -172,6 +174,8 @@ func _calculate_weather_risk(context: RiskContext) -> float:
 			risk += 0.3
 		GameEnums.WindStrength.STRONG:
 			risk += 0.5
+		GameEnums.WindStrength.GALE:
+			risk += 0.65
 		GameEnums.WindStrength.SEVERE:
 			risk += 0.8
 

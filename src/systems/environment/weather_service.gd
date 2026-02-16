@@ -405,6 +405,8 @@ func _get_base_wind_speed() -> float:
 			return 10.0
 		GameEnums.WindStrength.STRONG:
 			return 18.0
+		GameEnums.WindStrength.GALE:
+			return 23.0
 		GameEnums.WindStrength.SEVERE:
 			return 28.0
 		_:
@@ -421,6 +423,8 @@ func _get_gust_factor() -> float:
 			return 0.3
 		GameEnums.WindStrength.STRONG:
 			return 0.5
+		GameEnums.WindStrength.GALE:
+			return 0.6
 		GameEnums.WindStrength.SEVERE:
 			return 0.7
 		_:

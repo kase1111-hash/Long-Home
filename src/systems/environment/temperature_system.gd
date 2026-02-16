@@ -75,6 +75,10 @@ var weather_service: WeatherService
 
 ## Was below freezing last check
 var was_below_freezing: bool = false
+## Was in dangerous cold last check
+var was_dangerous_cold: bool = false
+## Was in extreme cold last check
+var was_extreme_cold: bool = false
 
 
 # =============================================================================
@@ -106,11 +110,17 @@ func _process(delta: float) -> void:
 
 
 func _update_temperature() -> void:
-	air_temperature = _calculate_air_temperature()
-	feels_like_temperature = _calculate_feels_like()
+	var new_air := _calculate_air_temperature()
+	var new_feels := _calculate_feels_like()
 
-	temperature_changed.emit(air_temperature, feels_like_temperature)
-	EventBus.temperature_changed.emit(air_temperature, feels_like_temperature)
+	# Only emit signals when temperature changes meaningfully (>0.1°C)
+	var changed := absf(new_air - air_temperature) > 0.1 or absf(new_feels - feels_like_temperature) > 0.1
+	air_temperature = new_air
+	feels_like_temperature = new_feels
+
+	if changed:
+		temperature_changed.emit(air_temperature, feels_like_temperature)
+		EventBus.temperature_changed.emit(air_temperature, feels_like_temperature)
 
 
 func _calculate_air_temperature() -> float:
@@ -172,11 +182,15 @@ func _check_thresholds() -> void:
 		was_below_freezing = is_below_freezing
 		freezing_threshold_crossed.emit(is_below_freezing)
 
-	if feels_like_temperature < dangerous_cold:
+	var is_dangerous := feels_like_temperature < dangerous_cold
+	if is_dangerous and not was_dangerous_cold:
 		dangerous_cold_warning.emit()
+	was_dangerous_cold = is_dangerous
 
-	if feels_like_temperature < extreme_cold:
+	var is_extreme := feels_like_temperature < extreme_cold
+	if is_extreme and not was_extreme_cold:
 		hypothermia_risk.emit()
+	was_extreme_cold = is_extreme
 
 
 # =============================================================================

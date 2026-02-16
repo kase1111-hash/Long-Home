@@ -67,8 +67,11 @@ var signal_strength: float = 1.0
 ## Is signal lost
 var signal_lost_flag: bool = false
 
-## Weather service reference (for temperature/wind)
+## Weather service reference (for wind)
 var weather_service: WeatherService
+
+## Environment service reference (for temperature)
+var environment_service: EnvironmentService
 
 ## Last low battery warning time
 var last_low_warning: float = 0.0
@@ -83,6 +86,7 @@ var last_critical_warning: float = 0.0
 
 func _ready() -> void:
 	ServiceLocator.get_service_async("WeatherService", func(s): weather_service = s)
+	ServiceLocator.get_service_async("EnvironmentService", func(s): environment_service = s)
 
 
 # =============================================================================
@@ -103,10 +107,11 @@ func _update_drain(delta: float) -> void:
 	# Environmental modifiers
 	if weather_service:
 		# Cold effect
-		var temp := weather_service.get_conditions_summary().get("temperature", 0.0)
-		if temp < 0:
-			var cold_factor := clampf(absf(temp) / 20.0, 0.0, 1.0)
-			drain *= 1.0 + cold_factor * (cold_drain_max - 1.0)
+		if environment_service and environment_service.temperature_system:
+			var temp := environment_service.temperature_system.get_air_temperature()
+			if temp < 0:
+				var cold_factor := clampf(absf(temp) / 20.0, 0.0, 1.0)
+				drain *= 1.0 + cold_factor * (cold_drain_max - 1.0)
 
 		# Wind effect
 		var wind_speed: float = weather_service.wind_speed

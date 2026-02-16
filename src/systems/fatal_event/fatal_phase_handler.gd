@@ -65,6 +65,8 @@ class AudioInstruction:
 @export var pullback_distance: float = 10.0
 
 @export_group("Vanishing")
+## Duration of the vanishing phase
+@export var vanishing_duration: float = 5.0
 ## How much drone slows
 @export var drone_slow_factor: float = 0.3
 ## Wind audio crossfade duration
@@ -75,6 +77,8 @@ class AudioInstruction:
 @export var silence_duration: float = 4.0
 
 @export_group("Acknowledgment")
+## Duration of the acknowledgment phase
+@export var acknowledgment_duration: float = 8.0
 ## Final ascent height
 @export var ascent_height: float = 20.0
 ## Reveal pullback distance
@@ -212,7 +216,7 @@ func _execute_loss_of_control() -> void:
 		var controller := drone_service.drone.controller
 		if controller:
 			controller.set_target_position(pullback_target, 0.3)
-			controller.orbit_subject = false  # Stop orbiting
+			controller.is_orbiting = false  # Stop orbiting
 
 	# Camera director: consequence, not action
 	if camera_director:

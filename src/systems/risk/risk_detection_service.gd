@@ -181,7 +181,7 @@ func _update_context() -> void:
 	# Weather data
 	if environment_service:
 		var conditions := environment_service.get_conditions()
-		current_context.wind_strength = conditions.weather
+		current_context.wind_strength = environment_service.weather_service.current_wind_strength
 		current_context.visibility = conditions.visibility
 		current_context.is_whiteout = conditions.weather == GameEnums.WeatherState.WHITEOUT
 		current_context.is_night = conditions.time_period == TimeService.TimePeriod.NIGHT

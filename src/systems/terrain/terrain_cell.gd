@@ -136,7 +136,7 @@ func calculate_derived_properties() -> void:
 	]
 	is_slideable = (
 		slope_angle >= GameEnums.SLOPE_THRESHOLDS.slide_min and
-		slope_angle <= GameEnums.SLOPE_THRESHOLDS.slide_max and
+		slope_angle < GameEnums.SLOPE_THRESHOLDS.downclimb_min and
 		surface_type in [
 			GameEnums.SurfaceType.SNOW_FIRM,
 			GameEnums.SurfaceType.SNOW_SOFT,

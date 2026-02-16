@@ -304,7 +304,7 @@ func _update_status() -> void:
 		return
 
 	# Elapsed time
-	_add_status_row(grid, "Elapsed", _format_time(run_context.elapsed_time))
+	_add_status_row(grid, "Elapsed", _format_time(run_context.real_time_elapsed))
 
 	# Current elevation
 	_add_status_row(grid, "Elevation", "%.0fm" % run_context.current_elevation)

@@ -135,7 +135,7 @@ func update_from_run(run_context: RunContext, outcome: GameEnums.ResolutionType)
 		longest_descent = descent
 
 	# Track play time
-	var run_duration := run_context.elapsed_time
+	var run_duration := run_context.real_time_elapsed
 	total_play_time += run_duration
 
 	# Track outcome
@@ -147,7 +147,7 @@ func update_from_run(run_context: RunContext, outcome: GameEnums.ResolutionType)
 			current_streak += 1
 			if current_streak > best_streak:
 				best_streak = current_streak
-			_record_best_time(run_context.mountain_id, run_context.elapsed_time / 60.0)
+			_record_best_time(run_context.mountain_id, run_context.real_time_elapsed / 60.0)
 			_check_mountain_completion(run_context.mountain_id)
 
 		GameEnums.ResolutionType.INJURED_RETURN:
@@ -171,9 +171,9 @@ func update_from_run(run_context: RunContext, outcome: GameEnums.ResolutionType)
 	# Track weather survival
 	var weather: GameEnums.WeatherState = run_context.current_weather
 	if outcome <= GameEnums.ResolutionType.INJURED_RETURN:
-		if weather > worst_weather_survived:
+		if weather != GameEnums.WeatherState.CLEARING and weather > worst_weather_survived:
 			worst_weather_survived = weather
-		if weather >= GameEnums.WeatherState.STORM and not first_storm_survival:
+		if (weather == GameEnums.WeatherState.STORM or weather == GameEnums.WeatherState.WHITEOUT) and not first_storm_survival:
 			first_storm_survival = true
 
 	# Track gear usage

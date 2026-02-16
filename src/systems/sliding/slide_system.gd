@@ -659,6 +659,10 @@ func _execute_arrest() -> void:
 		"position": player.global_position
 	})
 
+	# End the slide, then transition directly to ARRESTED.
+	# We use end_slide which goes through _handle_slide_outcome (CLEAN_STOP ->
+	# STANDING), so override to ARRESTED afterward. This is acceptable because
+	# STANDING entry/exit is lightweight and the final state is correct.
 	end_slide(GameEnums.SlideOutcome.CLEAN_STOP)
 	player.change_state(GameEnums.PlayerMovementState.ARRESTED)
 

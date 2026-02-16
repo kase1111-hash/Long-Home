@@ -323,7 +323,7 @@ func _extract_path_data() -> void:
 	if path_timestamps.size() > 0:
 		total_duration = path_timestamps[path_timestamps.size() - 1]
 	else:
-		total_duration = run_context.elapsed_time
+		total_duration = run_context.real_time_elapsed
 
 	# Convert to 2D after map is generated
 	path_points_2d.clear()

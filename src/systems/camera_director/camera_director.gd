@@ -448,6 +448,10 @@ func _on_slide_ended(outcome: GameEnums.SlideOutcome, final_speed: float) -> voi
 			call_release_shot("slide_clean")
 		GameEnums.SlideOutcome.TUMBLE_STOP:
 			call_consequence_shot("slide_tumble")
+		GameEnums.SlideOutcome.TERRAIN_CATCH:
+			call_consequence_shot("slide_terrain_catch")
+		GameEnums.SlideOutcome.COMPOUND_SLIDE:
+			call_commitment_shot("slide_compound")
 		GameEnums.SlideOutcome.TERMINAL_RUNOUT:
 			call_consequence_shot("slide_terminal")
 

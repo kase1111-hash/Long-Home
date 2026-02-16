@@ -429,11 +429,11 @@ func _on_rappel_started(_rope: Rope, _anchor: AnchorPoint) -> void:
 
 func _on_rappel_ended(outcome: RappelController.RappelOutcome) -> void:
 	current_operation = "none"
+	rope_in_use = false
 
 	if outcome == RappelController.RappelOutcome.ANCHOR_FAILURE:
 		# Lost the rope with the failed anchor
 		inventory.abandon_rope()
-		rope_in_use = false
 
 
 func _on_rope_lost(rope: Rope) -> void:
