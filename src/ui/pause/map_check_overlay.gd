@@ -255,9 +255,9 @@ func _update_player_position() -> void:
 	# Calculate uncertainty based on conditions
 	uncertainty_radius = UNCERTAINTY_BASE
 
-	if run_context.current_weather >= GameEnums.WeatherState.STORM:
+	if run_context.current_weather == GameEnums.WeatherState.STORM or run_context.current_weather == GameEnums.WeatherState.WHITEOUT:
 		uncertainty_radius = UNCERTAINTY_STORM
-	elif run_context.current_weather >= GameEnums.WeatherState.SNOW:
+	elif run_context.current_weather == GameEnums.WeatherState.SNOW or run_context.current_weather == GameEnums.WeatherState.DETERIORATING:
 		uncertainty_radius = UNCERTAINTY_BASE * 2
 
 	_update_position_marker()

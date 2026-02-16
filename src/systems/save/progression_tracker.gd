@@ -323,7 +323,7 @@ func _check_conditions_achievements(run_context: RunContext, outcome: GameEnums.
 		return
 
 	# Storm survivor
-	if run_context.current_weather >= GameEnums.WeatherState.STORM:
+	if run_context.current_weather == GameEnums.WeatherState.STORM or run_context.current_weather == GameEnums.WeatherState.WHITEOUT:
 		_unlock_achievement("storm_survivor")
 
 	# Night descent

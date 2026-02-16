@@ -403,7 +403,8 @@ func get_time_pressure() -> float:
 
 	# Weather deteriorating
 	if weather_service.is_transitioning and \
-	   weather_service.target_weather > weather_service.current_weather:
+	   weather_service.target_weather > weather_service.current_weather and \
+	   weather_service.target_weather != GameEnums.WeatherState.CLEARING:
 		pressure += 0.3
 
 	# Already in bad conditions

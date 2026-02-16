@@ -171,9 +171,9 @@ func update_from_run(run_context: RunContext, outcome: GameEnums.ResolutionType)
 	# Track weather survival
 	var weather: GameEnums.WeatherState = run_context.current_weather
 	if outcome <= GameEnums.ResolutionType.INJURED_RETURN:
-		if weather > worst_weather_survived:
+		if weather != GameEnums.WeatherState.CLEARING and weather > worst_weather_survived:
 			worst_weather_survived = weather
-		if weather >= GameEnums.WeatherState.STORM and not first_storm_survival:
+		if (weather == GameEnums.WeatherState.STORM or weather == GameEnums.WeatherState.WHITEOUT) and not first_storm_survival:
 			first_storm_survival = true
 
 	# Track gear usage

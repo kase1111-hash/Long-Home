@@ -331,7 +331,7 @@ func _update_shake(delta: float) -> void:
 			wind_factor = 1.0
 
 	# Storm adds extra shake
-	if run_context.current_weather >= GameEnums.WeatherState.STORM:
+	if run_context.current_weather == GameEnums.WeatherState.STORM or run_context.current_weather == GameEnums.WeatherState.WHITEOUT:
 		wind_factor = maxf(wind_factor, 0.8)
 
 	if wind_factor > 0:
