@@ -109,6 +109,9 @@ var drone_camera: DroneCamera
 ## Weather service reference
 var weather_service: WeatherService
 
+## Environment service reference (for temperature)
+var environment_service: EnvironmentService
+
 
 # =============================================================================
 # INITIALIZATION
@@ -117,6 +120,7 @@ var weather_service: WeatherService
 func _ready() -> void:
 	ServiceLocator.register_service("ImperfectionEngine", self)
 	ServiceLocator.get_service_async("WeatherService", func(s): weather_service = s)
+	ServiceLocator.get_service_async("EnvironmentService", func(s): environment_service = s)
 
 	_connect_events()
 	_randomize_event_timer()
@@ -157,12 +161,11 @@ func _update_fatigue(delta: float) -> void:
 
 	# Environmental factors
 	if weather_service:
-		var conditions := weather_service.get_conditions_summary()
-		var temp: float = conditions.get("temperature", 0.0)
-
 		# Cold increases fatigue
-		if temp < -10:
-			fatigue_gain *= 1.5
+		if environment_service and environment_service.temperature_system:
+			var temp := environment_service.temperature_system.get_air_temperature()
+			if temp < -10:
+				fatigue_gain *= 1.5
 
 		# Wind requires more effort
 		var wind_speed: float = weather_service.wind_speed
