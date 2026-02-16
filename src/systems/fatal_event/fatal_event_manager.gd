@@ -178,7 +178,7 @@ func _check_point_of_no_return() -> void:
 	var trigger := FatalTrigger.IMPACT
 
 	# Terminal slide with no exit
-	if player.movement_state == GameEnums.PlayerMovementState.SLIDING:
+	if player.current_state == GameEnums.PlayerMovementState.SLIDING:
 		var speed := player.smooth_velocity.length()
 		if speed > terminal_slide_speed * 0.8:
 			# Check for exit zones (would need terrain system)
@@ -342,8 +342,9 @@ func _complete_fatal_sequence() -> void:
 	fatal_sequence_complete.emit()
 	EventBus.fatal_event_completed.emit()
 
-	# Trigger run end
-	EventBus.run_ended.emit(null, GameEnums.ResolutionType.FATALITY)
+	# Note: run_ended is emitted by GameStateManager._on_fatal_event_completed()
+	# which is connected to fatal_event_completed above. Do not emit run_ended
+	# here as it would cause a duplicate emission with a null RunContext.
 
 	print("[FatalEventManager] Fatal sequence complete")
 

@@ -129,7 +129,7 @@ func _process(delta: float) -> void:
 	real_time_elapsed += delta
 
 	# Calculate game time
-	var time_delta := delta * time_scale * current_scale_multiplier * 60.0  # Convert to hours
+	var time_delta := delta * time_scale * current_scale_multiplier / 60.0  # Convert to hours
 	current_time += time_delta
 
 	# Wrap around midnight

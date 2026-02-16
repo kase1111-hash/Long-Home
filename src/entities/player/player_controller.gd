@@ -78,6 +78,8 @@ var state_time: float = 0.0
 
 ## Last position for velocity calculation
 var last_position: Vector3 = Vector3.ZERO
+## Whether last_position has been initialized with actual player position
+var _last_position_initialized: bool = false
 
 ## Calculated velocity (smoother than CharacterBody3D.velocity for some uses)
 var smooth_velocity: Vector3 = Vector3.ZERO
@@ -205,8 +207,11 @@ func _apply_physics(delta: float) -> void:
 
 
 func _update_tracking(delta: float) -> void:
-	# Calculate smooth velocity
-	smooth_velocity = (global_position - last_position) / delta
+	# Calculate smooth velocity (skip first frame to avoid spawn-position spike)
+	if _last_position_initialized:
+		smooth_velocity = (global_position - last_position) / delta
+	else:
+		_last_position_initialized = true
 	last_position = global_position
 
 	# Update state time

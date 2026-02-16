@@ -43,8 +43,8 @@ var player: PlayerController
 ## Current yaw (horizontal rotation)
 var yaw: float = 0.0
 
-## Current pitch (vertical rotation)
-var pitch: float = -20.0
+## Current pitch (vertical rotation, in radians)
+var pitch: float = deg_to_rad(-20.0)
 
 ## Current distance from player
 var current_distance: float = 5.0

@@ -223,14 +223,20 @@ func _get_weather_difficulty() -> float:
 			difficulty = 0.0
 		GameEnums.WeatherState.PARTLY_CLOUDY:
 			difficulty = 0.1
+		GameEnums.WeatherState.OVERCAST:
+			difficulty = 0.15
 		GameEnums.WeatherState.CLOUDY:
 			difficulty = 0.2
+		GameEnums.WeatherState.SNOW:
+			difficulty = 0.4
 		GameEnums.WeatherState.DETERIORATING:
 			difficulty = 0.5
 		GameEnums.WeatherState.STORM:
 			difficulty = 0.8
 		GameEnums.WeatherState.WHITEOUT:
 			difficulty = 1.0
+		GameEnums.WeatherState.CLEARING:
+			difficulty = 0.15
 
 	# Wind adds difficulty
 	match wind_strength:
@@ -238,6 +244,8 @@ func _get_weather_difficulty() -> float:
 			difficulty += 0.1
 		GameEnums.WindStrength.STRONG:
 			difficulty += 0.25
+		GameEnums.WindStrength.GALE:
+			difficulty += 0.35
 		GameEnums.WindStrength.SEVERE:
 			difficulty += 0.4
 

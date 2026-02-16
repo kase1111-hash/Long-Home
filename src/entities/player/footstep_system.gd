@@ -39,6 +39,16 @@ const SURFACE_SOUNDS := {
 		"volume_mod": -3.0,
 		"pitch_mod": 0.1,
 	},
+	GameEnums.SurfaceType.SNOW_FIRM: {
+		"sounds": ["footstep_snow_1", "footstep_snow_2", "footstep_snow_3"],
+		"volume_mod": -2.0,
+		"pitch_mod": 0.05,
+	},
+	GameEnums.SurfaceType.SNOW_SOFT: {
+		"sounds": ["footstep_snow_deep_1", "footstep_snow_deep_2"],
+		"volume_mod": -4.0,
+		"pitch_mod": 0.12,
+	},
 	GameEnums.SurfaceType.SNOW_POWDER: {
 		"sounds": ["footstep_snow_deep_1", "footstep_snow_deep_2"],
 		"volume_mod": -5.0,
@@ -180,7 +190,7 @@ func update_gear_state() -> void:
 		return
 
 	# Check if crampons are equipped
-	var gear_state = run.get_meta("gear_state", null)
+	var gear_state = run.gear_state
 	if gear_state and gear_state.has_method("has_item"):
 		has_crampons = gear_state.has_item(GameEnums.GearType.CRAMPONS)
 
