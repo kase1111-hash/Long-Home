@@ -303,8 +303,10 @@ class SlidingState extends PlayerState:
 		EventBus.slide_started.emit(speed, slope_angle)
 
 	func exit() -> void:
-		var speed := player.smooth_velocity.length() if player and player.smooth_velocity else 0.0
-		EventBus.slide_ended.emit(GameEnums.SlideOutcome.CLEAN_STOP, speed)
+		# Note: slide_ended is emitted by SlideSystem.end_slide() with the
+		# actual outcome. Do not emit here to avoid duplicate signals
+		# with a hardcoded CLEAN_STOP outcome.
+		pass
 
 	func update(_delta: float) -> void:
 		# Sliding physics handled by SlideSystem
