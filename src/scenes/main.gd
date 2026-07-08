@@ -77,6 +77,9 @@ var player: PlayerController = null
 ## Terrain service reference
 var terrain_service: TerrainService = null
 
+## Environment service reference (owns time/weather/temperature/surface)
+var environment_service: EnvironmentService = null
+
 ## Time service reference
 var time_service: TimeService = null
 
@@ -106,6 +109,9 @@ func _initialize_game() -> void:
 	EventBus.run_started.connect(_on_run_started)
 	EventBus.run_ended.connect(_on_run_ended)
 
+	# Create the always-on services (databases, persistence, audio, camera AI)
+	_bootstrap_core_services()
+
 	# Initialize OBS integration
 	_initialize_obs_integration()
 
@@ -117,6 +123,73 @@ func _initialize_game() -> void:
 	# For testing: Start a quick run with default conditions
 	if OS.is_debug_build():
 		_debug_quick_start()
+
+
+# =============================================================================
+# SERVICE BOOTSTRAP
+# =============================================================================
+
+## Instantiate a service node and add it under the given parent,
+## unless something already registered under that name
+func _bootstrap_service(service_name: String, script_type: GDScript, parent: Node) -> void:
+	if ServiceLocator.has_service(service_name):
+		return
+	var node: Node = script_type.new()
+	node.name = service_name
+	parent.add_child(node)
+
+
+## Services that must exist for menus and the whole game session.
+## These classes register themselves with ServiceLocator in _ready(),
+## but nothing instantiated them - without this, mountain/gear selection,
+## saving, audio and the camera AI silently never come online.
+func _bootstrap_core_services() -> void:
+	# Data + persistence
+	_bootstrap_service("MountainDatabase", MountainDatabase, self)
+	_bootstrap_service("GearDatabase", GearDatabase, self)
+	_bootstrap_service("SaveManager", SaveManager, self)
+	_bootstrap_service("PlanningService", PlanningService, self)
+
+	# Audio stack - AudioInitializer creates AudioService and all managers
+	if not ServiceLocator.has_service("AudioService"):
+		var audio := AudioInitializer.new()
+		audio.name = "AudioInitializer"
+		add_child(audio)
+
+	# Camera Director AI (components resolve each other via ServiceLocator)
+	_bootstrap_service("SignalDetector", SignalDetector, self)
+	_bootstrap_service("EmotionalRhythmEngine", EmotionalRhythmEngine, self)
+	_bootstrap_service("IntentSelector", IntentSelector, self)
+	_bootstrap_service("ImperfectionEngine", ImperfectionEngine, self)
+	_bootstrap_service("CameraDirector", CameraDirector, self)
+
+	# Drone (spawns the drone entity itself when a descent starts)
+	_bootstrap_service("DroneService", DroneService, self)
+
+	# Recording / replay / streamer tooling
+	_bootstrap_service("RecordingService", RecordingService, self)
+	_bootstrap_service("ReplayPlayer", ReplayPlayer, self)
+	_bootstrap_service("SpeedrunTimer", SpeedrunTimer, self)
+	_bootstrap_service("StreamerTools", StreamerTools, self)
+	_bootstrap_service("HighlightGenerator", HighlightGenerator, self)
+
+	print("[Main] Core services bootstrapped")
+
+
+## Gameplay simulation systems needed during a descent.
+## Created once (on first descent) and reused for later runs.
+func _bootstrap_descent_systems() -> void:
+	_bootstrap_service("BodyConditionService", BodyConditionService, world)
+	_bootstrap_service("SlideSystem", SlideSystem, world)
+	_bootstrap_service("RopeService", RopeService, world)
+	_bootstrap_service("RiskDetectionService", RiskDetectionService, world)
+	_bootstrap_service("FatalEventManager", FatalEventManager, world)
+	_bootstrap_service("FatalityDetector", FatalityDetector, world)
+	_bootstrap_service("FatalAudioController", FatalAudioController, world)
+	_bootstrap_service("TutorialManager", TutorialManager, world)
+	_bootstrap_service("TutorialTriggers", TutorialTriggers, world)
+
+	print("[Main] Descent systems bootstrapped")
 
 
 # =============================================================================
@@ -291,6 +364,11 @@ func _show_planning() -> void:
 	var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
 	var mountain := mountain_db.get_selected_mountain() if mountain_db else null
 
+	# Load terrain now so the planning map and route analysis have data;
+	# without terrain the route can never validate and descent can't begin
+	if mountain != null:
+		_ensure_terrain_loaded(mountain.id)
+
 	# Create planning screen if not exists
 	if planning_screen == null:
 		planning_screen = PlanningScene.instantiate()
@@ -364,6 +442,9 @@ func _initialize_descent_systems() -> void:
 	# 2. Initialize environment services
 	_setup_environment(run)
 
+	# 2b. Create gameplay simulation systems (body, sliding, rope, risk, fatal, tutorial)
+	_bootstrap_descent_systems()
+
 	# 3. Spawn player at start position
 	_spawn_player(run)
 
@@ -380,39 +461,49 @@ func _initialize_descent_systems() -> void:
 func _setup_terrain(mountain_id: String) -> void:
 	print("[Main] Loading terrain for: %s" % mountain_id)
 
-	# Get or create terrain service
-	terrain_service = ServiceLocator.get_service("TerrainService") as TerrainService
-	if terrain_service == null:
-		terrain_service = TerrainService.new()
-		world.add_child(terrain_service)
-
-	# Load terrain
-	terrain_service.load_terrain(mountain_id)
+	_ensure_terrain_loaded(mountain_id)
 
 	# Wait for terrain to be ready
 	await get_tree().process_frame
 
 
+## Get or create the terrain service and load the given mountain
+## (skipped when that mountain is already loaded, e.g. during planning)
+func _ensure_terrain_loaded(mountain_id: String) -> void:
+	terrain_service = ServiceLocator.get_service("TerrainService") as TerrainService
+	if terrain_service == null:
+		terrain_service = TerrainService.new()
+		terrain_service.name = "TerrainService"
+		world.add_child(terrain_service)
+
+	if terrain_service.current_mountain != mountain_id:
+		terrain_service.load_terrain(mountain_id)
+
+
 func _setup_environment(run: RunContext) -> void:
 	print("[Main] Setting up environment...")
 
-	# Initialize time service
+	# EnvironmentService creates and owns TimeService, WeatherService,
+	# TemperatureSystem and SurfaceConditionManager - don't create them here
+	# too, or the duplicates fight over the service registry
+	environment_service = ServiceLocator.get_service("EnvironmentService") as EnvironmentService
+	if environment_service == null:
+		environment_service = EnvironmentService.new()
+		environment_service.name = "EnvironmentService"
+		world.add_child(environment_service)
+
 	time_service = ServiceLocator.get_service("TimeService") as TimeService
-	if time_service == null:
-		time_service = TimeService.new()
-		world.add_child(time_service)
-
-	# Set initial time from run conditions
-	time_service.current_time = run.start_conditions.time_of_day
-
-	# Initialize weather service
 	weather_service = ServiceLocator.get_service("WeatherService") as WeatherService
-	if weather_service == null:
-		weather_service = WeatherService.new()
-		world.add_child(weather_service)
 
-	# Set initial weather from run conditions
-	weather_service.current_weather = run.start_conditions.weather
+	# Seed the run's environment from the start conditions
+	var config := EnvironmentService.EnvironmentConfig.new()
+	config.start_hour = run.start_conditions.time_of_day
+	config.difficulty = run.start_conditions.get_difficulty_score()
+	environment_service.initialize_run(config)
+
+	# Apply the configured starting weather
+	if weather_service:
+		weather_service.current_weather = run.start_conditions.weather
 
 
 func _spawn_player(run: RunContext) -> void:

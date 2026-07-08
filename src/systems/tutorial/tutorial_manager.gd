@@ -479,6 +479,7 @@ func spawn_instructor(position: Vector3, rotation: Vector3 = Vector3.ZERO) -> In
 	# This would instantiate the Instructor scene
 	# For now, create a basic instructor node
 	instructor = Instructor.new()
+	add_child(instructor)
 	instructor.global_position = position
 	instructor.rotation = rotation
 

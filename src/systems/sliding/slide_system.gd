@@ -171,6 +171,9 @@ func _ready() -> void:
 	ServiceLocator.get_service_async("PlayerController", _on_player_ready)
 	ServiceLocator.get_service_async("TerrainService", _on_terrain_ready)
 
+	# Start/stop sliding physics when the player state machine enters/leaves SLIDING
+	EventBus.player_movement_changed.connect(_on_player_movement_changed)
+
 	# Register service
 	ServiceLocator.register_service("SlideSystem", self)
 
@@ -185,6 +188,14 @@ func _on_player_ready(service: Object) -> void:
 func _on_terrain_ready(service: Object) -> void:
 	terrain_service = service as TerrainService
 	print("[SlideSystem] Connected to TerrainService")
+
+
+func _on_player_movement_changed(old_state: GameEnums.PlayerMovementState, new_state: GameEnums.PlayerMovementState) -> void:
+	if new_state == GameEnums.PlayerMovementState.SLIDING:
+		begin_slide()
+	elif old_state == GameEnums.PlayerMovementState.SLIDING and is_sliding:
+		# State machine exited the slide on its own (e.g. flat terrain, exit zone)
+		end_slide(GameEnums.SlideOutcome.CLEAN_STOP)
 
 
 # =============================================================================

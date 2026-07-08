@@ -21,14 +21,14 @@ signal route_updated(analysis: RoutePlanner.RouteAnalysis)
 # NODES
 # =============================================================================
 
-@onready var map_display: TopoMapDisplay = $MapContainer/TopoMapDisplay
-@onready var route_info_panel: Control = $InfoPanel
-@onready var elevation_profile: Control = $ElevationProfile
-@onready var controls_panel: Control = $ControlsPanel
-@onready var weather_panel: Control = $WeatherPanel
-@onready var confirm_button: Button = $ControlsPanel/ConfirmButton
-@onready var clear_button: Button = $ControlsPanel/ClearButton
-@onready var back_button: Button = $ControlsPanel/BackButton
+var map_display: TopoMapDisplay
+var route_info_panel: Control
+var elevation_profile: Control
+var controls_panel: Control
+var weather_panel: Control
+var confirm_button: Button
+var clear_button: Button
+var back_button: Button
 
 # =============================================================================
 # STATE
@@ -60,6 +60,11 @@ var route_valid: bool = false
 func _ready() -> void:
 	route_planner = RoutePlanner.new()
 
+	# The .tscn is a bare root - build the UI structure if it isn't present
+	if get_node_or_null("MapContainer/TopoMapDisplay") == null:
+		_build_ui()
+	_resolve_nodes()
+
 	ServiceLocator.get_service_async("TerrainService", func(t): terrain_service = t)
 	ServiceLocator.get_service_async("WeatherService", func(w):
 		weather_service = w
@@ -70,11 +75,25 @@ func _ready() -> void:
 	_setup_ui()
 
 
+func _resolve_nodes() -> void:
+	map_display = get_node_or_null("MapContainer/TopoMapDisplay") as TopoMapDisplay
+	route_info_panel = get_node_or_null("InfoPanel") as Control
+	elevation_profile = get_node_or_null("ElevationProfile") as Control
+	controls_panel = get_node_or_null("ControlsPanel") as Control
+	weather_panel = get_node_or_null("WeatherPanel") as Control
+	confirm_button = get_node_or_null("ControlsPanel/ConfirmButton") as Button
+	clear_button = get_node_or_null("ControlsPanel/ClearButton") as Button
+	back_button = get_node_or_null("ControlsPanel/BackButton") as Button
+
+
 func _connect_signals() -> void:
 	if map_display:
 		map_display.waypoint_placed.connect(_on_waypoint_placed)
 		map_display.waypoint_removed.connect(_on_waypoint_removed)
 		map_display.map_clicked.connect(_on_map_clicked)
+
+	if elevation_profile:
+		elevation_profile.draw.connect(_on_elevation_profile_draw)
 
 	if confirm_button:
 		confirm_button.pressed.connect(_on_confirm_pressed)
@@ -88,7 +107,8 @@ func _connect_signals() -> void:
 
 func _setup_ui() -> void:
 	# Initial state
-	confirm_button.disabled = true
+	if confirm_button:
+		confirm_button.disabled = true
 	_update_route_info()
 
 
@@ -106,7 +126,8 @@ func initialize(context: RunContext) -> void:
 
 	current_analysis = null
 	route_valid = false
-	confirm_button.disabled = true
+	if confirm_button:
+		confirm_button.disabled = true
 
 	_update_route_info()
 	_update_weather_display()
@@ -374,19 +395,24 @@ static func create_scene() -> PlanningScreen:
 	var screen := PlanningScreen.new()
 	screen.name = "PlanningScreen"
 	screen.set_anchors_preset(Control.PRESET_FULL_RECT)
+	screen._build_ui()
+	return screen
 
+
+## Build the UI structure as children of this node
+func _build_ui() -> void:
 	# Map container
 	var map_container := Control.new()
 	map_container.name = "MapContainer"
 	map_container.set_anchors_preset(Control.PRESET_FULL_RECT)
 	map_container.offset_right = -300  # Leave room for panels
-	screen.add_child(map_container)
+	add_child(map_container)
 
 	# Topo map display
-	var map_display := TopoMapDisplay.new()
-	map_display.name = "TopoMapDisplay"
-	map_display.set_anchors_preset(Control.PRESET_FULL_RECT)
-	map_container.add_child(map_display)
+	var topo_display := TopoMapDisplay.new()
+	topo_display.name = "TopoMapDisplay"
+	topo_display.set_anchors_preset(Control.PRESET_FULL_RECT)
+	map_container.add_child(topo_display)
 
 	# Info panel (right side)
 	var info_panel := VBoxContainer.new()
@@ -396,7 +422,7 @@ static func create_scene() -> PlanningScreen:
 	info_panel.offset_right = -10
 	info_panel.offset_top = 10
 	info_panel.offset_bottom = -200
-	screen.add_child(info_panel)
+	add_child(info_panel)
 
 	# Add info labels
 	var title := Label.new()
@@ -433,7 +459,7 @@ static func create_scene() -> PlanningScreen:
 	elevation.offset_left = 10
 	elevation.offset_right = -310
 	elevation.offset_bottom = -60
-	screen.add_child(elevation)
+	add_child(elevation)
 
 	# Controls panel (bottom right)
 	var controls := VBoxContainer.new()
@@ -443,7 +469,7 @@ static func create_scene() -> PlanningScreen:
 	controls.offset_right = -10
 	controls.offset_top = -180
 	controls.offset_bottom = -10
-	screen.add_child(controls)
+	add_child(controls)
 
 	var confirm := Button.new()
 	confirm.name = "ConfirmButton"
@@ -469,11 +495,9 @@ static func create_scene() -> PlanningScreen:
 	weather.offset_right = -10
 	weather.offset_top = 10
 	weather.offset_bottom = 100
-	screen.add_child(weather)
+	add_child(weather)
 
 	var weather_label := Label.new()
 	weather_label.name = "WeatherLabel"
 	weather_label.text = "Weather: --"
 	weather.add_child(weather_label)
-
-	return screen

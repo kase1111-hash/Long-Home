@@ -100,13 +100,15 @@ func _ready() -> void:
 
 	topo_generator = TopoMapGenerator.new()
 
+	# Build UI first: if TerrainService is already registered, the async
+	# callback fires synchronously and _generate_map needs the UI nodes
+	_build_ui()
+	_connect_signals()
+
 	ServiceLocator.get_service_async("TerrainService", func(ts):
 		terrain_service = ts
 		_generate_map()
 	)
-
-	_build_ui()
-	_connect_signals()
 
 
 func _build_ui() -> void:

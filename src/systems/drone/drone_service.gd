@@ -114,6 +114,7 @@ func _spawn_drone() -> void:
 	drone_camera.name = "DroneCamera"
 	drone.add_child(drone_camera)
 	drone.drone_camera = drone_camera
+	ServiceLocator.register_service("DroneCamera", drone_camera)
 
 	# Get subject (player)
 	ServiceLocator.get_service_async("PlayerController", func(player):

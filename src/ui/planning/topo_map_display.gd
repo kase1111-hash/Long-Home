@@ -112,11 +112,18 @@ func _ready() -> void:
 
 	ServiceLocator.get_service_async("TerrainService", func(t):
 		terrain_service = t
+		# Regenerate whenever new terrain is loaded (e.g. different mountain)
+		if not terrain_service.terrain_loaded.is_connected(_on_terrain_loaded):
+			terrain_service.terrain_loaded.connect(_on_terrain_loaded)
 		_generate_map()
 	)
 
 	# Enable input processing
 	mouse_filter = Control.MOUSE_FILTER_STOP
+
+
+func _on_terrain_loaded(_mountain_id: String) -> void:
+	_generate_map()
 
 
 func _generate_map() -> void:

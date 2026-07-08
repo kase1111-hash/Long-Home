@@ -32,8 +32,9 @@ var placeholder_loader: PlaceholderAudioLoader
 func _ready() -> void:
 	print("[AudioInitializer] Setting up audio system...")
 
-	_create_audio_nodes()
+	# Buses must exist before the audio managers assign their players to them
 	_setup_audio_buses()
+	_create_audio_nodes()
 
 	# Load audio after a frame to ensure all nodes are ready
 	await get_tree().process_frame
