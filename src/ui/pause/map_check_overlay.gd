@@ -60,6 +60,7 @@ var map_display: TextureRect
 var position_marker: Control
 var route_overlay: Control
 var info_panel: PanelContainer
+var info_content: VBoxContainer
 var close_button: Button
 
 # =============================================================================
@@ -178,10 +179,10 @@ func _create_info_panel(parent: Control) -> void:
 	margin.add_theme_constant_override("margin_bottom", 20)
 	scroll.add_child(margin)
 
-	var content := VBoxContainer.new()
-	content.name = "InfoContent"
-	content.add_theme_constant_override("separation", 15)
-	margin.add_child(content)
+	info_content = VBoxContainer.new()
+	info_content.name = "InfoContent"
+	info_content.add_theme_constant_override("separation", 15)
+	margin.add_child(info_content)
 
 
 # =============================================================================
@@ -354,7 +355,9 @@ func _on_route_overlay_draw() -> void:
 # =============================================================================
 
 func _update_info_panel() -> void:
-	var content := info_panel.get_node("ScrollContainer/MarginContainer/InfoContent")
+	# Runtime-created containers get auto-generated names, so a NodePath
+	# lookup is unreliable - use the direct reference instead
+	var content := info_content
 	if content == null:
 		return
 

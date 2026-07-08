@@ -300,7 +300,8 @@ class SlidingState extends PlayerState:
 			"slope": slope_angle,
 			"speed": speed
 		})
-		EventBus.slide_started.emit(speed, slope_angle)
+		# Note: slide_started is emitted by SlideSystem.begin_slide() with the
+		# initialized slide state. Do not emit here to avoid duplicate signals.
 
 	func exit() -> void:
 		# Note: slide_ended is emitted by SlideSystem.end_slide() with the

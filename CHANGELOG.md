@@ -5,6 +5,49 @@ All notable changes to Long-Home will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+#### Service Bootstrap (game was unplayable past the main menu)
+- Added a service bootstrapper in `main.gd`: 25 service classes (MountainDatabase,
+  GearDatabase, SaveManager, PlanningService, audio stack, Camera Director AI,
+  DroneService, replay/streamer tooling, BodyConditionService, SlideSystem,
+  RopeService, RiskDetectionService, fatal event systems, tutorial systems)
+  registered themselves with ServiceLocator but were never instantiated anywhere,
+  so mountain selection, gear loadout, saving, audio, body simulation, sliding
+  physics, risk detection and fatal events silently never came online
+- EnvironmentService now owns TimeService/WeatherService creation; `main.gd` no
+  longer creates duplicate instances that fought over the service registry
+- Environment is now seeded from the run's start conditions via
+  `EnvironmentService.initialize_run()`
+
+#### Planning Phase (flow dead-ended before descent)
+- Planning screen now builds its UI at `_ready()` - its `.tscn` is a bare root,
+  so every `@onready` node reference was null and `_setup_ui()` crashed
+- Terrain now loads for the selected mountain when the planning screen opens;
+  previously terrain only loaded at descent start, so the topo map was empty
+  and the route could never validate (Confirm button stayed disabled forever)
+- Topo map display regenerates when new terrain loads
+- Elevation profile draw callback is now actually connected
+
+#### Sliding
+- SlideSystem now starts/ends slide physics when the player state machine
+  enters/leaves SLIDING - `begin_slide()` previously had no callers
+- Removed duplicate `slide_started` emission from the player state machine
+  (SlideSystem is the single source, matching the earlier `slide_ended` fix)
+
+#### Other runtime fixes
+- PhysicalMap built its UI after requesting TerrainService; when the service was
+  already registered the callback fired synchronously and crashed on null UI nodes
+- Pause menu status panel and map check overlay info panel looked up
+  runtime-created containers by NodePath, which fails for auto-generated node
+  names - both now use direct references
+- Audio buses are created before the audio managers assign players to them
+- DroneCamera is now registered as a service (RecordingService requested it,
+  but it was never registered, silently disabling camera-track recording)
+- Tutorial instructor is now added to the scene tree when spawned
+
 ## [0.1.0-alpha] - 2026-01-02
 
 ### Added

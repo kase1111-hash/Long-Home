@@ -50,6 +50,7 @@ var background: ColorRect
 var menu_container: VBoxContainer
 var title_label: Label
 var status_panel: PanelContainer
+var status_grid: GridContainer
 var button_container: VBoxContainer
 var resume_button: Button
 var map_button: Button
@@ -186,12 +187,12 @@ func _create_status_panel() -> void:
 	margin.add_theme_constant_override("margin_bottom", 12)
 	status_panel.add_child(margin)
 
-	var grid := GridContainer.new()
-	grid.name = "StatusGrid"
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 20)
-	grid.add_theme_constant_override("v_separation", 6)
-	margin.add_child(grid)
+	status_grid = GridContainer.new()
+	status_grid.name = "StatusGrid"
+	status_grid.columns = 2
+	status_grid.add_theme_constant_override("h_separation", 20)
+	status_grid.add_theme_constant_override("v_separation", 6)
+	margin.add_child(status_grid)
 
 
 func _create_button(text: String, tooltip: String, danger: bool = false) -> Button:
@@ -289,7 +290,9 @@ func _create_confirm_dialog() -> void:
 # =============================================================================
 
 func _update_status() -> void:
-	var grid := status_panel.get_node("MarginContainer/StatusGrid")
+	# Runtime-created containers get auto-generated names, so a NodePath
+	# lookup is unreliable - use the direct reference instead
+	var grid := status_grid
 	if not grid:
 		return
 
