@@ -364,6 +364,11 @@ func _update_visibility(state: GameEnums.GameState) -> void:
 	if should_show and not visible:
 		_refresh()
 	visible = should_show
+	# The map check overlay owns the screen; the readout would show through it
+	if _run_panel != null and state != GameEnums.GameState.MAP_CHECK and state != GameEnums.GameState.DESCENT:
+		return
+	if _run_panel != null:
+		_run_panel.visible = state != GameEnums.GameState.MAP_CHECK
 
 
 func _is_hud_state(state: GameEnums.GameState) -> bool:
