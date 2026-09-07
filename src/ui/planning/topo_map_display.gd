@@ -123,6 +123,8 @@ func _ready() -> void:
 
 
 func _on_terrain_loaded(_mountain_id: String) -> void:
+	# Waypoints were placed on the previous mountain's map
+	waypoints.clear()
 	_generate_map()
 
 

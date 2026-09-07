@@ -133,7 +133,8 @@ func initialize_run(config: EnvironmentConfig) -> void:
 	# Initialize time
 	time_service.initialize_run(config.start_hour, config.day_of_year)
 
-	# Generate weather windows
+	# Start from this run's weather, not whatever the last run left behind
+	weather_service.reset_for_run(config.start_weather)
 	weather_service.generate_weather_windows(config.start_hour, config.difficulty)
 
 	# Set initial elevation
@@ -490,6 +491,7 @@ class EnvironmentConfig:
 	var day_of_year: int = 180
 	var difficulty: float = 0.5
 	var start_elevation: float = 4000.0
+	var start_weather: GameEnums.WeatherState = GameEnums.WeatherState.CLEAR
 
 	static func create_default() -> EnvironmentConfig:
 		return EnvironmentConfig.new()

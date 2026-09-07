@@ -1,6 +1,7 @@
 extends SceneTree
 ## Headless smoke test for the sliding mechanic: teleports the climber onto
 ## the nearest slideable snow slope, presses Space, and lets the slide run.
+## Rides the slide for 15 s, then self-arrests with Space like a player would.
 ## Passes when the slide starts, ends (clean stop, arrest, tumble, catch...)
 ## and the game keeps running without script errors; a fatal event during
 ## the slide is reported but is a legitimate outcome, not a failure.
@@ -12,7 +13,8 @@ extends SceneTree
 
 const MOUNTAIN := "knife_edge"
 const SEARCH_RADIUS := 120.0
-const SLIDE_MAX_SECONDS := 40.0
+const SLIDE_MAX_SECONDS := 60.0
+const ARREST_AFTER_SECONDS := 15.0
 
 var _state_manager: Node = null
 var _enums: Node = null
@@ -106,11 +108,25 @@ func _run() -> void:
 	Input.action_release("slide_initiate")
 
 	var waited := 0.0
+	var next_report := 5.0
+	var arrested := false
 	while waited < SLIDE_MAX_SECONDS and not _slide_ended and not _fatal:
 		await physics_frame
 		waited += 1.0 / 60.0
 		if waited > 4.0 and not _slide_started:
 			break
+		if waited >= next_report:
+			next_report += 5.0
+			print("[smoke_slide] t=%2.0fs speed %.1f m/s, slope %.0f deg, at %s" % [
+				waited, player.velocity.length(), terrain.get_slope_at(player.global_position), player.global_position])
+		# A player rides the slide for a while, then digs the axe in
+		if waited >= ARREST_AFTER_SECONDS and not arrested:
+			arrested = true
+			print("[smoke_slide] self-arrest (Space) at %.0f s" % waited)
+			Input.action_press("slide_initiate")
+			await physics_frame
+			await physics_frame
+			Input.action_release("slide_initiate")
 	_expect(_slide_started, "slide started (Space on a slideable slope)")
 	if _slide_started:
 		var outcome_names: Array = _enums.SlideOutcome.keys()

@@ -90,6 +90,10 @@ func _ready() -> void:
 ## Set body state reference
 func set_body_state(state: BodyState) -> void:
 	body_state = state
+	# Per-run one-shot state
+	last_threshold = ""
+	breathing_intensity = 0.0
+	is_resting = false
 
 
 # =============================================================================

@@ -192,11 +192,11 @@ func _on_clear_pressed() -> void:
 	if map_display:
 		map_display.clear_waypoints()
 
-	current_analysis = null
-	route_valid = false
-	confirm_button.disabled = true
-
-	_update_route_info()
+	# The direct summit-to-base line is still a route: analyse it again
+	if elevation_profile != null and elevation_profile.has_meta("profile_data"):
+		elevation_profile.remove_meta("profile_data")
+		elevation_profile.queue_redraw()
+	_analyze_current_route()
 
 
 func _on_back_pressed() -> void:
@@ -324,13 +324,18 @@ func _update_weather_display() -> void:
 
 	var weather_label := _get_or_create_label(weather_panel, "WeatherLabel")
 
-	# Live weather only exists once a descent is running; before that,
-	# show the mountain's typical conditions as the forecast
-	if weather_service != null:
+	# Live weather is only meaningful while a run is in progress (the
+	# service keeps simulating between runs); otherwise show the mountain's
+	# typical conditions as the forecast
+	if weather_service != null and GameStateManager.is_run_active():
 		var conditions := weather_service.get_conditions_summary()
-		var weather_text: String = "Weather: %s\n" % conditions.get("state", "Unknown")
-		weather_text += "Temp: %.0f°C\n" % conditions.get("temperature", 0)
-		weather_text += "Wind: %s" % conditions.get("wind_strength", "Unknown")
+		var weather_name: String = str(conditions.get("weather", "UNKNOWN")).capitalize()
+		var wind_name: String = str(conditions.get("wind_strength", "UNKNOWN")).capitalize()
+		var weather_text: String = "Weather: %s\n" % weather_name
+		var temperature_system := ServiceLocator.get_service("TemperatureSystem") as TemperatureSystem
+		if temperature_system != null:
+			weather_text += "Temp: %.0f°C\n" % temperature_system.get_air_temperature()
+		weather_text += "Wind: %s" % wind_name
 		weather_label.text = weather_text
 		return
 

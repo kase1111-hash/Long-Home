@@ -103,11 +103,16 @@ func initialize() -> void:
 	print("[DroneService] Drone system ready")
 
 
+## The drone's speed before any fatal-sequence slow-down
+var _default_drone_speed: float = 0.0
+
+
 func _spawn_drone() -> void:
 	# Create drone entity
 	drone = DroneEntity.new()
 	drone.name = "DroneEntity"
 	add_child(drone)
+	_default_drone_speed = drone.max_speed
 
 	# Create drone camera
 	drone_camera = DroneCamera.new()
@@ -374,6 +379,18 @@ func _on_game_state_changed(old_state: GameEnums.GameState, new_state: GameEnums
 func _on_descent_ready() -> void:
 	if not is_initialized:
 		initialize()
+
+	# The drone is reused across runs: re-acquire the climber and undo any
+	# slow-down left by a fatal sequence
+	var player := ServiceLocator.get_service("PlayerController") as Node3D
+	if player != null and drone != null:
+		filming_subject = player
+		drone.set_subject(player)
+		if drone_camera != null:
+			drone_camera.set_target(player)
+		is_tracking = true
+		if _default_drone_speed > 0.0:
+			drone.max_speed = _default_drone_speed
 
 	# Start with context shot
 	execute_context_shot()

@@ -84,6 +84,9 @@ var shake_time: float = 0.0
 var map_container: Control
 var map_background: TextureRect
 var map_display: TextureRect
+
+## Where the map container sits when it is not shaking
+var _container_base_position: Vector2 = Vector2.ZERO
 var position_marker: Control
 var route_overlay: Control
 var compass_indicator: Control
@@ -107,8 +110,15 @@ func _ready() -> void:
 
 	ServiceLocator.get_service_async("TerrainService", func(ts):
 		terrain_service = ts
+		# A different mountain may load later in the session
+		if not terrain_service.terrain_loaded.is_connected(_on_terrain_loaded):
+			terrain_service.terrain_loaded.connect(_on_terrain_loaded)
 		_generate_map()
 	)
+
+
+func _on_terrain_loaded(_mountain_id: String) -> void:
+	_generate_map()
 
 
 func _build_ui() -> void:
@@ -119,6 +129,8 @@ func _build_ui() -> void:
 	map_container.custom_minimum_size = Vector2(500, 400)
 	map_container.pivot_offset = Vector2(250, 400)  # Pivot at bottom center
 	add_child(map_container)
+	# The shake offsets this base position instead of overriding the anchors
+	_container_base_position = map_container.position
 
 	# Map paper background
 	map_background = TextureRect.new()
@@ -338,10 +350,10 @@ func _update_shake(delta: float) -> void:
 			sin(shake_time * 1.3) * WIND_SHAKE_INTENSITY * wind_factor,
 			cos(shake_time * 0.9) * WIND_SHAKE_INTENSITY * wind_factor * 0.7
 		)
-		map_container.position = shake_offset
+		map_container.position = _container_base_position + shake_offset
 	else:
 		shake_offset = Vector2.ZERO
-		map_container.position = Vector2.ZERO
+		map_container.position = _container_base_position
 
 
 # =============================================================================

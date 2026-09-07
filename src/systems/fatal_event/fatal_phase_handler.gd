@@ -262,7 +262,7 @@ func _execute_vanishing() -> void:
 	# Drone behavior
 	if drone_service and drone_service.drone:
 		# Slow drone dramatically
-		drone_service.drone.movement_speed *= drone_slow_factor
+		drone_service.drone.max_speed *= drone_slow_factor
 
 		# Stop tracking subject
 		drone_service.filming_subject = null

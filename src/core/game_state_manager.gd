@@ -73,7 +73,8 @@ func _setup_valid_transitions() -> void:
 		],
 		GameEnums.GameState.MAP_CHECK: [
 			GameEnums.GameState.DESCENT,
-			GameEnums.GameState.PAUSED
+			GameEnums.GameState.PAUSED,
+			GameEnums.GameState.RESOLUTION  # A run can end while the map is open
 		],
 		GameEnums.GameState.RESOLUTION: [
 			GameEnums.GameState.POST_GAME
@@ -111,6 +112,9 @@ func _on_player_position_updated(position: Vector3, velocity: Vector3) -> void:
 	if not is_run_active():
 		return
 	if current_state != GameEnums.GameState.DESCENT and current_state != GameEnums.GameState.MAP_CHECK:
+		return
+	# Until Main has placed the climber, samples still describe the old spot
+	if current_run.start_elevation <= 0.0:
 		return
 	current_run.update_position(position, velocity)
 
@@ -160,7 +164,12 @@ func _handle_state_exit(state: GameEnums.GameState) -> void:
 			if is_paused:
 				_set_paused(false)
 		GameEnums.GameState.PAUSED:
-			_set_paused(false)
+			# Checking the map from the pause menu stays paused
+			if current_state != GameEnums.GameState.MAP_CHECK:
+				_set_paused(false)
+		GameEnums.GameState.MAP_CHECK:
+			if current_state != GameEnums.GameState.PAUSED and is_paused:
+				_set_paused(false)
 
 
 ## Handle entering a state
@@ -210,6 +219,9 @@ func is_run_active() -> bool:
 func complete_run(outcome: GameEnums.ResolutionType, cause: String = "") -> void:
 	if current_run == null:
 		push_warning("[GameStateManager] No run to complete")
+		return
+	if current_run.is_complete:
+		# Already ended (e.g. abandoned after a fatal event): never record twice
 		return
 
 	current_run.complete_run(outcome, cause)

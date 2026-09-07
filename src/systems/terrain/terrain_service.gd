@@ -89,7 +89,14 @@ var _cached_position: Vector3 = Vector3.INF
 # LIFECYCLE
 # =============================================================================
 
+## Exported chunk layout, remembered so DEM overrides can be undone
+var _default_chunk_size: float = 0.0
+var _default_chunk_resolution: int = 0
+
+
 func _ready() -> void:
+	_default_chunk_size = chunk_size
+	_default_chunk_resolution = chunk_resolution
 	slope_analyzer = SlopeAnalyzer.new()
 	slope_analyzer.cell_size = chunk_size / chunk_resolution
 
@@ -116,6 +123,13 @@ func _ready() -> void:
 func load_terrain(mountain_id: String) -> bool:
 	print("[TerrainService] Loading terrain: %s" % mountain_id)
 	var started := Time.get_ticks_msec()
+
+	# A chunked DEM may override the chunk layout; restore the defaults so
+	# the next mountain is not built with the previous one's settings
+	if _default_chunk_size > 0.0:
+		chunk_size = _default_chunk_size
+		chunk_resolution = _default_chunk_resolution
+		slope_analyzer.cell_size = chunk_size / chunk_resolution
 
 	is_loading = true
 	current_mountain = mountain_id

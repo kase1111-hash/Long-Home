@@ -114,6 +114,7 @@ func _initialize_game() -> void:
 	EventBus.game_state_changed.connect(_on_game_state_changed)
 	EventBus.run_started.connect(_on_run_started)
 	EventBus.run_ended.connect(_on_run_ended)
+	EventBus.player_position_updated.connect(_on_player_position_updated)
 
 	# Create the always-on services (databases, persistence, audio, camera AI)
 	_bootstrap_core_services()
@@ -223,14 +224,15 @@ func _debug_quick_start() -> void:
 	var mountain_id := _get_user_arg_value("--mountain", "knife_edge")
 	print("[Main] Quick start requested for '%s'" % mountain_id)
 
+	# The developer shortcut ignores unlock progress
 	var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
-	if mountain_db != null and not mountain_db.select_mountain(mountain_id):
+	if mountain_db != null and not mountain_db.select_mountain(mountain_id, true):
 		var available := mountain_db.get_available_mountains()
 		if available.is_empty():
 			push_error("[Main] Quick start: no mountains available")
 			return
 		mountain_id = available[0].id
-		mountain_db.select_mountain(mountain_id)
+		mountain_db.select_mountain(mountain_id, true)
 		print("[Main] Quick start: unknown mountain, using '%s'" % mountain_id)
 
 	# Create test conditions
@@ -288,6 +290,7 @@ func _on_game_state_changed(old_state: GameEnums.GameState, new_state: GameEnums
 		GameEnums.GameState.MAP_CHECK:
 			_show_map_check()
 		GameEnums.GameState.RESOLUTION:
+			_end_descent()
 			_show_resolution()
 		GameEnums.GameState.POST_GAME:
 			_show_post_game()
@@ -320,6 +323,24 @@ func _on_run_ended(run_context: RunContext, outcome: GameEnums.ResolutionType) -
 	print("[Main] Run ended: %s" % GameEnums.ResolutionType.keys()[outcome])
 	var summary := run_context.get_run_summary()
 	print("[Main] Summary: %s" % str(summary))
+
+	# Progress, knowledge and unlocks live in the mountain database
+	var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
+	if mountain_db != null:
+		mountain_db.record_run(run_context.mountain_id, outcome, run_context.game_time_elapsed * 60.0)
+
+
+## Feed the climber's altitude to the environment (temperature, hazards)
+var _environment_sample_time: float = 0.0
+
+func _on_player_position_updated(position: Vector3, _velocity: Vector3) -> void:
+	if environment_service == null or GameStateManager.current_state != GameEnums.GameState.DESCENT:
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - _environment_sample_time < 0.5:
+		return
+	_environment_sample_time = now
+	environment_service.update_player_position(position)
 
 
 # =============================================================================
@@ -390,6 +411,10 @@ func _show_loadout_config() -> void:
 		ui.add_child(loadout_config_screen)
 	else:
 		loadout_config_screen.visible = true
+		# The selection may have changed since the screen was built
+		var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
+		if mountain_db != null:
+			loadout_config_screen.set_mountain(mountain_db.get_selected_mountain())
 
 	print("[Main] Loadout config loaded")
 
@@ -402,10 +427,12 @@ func _hide_loadout_config() -> void:
 func _show_planning() -> void:
 	print("[Main] Showing planning screen...")
 
-	# Hide other screens
+	# Hide other screens (Retry arrives here straight from the post-game analysis)
 	_hide_main_menu()
 	_hide_mountain_select()
 	_hide_loadout_config()
+	_hide_post_game_screen()
+	_hide_resolution_screen()
 
 	# Get mountain and loadout for planning
 	var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
@@ -471,6 +498,8 @@ func _start_descent() -> void:
 	_hide_mountain_select()
 	_hide_loadout_config()
 	_hide_planning()
+	_hide_post_game_screen()
+	_hide_resolution_screen()
 
 	# Initialize gameplay systems (terrain, environment, player, goal, HUD);
 	# the world is revealed inside, once the climber and camera are placed
@@ -553,11 +582,9 @@ func _setup_environment(run: RunContext) -> void:
 	var config := EnvironmentService.EnvironmentConfig.new()
 	config.start_hour = run.start_conditions.time_of_day
 	config.difficulty = run.start_conditions.get_difficulty_score()
+	config.start_weather = run.start_conditions.weather
+	config.start_elevation = _get_start_position().y
 	environment_service.initialize_run(config)
-
-	# Apply the configured starting weather
-	if weather_service:
-		weather_service.current_weather = run.start_conditions.weather
 
 
 func _spawn_player(run: RunContext) -> void:
@@ -574,18 +601,21 @@ func _spawn_player(run: RunContext) -> void:
 		player.visible = true
 		player.process_mode = Node.PROCESS_MODE_INHERIT
 
-	# Position at summit/start area
+	# Position at summit/start area, facing base camp so the first view is
+	# down the mountain; the camera snaps behind the climber after that
 	var start_pos := _get_start_position()
 	player.global_position = start_pos
-	if not is_new:
-		player.reset_for_new_run()
-
-	# Face the base camp so the first view is down the mountain
 	var goal_pos := _get_goal_position()
 	var to_goal := goal_pos - start_pos
 	to_goal.y = 0.0
 	if to_goal.length_squared() > 0.01:
 		player.look_at(start_pos + to_goal, Vector3.UP)
+	if is_new:
+		var pivot := player.camera_pivot as PlayerCamera
+		if pivot != null:
+			pivot.snap_behind_player()
+	else:
+		player.reset_for_new_run()
 
 	# Link run context to player
 	player.body_state = run.body_state
@@ -660,6 +690,16 @@ func _setup_hud() -> void:
 			ui.add_child(descent_hud)
 
 	print("[Main] HUD ready")
+
+
+## The run is over: freeze the climber where they stand (still visible
+## behind the resolution screen) and stop the goal from firing again
+func _end_descent() -> void:
+	if player != null and is_instance_valid(player):
+		player.velocity = Vector3.ZERO
+		player.process_mode = Node.PROCESS_MODE_DISABLED
+	if descent_goal != null and is_instance_valid(descent_goal):
+		descent_goal.set_physics_process(false)
 
 
 func _cleanup_descent() -> void:

@@ -104,6 +104,7 @@ func _ready() -> void:
 	# Simulate the active run's body, not a private copy: the player, HUD
 	# and resolution all read run.body_state
 	EventBus.run_started.connect(_on_run_started)
+	EventBus.run_ended.connect(_on_run_ended)
 	if GameStateManager.current_run != null:
 		_on_run_started(GameStateManager.current_run)
 
@@ -139,7 +140,13 @@ func adopt_body_state(state: BodyState) -> void:
 	body_state_dirty = true
 
 
+## A finished run's body is frozen; simulation resumes with the next run
+func _on_run_ended(_run: RunContext, _outcome: GameEnums.ResolutionType) -> void:
+	process_mode = Node.PROCESS_MODE_DISABLED
+
+
 func _on_run_started(run: RunContext) -> void:
+	process_mode = Node.PROCESS_MODE_INHERIT
 	adopt_body_state(run.body_state)
 	if run.gear_state != null:
 		set_insulation(run.gear_state.get_warmth_rating())

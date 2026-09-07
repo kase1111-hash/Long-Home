@@ -452,8 +452,12 @@ func _update_sky_and_fog(elevation: float, cloud: float, visibility: float, weat
 	# The sky shader paints the sun disc as light colour x energy. When that
 	# is dimmer than the surrounding sky (low sun, storm) it would read as a
 	# dark hole, so let the sun sink into the haze instead
-	var disc_luma := sun_light.light_color.get_luminance() * sun_light.light_energy
-	var show_disc := disc_luma >= horizon.get_luminance() * 0.9 and visibility > 0.5
+	# Show the disc in clear-ish skies once the sun is properly up; a
+	# luminance comparison here flapped several times a day
+	var clear_sky := weather == GameEnums.WeatherState.CLEAR \
+		or weather == GameEnums.WeatherState.PARTLY_CLOUDY \
+		or weather == GameEnums.WeatherState.CLEARING
+	var show_disc := elevation > 1.0 and visibility > 0.5 and clear_sky and cloud < 0.6
 	# Hide the disc in the sky only: light_angular_distance also sets the
 	# soft-shadow penumbra on Forward+, so it must not change
 	sun_light.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_AND_SKY if show_disc \

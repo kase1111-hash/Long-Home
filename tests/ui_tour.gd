@@ -10,8 +10,9 @@ extends SceneTree
 ##     -s res://tests/ui_tour.gd -- --out=/tmp/tour
 ##
 ## Screens, in order: main menu, mountain select, loadout, planning, descent
-## (start + after walking), pause menu, physical map, resolution, post-game,
-## then back to the main menu. Exit code 0 on PASS, 1 on FAIL.
+## (start + after walking), pause menu, map check, self-check, physical map,
+## resolution, post-game, then a second mountain ending in a real fatal event,
+## and a third run completed and retried. Exit code 0 on PASS, 1 on FAIL.
 ##
 ## Implementation note: a "-s" script is compiled BEFORE the project autoloads
 ## are registered, so this file must not name GameStateManager, GameEnums,
@@ -173,20 +174,28 @@ func _run() -> void:
 	_expect(parked == null or not parked.visible, "player parked (hidden) after the run")
 	_shot("11_main_menu_again.png")
 
-	# 10. Second run on another mountain, abandoned from the pause menu
+	# 10. Second run: a different mountain (unlocked by the clean return),
+	#     ended by a real fall -> fatal event sequence
 	_press(main_scene.get("main_menu"), "new_descent_button")
 	await _wait(SETTLE)
 	_expect_state("MOUNTAIN_SELECT", "second New Descent")
 	var mountain_db: Object = _locator.get_service("MountainDatabase")
-	if is_instance_valid(mountain_db):
-		mountain_db.select_mountain("north_face")
+	_expect(is_instance_valid(mountain_db) and mountain_db.is_unlocked("north_face"), "north_face unlocked by finishing knife_edge")
+	if select_screen != null and select_screen.has_method("_select_mountain"):
+		select_screen._select_mountain("north_face")
 	if select_screen != null and select_screen.has_method("_on_continue_pressed"):
 		select_screen._on_continue_pressed()
 	await _wait(SETTLE)
+	_expect_state("LOADOUT_CONFIG", "second mountain Continue")
+	var loadout_mountain: Object = loadout_screen.get("mountain") if loadout_screen != null else null
+	_expect(loadout_mountain != null and loadout_mountain.id == "north_face", "loadout screen shows the newly selected mountain")
 	if loadout_screen != null and loadout_screen.has_method("_on_start_pressed"):
 		loadout_screen._on_start_pressed()
 	await _wait(SETTLE * 2)
 	_expect_state("PLANNING", "second loadout Start")
+	var terrain2: Object = _locator.get_service("TerrainService")
+	_expect(is_instance_valid(terrain2) and terrain2.current_mountain == "north_face", "terrain reloaded for north_face")
+	_expect(not (main_scene.get("post_game_screen") as Node).visible, "post-game screen hidden while planning")
 	confirm = _find_button(planning_screen, "ConfirmButton")
 	_expect(confirm != null and not confirm.disabled, "Begin Descent enabled for the second run")
 	if confirm != null:
@@ -199,33 +208,73 @@ func _run() -> void:
 		_expect(player2.is_on_floor(), "player on the ground in the second run")
 	_shot("12_second_descent.png")
 
-	_state_manager.toggle_pause()
-	await _wait(SETTLE)
-	var pause_menu: Node = main_scene.get("pause_menu")
-	if pause_menu != null and pause_menu.has_method("_on_confirm_abandon"):
-		pause_menu._on_confirm_abandon()
+	# A long fall: the fatality detector should run the full fatal sequence
+	if player2 != null:
+		player2.global_position = player2.global_position + Vector3(0, 120, 0)
+	var fatal_waited := 0
+	while _state() == int(_states["DESCENT"]) and fatal_waited < 60 * 45:
+		await process_frame
+		fatal_waited += 1
+	_expect_state("RESOLUTION", "the fall's fatal event sequence")
+	var run2: Object = _state_manager.current_run
+	_expect(run2 != null and run2.outcome == int(_enums.ResolutionType["FATALITY"]), "second run ended in FATALITY")
 	await _wait(SETTLE * 3)
-	_expect_state("RESOLUTION", "abandoning from the pause menu")
-	_shot("13_resolution_abandoned.png")
+	_shot("13_resolution_fatality.png")
 	_press(main_scene.get("resolution_screen"), "continue_button")
 	await _wait(SETTLE * 3)
 	_expect_state("POST_GAME", "second resolution Continue")
+	var retry_after_fatality: Button = (main_scene.get("post_game_screen") as Node).get("retry_button") as Button
+	_expect(retry_after_fatality != null and not retry_after_fatality.visible, "no Retry offered after a fatality")
+	_press(main_scene.get("post_game_screen"), "return_button")
+	await _wait(SETTLE)
+	_expect_state("MAIN_MENU", "second Return")
 
-	# 11. Retry straight from the post-game screen, then walk home again
-	_press(main_scene.get("post_game_screen"), "retry_button")
+	# 11. Third run on knife_edge, completed, then Retry from the post-game screen
+	_press(main_scene.get("main_menu"), "new_descent_button")
+	await _wait(SETTLE)
+	if select_screen != null and select_screen.has_method("_select_mountain"):
+		select_screen._select_mountain("knife_edge")
+	if select_screen != null and select_screen.has_method("_on_continue_pressed"):
+		select_screen._on_continue_pressed()
+	await _wait(SETTLE)
+	if loadout_screen != null and loadout_screen.has_method("_on_start_pressed"):
+		loadout_screen._on_start_pressed()
+	await _wait(SETTLE * 2)
+	_expect_state("PLANNING", "third loadout Start")
+	confirm = _find_button(planning_screen, "ConfirmButton")
+	if confirm != null:
+		confirm.pressed.emit()
+	await _wait(DESCENT_SETTLE)
+	_expect_state("DESCENT", "third Begin Descent")
+	var player3: Node3D = _locator.get_service("PlayerController") as Node3D
+	var terrain3: Object = _locator.get_service("TerrainService")
+	if player3 != null and is_instance_valid(terrain3):
+		_expect(player3.is_on_floor(), "player on the ground in the third run")
+		player3.global_position = terrain3.goal_position + Vector3(0, 1, 0)
+	await _wait(40)
+	_expect_state("RESOLUTION", "arriving at base camp on the third run")
+	_press(main_scene.get("resolution_screen"), "continue_button")
+	await _wait(SETTLE * 3)
+	_expect_state("POST_GAME", "third resolution Continue")
+	var retry_button: Button = (main_scene.get("post_game_screen") as Node).get("retry_button") as Button
+	_expect(retry_button != null and retry_button.visible, "Retry offered after a return")
+	if retry_button != null:
+		retry_button.pressed.emit()
 	await _wait(SETTLE * 2)
 	_expect_state("PLANNING", "post-game Retry")
+	_expect(not (main_scene.get("post_game_screen") as Node).visible, "post-game screen hidden after Retry")
+	var frozen: Node3D = _locator.get_service("PlayerController") as Node3D
+	_expect(frozen == null or frozen.process_mode == Node.PROCESS_MODE_DISABLED, "climber frozen while planning the retry")
 	confirm = _find_button(planning_screen, "ConfirmButton")
 	if confirm != null:
 		confirm.pressed.emit()
 	await _wait(DESCENT_SETTLE)
 	_expect_state("DESCENT", "retry Begin Descent")
-	var player3: Node3D = _locator.get_service("PlayerController") as Node3D
-	var terrain3: Object = _locator.get_service("TerrainService")
-	if player3 != null and is_instance_valid(terrain3):
-		_expect(player3.is_on_floor(), "player on the ground in the third run")
-		var goal3: Vector3 = terrain3.goal_position
-		player3.global_position = goal3 + Vector3(0, 1, 0)
+	var player4: Node3D = _locator.get_service("PlayerController") as Node3D
+	if player4 != null and is_instance_valid(terrain3):
+		_expect(player4.is_on_floor(), "player on the ground on the retry")
+		_expect(player4.global_position.distance_to(terrain3.start_position) < 3.0, "retry starts at the summit plateau")
+		player4.global_position = terrain3.goal_position + Vector3(0, 1, 0)
 	await _wait(40)
 	_expect_state("RESOLUTION", "arriving at base camp on the retry")
 	_press(main_scene.get("resolution_screen"), "continue_button")

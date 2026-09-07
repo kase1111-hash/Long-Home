@@ -107,6 +107,8 @@ func _build_ui() -> void:
 	map_display.set_anchors_preset(Control.PRESET_FULL_RECT)
 	map_display.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	map_display.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	# The overlay is measured after layout; keep the marker and route in place
+	map_display.resized.connect(_on_map_resized)
 	map_container.add_child(map_display)
 
 	# Route overlay (drawn on top of map)
@@ -200,6 +202,8 @@ func show_overlay() -> void:
 	_update_player_position()
 	_generate_map()
 	_update_info_panel()
+	# First open: containers have not been laid out yet
+	_update_position_marker.call_deferred()
 
 	# Fade in
 	modulate.a = 0.0
@@ -273,11 +277,26 @@ func _world_to_map(world_pos: Vector2) -> Vector2:
 	if map_data == null:
 		return Vector2.ZERO
 
-	var map_size := map_display.size
 	var bounds_size := map_data.bounds_max - map_data.bounds_min
-
+	if bounds_size.x == 0.0 or bounds_size.y == 0.0:
+		return Vector2.ZERO
 	var normalized := (world_pos - map_data.bounds_min) / bounds_size
-	return normalized * map_size
+	var drawn := _drawn_texture_rect()
+	return drawn.position + normalized * drawn.size
+
+
+## Where the texture is actually painted inside the display (it keeps its
+## aspect ratio and is centred, so the control's rect is not the map's rect)
+func _drawn_texture_rect() -> Rect2:
+	var map_size := map_display.size
+	if map_display.texture == null:
+		return Rect2(Vector2.ZERO, map_size)
+	var tex_size := map_display.texture.get_size()
+	if tex_size.x <= 0.0 or tex_size.y <= 0.0:
+		return Rect2(Vector2.ZERO, map_size)
+	var scale := minf(map_size.x / tex_size.x, map_size.y / tex_size.y)
+	var drawn_size := tex_size * scale
+	return Rect2((map_size - drawn_size) * 0.5, drawn_size)
 
 
 func _map_to_world(map_pos: Vector2) -> Vector2:
@@ -481,3 +500,11 @@ func _on_close_pressed() -> void:
 	close_requested.emit()
 	hide_overlay()
 	GameStateManager.exit_map_check()
+
+
+func _on_map_resized() -> void:
+	if not is_showing:
+		return
+	_update_position_marker()
+	if route_overlay != null:
+		route_overlay.queue_redraw()

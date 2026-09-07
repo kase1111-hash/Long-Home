@@ -210,6 +210,20 @@ func _generate_window_wind(weather: GameEnums.WeatherState) -> GameEnums.WindStr
 			return GameEnums.WindStrength.LIGHT
 
 
+## Put the weather into a clean, settled state for a new run
+func reset_for_run(start_weather: GameEnums.WeatherState) -> void:
+	current_weather = start_weather
+	target_weather = start_weather
+	is_transitioning = false
+	transition_progress = 1.0
+	precipitation = _get_precipitation_for_weather(start_weather)
+	cloud_cover = _get_cloud_cover_for_weather(start_weather)
+	visibility = _calculate_visibility()
+	target_wind_direction = wind_direction
+	current_window_index = 0
+	print("[WeatherService] Reset for run: %s" % GameEnums.WeatherState.keys()[start_weather])
+
+
 func _apply_window(window: WeatherWindow) -> void:
 	if window.weather != current_weather:
 		_begin_transition(window.weather)

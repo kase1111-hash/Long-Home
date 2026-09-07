@@ -90,6 +90,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   previous run's sky; snowfall intensity changes no longer wipe every flake
 - The sun disc is hidden through the light's sky mode, so Forward+ soft shadows keep their
   penumbra
+- `TerrainCell.slope_direction` was the height gradient (uphill) while every consumer treated it
+  as downhill: slides pushed the climber into the slope and never moved the body, micro-slips
+  shoved uphill, and walking downhill got the uphill penalty. It now points downhill; slides
+  carry the climber and a self-arrest stops them, and the corridor walk is about twice as fast
+- Checking the map from the pause menu unpaused the whole simulation; a run ending while the
+  map was open could never reach the resolution screen and was recorded twice on abandon
+- Retry from the post-game screen left that screen covering the planning map and the climber
+  live at the old base camp; the climber is now frozen when a run ends, the post-game and
+  resolution screens are hidden when planning starts, and position samples are ignored until
+  the new run is anchored
+- Mountains never unlocked (nothing recorded runs in the mountain database); the loadout
+  screen kept the first mountain's requirements; waypoints survived onto the next mountain;
+  "Clear Route" disabled Begin Descent; the forecast panel read keys the weather service never
+  provides; the physical map kept the previous mountain and jumped to the corner after its
+  open animation; the map-check marker was drawn before layout and against the wrong rect;
+  the first post-game path was measured before layout
+- Weather (precipitation, fog, transitions) leaked from the previous run into the next; the
+  temperature was computed at a fixed 4000 m on every mountain; audio ducked at the resolution
+  screen was never restored; the fatal sequence read a non-existent drone field; the drone
+  never re-acquired the climber on later runs; a DEM's chunk layout stuck for the session;
+  the fatigue threshold event never fired on a second run
+- The sun disc appeared and vanished several times a day (luminance heuristic); it now follows
+  the weather and sun height
 - The terrain generator followed whichever camera it saw first (the drone's, parked near the
   origin), and culled every chunk as "too far"; it now follows the live camera and never
   distance-culls the mountain. The world is revealed only once the climber and camera are

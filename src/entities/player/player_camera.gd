@@ -312,6 +312,9 @@ func snap_behind_player() -> void:
 	_initialised = false
 	if is_inside_tree() and player != null and is_instance_valid(player) and player.is_inside_tree():
 		_update_camera_position(0.0)
+		# Re-seat once more on the next physics tick in case the climber is
+		# turned after this call
+		_initialised = false
 
 
 # =============================================================================

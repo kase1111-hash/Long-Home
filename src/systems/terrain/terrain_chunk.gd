@@ -353,7 +353,10 @@ func analyze(finalize: bool = true) -> void:
 			cell.normal = Vector3(-dx, 1.0, -dz).normalized()
 
 			if gradient > 0.001:
-				cell.slope_direction = Vector3(dx, 0.0, dz).normalized()
+				# (dx, dz) is the height gradient, which points uphill; every
+				# consumer (slide forces, slips, downclimb facing, anchors)
+				# expects the downhill direction
+				cell.slope_direction = -Vector3(dx, 0.0, dz).normalized()
 				var aspect := rad_to_deg(atan2(dx, -dz))
 				if aspect < 0.0:
 					aspect += 360.0
