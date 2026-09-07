@@ -126,23 +126,25 @@ func calculate_derived_properties() -> void:
 
 	# Navigation flags
 	is_cliff = slope_angle >= GameEnums.SLOPE_THRESHOLDS.cliff_min
-	is_walkable = terrain_zone in [
-		GameEnums.TerrainZone.WALKABLE,
-		GameEnums.TerrainZone.STEEP
-	]
-	requires_rope = terrain_zone in [
-		GameEnums.TerrainZone.RAPPEL_REQUIRED,
-		GameEnums.TerrainZone.CLIFF
-	]
+	is_walkable = (
+		terrain_zone == GameEnums.TerrainZone.WALKABLE or
+		terrain_zone == GameEnums.TerrainZone.STEEP
+	)
+	requires_rope = (
+		terrain_zone == GameEnums.TerrainZone.RAPPEL_REQUIRED or
+		terrain_zone == GameEnums.TerrainZone.CLIFF
+	)
+	var slide_surface := (
+		surface_type == GameEnums.SurfaceType.SNOW_FIRM or
+		surface_type == GameEnums.SurfaceType.SNOW_SOFT or
+		surface_type == GameEnums.SurfaceType.SNOW_PACKED or
+		surface_type == GameEnums.SurfaceType.SNOW_POWDER or
+		surface_type == GameEnums.SurfaceType.SCREE
+	)
 	is_slideable = (
 		slope_angle >= GameEnums.SLOPE_THRESHOLDS.slide_min and
 		slope_angle < GameEnums.SLOPE_THRESHOLDS.downclimb_min and
-		surface_type in [
-			GameEnums.SurfaceType.SNOW_FIRM,
-			GameEnums.SurfaceType.SNOW_SOFT,
-			GameEnums.SurfaceType.SNOW_POWDER,
-			GameEnums.SurfaceType.SCREE
-		]
+		slide_surface
 	)
 
 	# Exit zone detection (slope reduction + good surface)
@@ -157,10 +159,12 @@ func calculate_derived_properties() -> void:
 		# Quality based on how flat and far from danger
 		exit_zone_quality = 1.0 - (slope_angle / GameEnums.SLOPE_THRESHOLDS.slide_min)
 		exit_zone_quality *= clampf(distance_to_cliff / 50.0, 0.0, 1.0)
+	else:
+		exit_zone_quality = 0.0
 
 	# Slide risk calculation
+	slide_risk = 0.0
 	if is_slideable:
-		slide_risk = 0.0
 		# Steeper = more risk
 		slide_risk += (slope_angle - GameEnums.SLOPE_THRESHOLDS.slide_min) / 15.0 * 0.3
 		# Close to cliff = more risk
