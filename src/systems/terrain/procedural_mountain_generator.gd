@@ -30,7 +30,7 @@ const NOISE_ENVELOPE_END := 45.0
 const PLATEAU_RADIUS := 9.0
 const PLATEAU_BLEND := 9.0
 ## tan(32 deg): hard cap on the corridor grade
-const MAX_CORRIDOR_GRADE := 0.6249
+const MAX_CORRIDOR_GRADE := 0.5095  # tan(27 deg): the safe line is a cautious walk
 ## tan(36 deg): cap on the face grade where the corridor runs diagonally
 const MAX_FACE_GRADE := 0.7265
 ## Bench grade for the shelves that host cliff-band ramps: tan(9 deg)

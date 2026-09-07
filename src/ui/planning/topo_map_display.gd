@@ -153,30 +153,18 @@ func _generate_map() -> void:
 	if goal_3d != Vector3.ZERO:
 		base_position = Vector2(goal_3d.x, goal_3d.z)
 
-	# Generate map data
-	var _t0 := Time.get_ticks_msec()
-	map_data = topo_generator.generate_map(
-		terrain_service.get_all_chunks(),
-		bounds_min,
-		bounds_max
-	)
-	var _t1 := Time.get_ticks_msec()
-
-	# Render base map
-	var base_image := topo_generator.render_to_image(map_data, map_resolution)
+	# Map data and base image are generated once per terrain load and shared
+	# with the physical, pause and replay maps
+	map_data = topo_generator.get_terrain_map(terrain_service)
+	var base_image := topo_generator.get_terrain_image(terrain_service, map_resolution)
 	base_map_texture = ImageTexture.create_from_image(base_image)
-	var _t2 := Time.get_ticks_msec()
 
 	# Generate overlays
 	_generate_slope_overlay()
-	var _t3 := Time.get_ticks_msec()
 	_generate_hazard_overlay()
-	var _t4 := Time.get_ticks_msec()
 
 	# Initial route overlay (empty)
 	_update_route_overlay()
-	var _t5 := Time.get_ticks_msec()
-	print("[TMP TopoMapDisplay] generate %d ms, render %d ms, slope %d ms, hazard %d ms, route %d ms, total %d ms" % [_t1 - _t0, _t2 - _t1, _t3 - _t2, _t4 - _t3, _t5 - _t4, _t5 - _t0])
 
 	queue_redraw()
 
@@ -185,27 +173,53 @@ func _generate_slope_overlay() -> void:
 	if terrain_service == null:
 		return
 
-	var image := Image.create(map_resolution.x, map_resolution.y, false, Image.FORMAT_RGBA8)
+	# One pixel per terrain cell, read straight from the analysed cells; _draw()
+	# stretches the texture over the map rect (chunk bounds == terrain bounds)
+	var chunks: Dictionary = terrain_service.get_all_chunks()
+	if chunks.is_empty():
+		slope_overlay_texture = null
+		return
+
+	var first: TerrainChunk = chunks.values()[0]
+	var cell_size: float = first.cell_size
+	var cells_x := maxi(int(round((world_bounds_max.x - world_bounds_min.x) / cell_size)), 1)
+	var cells_z := maxi(int(round((world_bounds_max.y - world_bounds_min.y) / cell_size)), 1)
+
+	var image := Image.create(cells_x, cells_z, false, Image.FORMAT_RGBA8)
 	image.fill(Color(0, 0, 0, 0))
 
-	var scale := Vector2(
-		map_resolution.x / (world_bounds_max.x - world_bounds_min.x),
-		map_resolution.y / (world_bounds_max.y - world_bounds_min.y)
-	)
+	var steep_color := _get_slope_color(30.0)
+	var downclimb_color := _get_slope_color(40.0)
+	var rappel_color := _get_slope_color(60.0)
+	var cliff_color := _get_slope_color(80.0)
 
-	# Sample slope at each pixel
-	for x in range(0, map_resolution.x, 4):  # Sample every 4 pixels for performance
-		for y in range(0, map_resolution.y, 4):
-			var world_pos := _image_to_world(Vector2i(x, y))
-			var slope := terrain_service.get_slope_at(Vector3(world_pos.x, 0, world_pos.y))
+	for chunk in chunks.values():
+		var origin_x := int(round((chunk.world_origin.x - world_bounds_min.x) / cell_size))
+		var origin_z := int(round((chunk.world_origin.z - world_bounds_min.y) / cell_size))
+		var resolution: int = chunk.resolution
+		var cells: Array[Array] = chunk.cells
 
-			# Color based on slope angle
-			var color := _get_slope_color(slope)
-			if color.a > 0:
-				for dx in range(4):
-					for dy in range(4):
-						if x + dx < map_resolution.x and y + dy < map_resolution.y:
-							image.set_pixel(x + dx, y + dy, color)
+		for x in range(resolution):
+			var px := origin_x + x
+			if px < 0 or px >= cells_x:
+				continue
+			var column: Array = cells[x]
+			for z in range(resolution):
+				var pz := origin_z + z
+				if pz < 0 or pz >= cells_z:
+					continue
+				var cell: TerrainCell = column[z]
+				var slope: float = cell.slope_angle
+				if slope < 25.0:
+					continue  # Walkable - no overlay
+				var color := steep_color
+				if slope >= 70.0:
+					color = cliff_color
+				elif slope >= 50.0:
+					color = rappel_color
+				elif slope >= 35.0:
+					color = downclimb_color
+				image.set_pixel(px, pz, color)
 
 	slope_overlay_texture = ImageTexture.create_from_image(image)
 
@@ -246,13 +260,13 @@ func _generate_hazard_overlay() -> void:
 				center /= zone.size()
 
 				var img_pos := _world_to_image(center)
-				_draw_hazard_marker(image, img_pos, topo_generator.cliff_color, 6)
+				topo_generator.draw_marker(image, img_pos, topo_generator.cliff_color, 6)
 
 	# Draw exit zones
 	if show_exit_zones:
 		for exit_pos in map_data.exit_zones:
 			var img_pos := _world_to_image(exit_pos)
-			_draw_hazard_marker(image, img_pos, topo_generator.exit_zone_color, 4)
+			topo_generator.draw_marker(image, img_pos, topo_generator.exit_zone_color, 4)
 
 	# Draw rope-required zones
 	if show_rope_zones:
@@ -260,19 +274,9 @@ func _generate_hazard_overlay() -> void:
 			if marker.get("type") == "rope_required":
 				var pos: Vector2 = marker.get("position", Vector2.ZERO)
 				var img_pos := _world_to_image(pos)
-				_draw_hazard_marker(image, img_pos, Color(0.6, 0.3, 0.8, 0.7), 5)
+				topo_generator.draw_marker(image, img_pos, Color(0.6, 0.3, 0.8, 0.7), 5)
 
 	hazard_overlay_texture = ImageTexture.create_from_image(image)
-
-
-func _draw_hazard_marker(image: Image, pos: Vector2i, color: Color, size: int) -> void:
-	for dx in range(-size, size + 1):
-		for dy in range(-size, size + 1):
-			if dx * dx + dy * dy <= size * size:
-				var px := pos.x + dx
-				var py := pos.y + dy
-				if px >= 0 and px < image.get_width() and py >= 0 and py < image.get_height():
-					image.set_pixel(px, py, color)
 
 
 func _update_route_overlay() -> void:
@@ -289,7 +293,7 @@ func _update_route_overlay() -> void:
 		for i in range(route_points.size() - 1):
 			var p1 := _world_to_image(route_points[i])
 			var p2 := _world_to_image(route_points[i + 1])
-			_draw_line(image, p1, p2, route_color, 3)
+			topo_generator.draw_line(image, p1, p2, route_color, 3)
 
 	# Draw waypoints
 	for i in range(waypoints.size()):
@@ -306,36 +310,6 @@ func _update_route_overlay() -> void:
 
 	route_overlay_texture = ImageTexture.create_from_image(image)
 	queue_redraw()
-
-
-func _draw_line(image: Image, p1: Vector2i, p2: Vector2i, color: Color, width: int) -> void:
-	var dx := absi(p2.x - p1.x)
-	var dy := absi(p2.y - p1.y)
-	var sx := 1 if p1.x < p2.x else -1
-	var sy := 1 if p1.y < p2.y else -1
-	var err := dx - dy
-
-	var x := p1.x
-	var y := p1.y
-
-	while true:
-		for wx in range(-width/2, width/2 + 1):
-			for wy in range(-width/2, width/2 + 1):
-				var px := x + wx
-				var py := y + wy
-				if px >= 0 and px < image.get_width() and py >= 0 and py < image.get_height():
-					image.set_pixel(px, py, color)
-
-		if x == p2.x and y == p2.y:
-			break
-
-		var e2 := 2 * err
-		if e2 > -dy:
-			err -= dy
-			x += sx
-		if e2 < dx:
-			err += dx
-			y += sy
 
 
 func _draw_waypoint(image: Image, pos: Vector2i, color: Color, number: int) -> void:

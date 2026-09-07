@@ -17,9 +17,9 @@ signal micro_slip_occurred(severity: float)
 # =============================================================================
 
 @export_group("Movement")
-@export var base_walk_speed: float = 2.0
+@export var base_walk_speed: float = 2.4
 @export var base_run_speed: float = 4.0
-@export var downclimb_speed: float = 0.8
+@export var downclimb_speed: float = 1.0
 @export var traverse_speed: float = 1.2
 
 @export_group("Physics")
@@ -330,8 +330,9 @@ func get_current_speed() -> float:
 	if gear_state:
 		speed *= gear_state.get_weight_modifier()
 
-	# Stability modifier
-	speed *= stability
+	# Stability modifier: unsteady footing slows the climber but never
+	# roots them to the spot (that would make every 30 degree slope a crawl)
+	speed *= lerpf(0.55, 1.0, clampf(stability, 0.0, 1.0))
 
 	return speed
 

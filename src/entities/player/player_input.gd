@@ -163,13 +163,18 @@ func _process_buffered_input(delta: float) -> void:
 
 
 func _update_hesitation(delta: float) -> void:
-	# Track hesitation when player has input but isn't committing
-	if raw_move_input.length() > 0.1:
+	# Hesitation is input that never turns into movement: pushing against
+	# terrain or dithering at an edge while the body could move. Simply
+	# holding a direction while walking is commitment, not hesitation.
+	var horizontal_speed := Vector2(player.velocity.x, player.velocity.z).length()
+	var could_move := player.get_current_speed() > 0.5
+	if raw_move_input.length() > 0.1 and horizontal_speed < 0.3 and could_move:
 		hesitation_time += delta
 
-		# Hesitation penalty affects stability
+		# Hesitation penalty affects stability (bounded so it never spirals)
 		if hesitation_time > hesitation_threshold:
-			var penalty := (hesitation_time - hesitation_threshold) * hesitation_penalty_rate * delta
+			var overrun := minf(hesitation_time - hesitation_threshold, 5.0)
+			var penalty := overrun * hesitation_penalty_rate * delta
 			player.set_stability(player.stability - penalty)
 	else:
 		hesitation_time = 0.0

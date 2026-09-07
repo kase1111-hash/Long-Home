@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the `RunContext`, so distance, elevation progress and the post-game path are real.
 - **Godot-native tests**: `tests/check_scripts.gd` (every script compiles),
   `tests/smoke_goal.gd` (menu → descent → base camp → resolution, headless),
+  `tests/smoke_walk.gd` (walks the climber down the corridor to base camp at 4x speed),
   `tests/ui_tour.gd` (presses every screen's real buttons and screenshots them),
   `tests/screenshot_tour.gd` (renders the descent to PNGs, with weather/time overrides).
 
@@ -47,7 +48,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The player spawns on the summit plateau facing base camp; `run.start_elevation` and
   `run.target_elevation` come from the terrain.
 
+### Balance
+
+- The guaranteed corridor tops out at 27° (a cautious walk); steeper sliding terrain lies
+  beside it. Walking speed is 2.4 m/s base and no longer collapses with stability.
+- Fatigue accrues about a third as fast; a full descent ends tired rather than collapsed.
+
 ### Fixed
+
+#### Gameplay (the climber ground to a halt within ten seconds)
+- "Hesitation" counted any held movement key, drained stability to zero and, because speed
+  scaled with stability, stopped the climber dead. Hesitation is now input that produces no
+  movement.
+- BodyConditionService simulated a private BodyState nobody read and never received the
+  climber's activity, slope, weight or insulation, so the cold model treated a moving,
+  clothed climber as standing still naked (frostbite in minutes). It now adopts the run's
+  body state and samples the player and gear.
+- RecordingService read a non-existent `body_part` field on injuries.
 
 #### Compilation (95 of 111 scripts failed to load in Godot 4.2)
 - Added explicit static types wherever a variable was inferred from a `Variant`
@@ -62,6 +79,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Terrain mesh triangles were wound face-down; collision floated ~3000 m above the mesh;
   chunk seams had cracks; freshly built meshes were destroyed on `terrain_loaded`
 - The drone camera's `look_at` spammed one error per frame when hovering above the player
+- Resuming from the pause menu re-entered `DESCENT` and rebuilt the whole descent
+  (respawning the player under every system that had cached it); one player node now lives
+  for the whole session and is reset between runs
+- The post-game panel stacked its moments list, insight and buttons on top of each other
+- One-shot 3D audio players were positioned before entering the tree (an engine error on
+  every footstep)
 
 #### Service Bootstrap (game was unplayable past the main menu)
 - Added a service bootstrapper in `main.gd`: 25 service classes (MountainDatabase,

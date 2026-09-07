@@ -399,23 +399,19 @@ func _get_incident_label(incident: Dictionary) -> String:
 
 func _generate_topo_map() -> void:
 	# Get terrain service for topo generation
-	var terrain_service = ServiceLocator.get_service("TerrainService")
+	var terrain_service := ServiceLocator.get_service("TerrainService") as TerrainService
 	if terrain_service == null:
 		return
 
-	var bounds_min_3d: Vector3 = terrain_service.terrain_bounds_min
-	var bounds_max_3d: Vector3 = terrain_service.terrain_bounds_max
-	map_bounds_min = Vector2(bounds_min_3d.x, bounds_min_3d.z)
-	map_bounds_max = Vector2(bounds_max_3d.x, bounds_max_3d.z)
-
-	# Generate topo map
+	# Map data and image are shared with the other map displays (generated
+	# once per terrain load)
 	var topo_generator := TopoMapGenerator.new()
-	var chunks: Dictionary = terrain_service.get_all_chunks()
-	var map_data := topo_generator.generate_map(chunks, bounds_min_3d, bounds_max_3d)
+	var map_data := topo_generator.get_terrain_map(terrain_service)
+	map_bounds_min = map_data.bounds_min
+	map_bounds_max = map_data.bounds_max
 
 	# Render to texture
-	var resolution := Vector2i(600, 600)
-	var image := topo_generator.render_to_image(map_data, resolution)
+	var image := topo_generator.get_terrain_image(terrain_service, Vector2i(600, 600))
 	topo_texture = ImageTexture.create_from_image(image)
 
 	# Convert 3D path to 2D screen coordinates

@@ -129,6 +129,9 @@ godot --headless --path . -s res://tests/check_scripts.gd
 # Boot headless, walk into a descent, reach base camp, land on the resolution screen
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_goal.gd
 
+# Actually walk the climber down the corridor to base camp at 4x speed (~2 min wall clock)
+godot --headless --audio-driver Dummy --path . -s res://tests/smoke_walk.gd -- --mountain=knife_edge
+
 # Walk every screen with the real buttons and save a screenshot of each (needs a display;
 # xvfb-run works on a headless Linux box)
 mkdir -p /tmp/tour && xvfb-run -a -s "-screen 0 1280x720x24" \

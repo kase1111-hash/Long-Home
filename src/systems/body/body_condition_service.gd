@@ -68,6 +68,12 @@ var self_check_timer: float = 0.0
 ## Has collapsed
 var has_collapsed: bool = false
 
+## Seconds between samples of the player's activity/slope for the managers
+const SAMPLE_INTERVAL := 0.2
+
+## Timer for player sampling
+var _sample_timer: float = 0.0
+
 
 # =============================================================================
 # INITIALIZATION
@@ -95,6 +101,12 @@ func _ready() -> void:
 	# Connect signals
 	_connect_signals()
 
+	# Simulate the active run's body, not a private copy: the player, HUD
+	# and resolution all read run.body_state
+	EventBus.run_started.connect(_on_run_started)
+	if GameStateManager.current_run != null:
+		_on_run_started(GameStateManager.current_run)
+
 	# Register service
 	ServiceLocator.register_service("BodyConditionService", self)
 
@@ -114,6 +126,43 @@ func _connect_signals() -> void:
 # =============================================================================
 # UPDATE
 # =============================================================================
+
+## Switch every manager to the given body state (the active run's)
+func adopt_body_state(state: BodyState) -> void:
+	if state == null:
+		return
+	body_state = state
+	fatigue_manager.set_body_state(state)
+	cold_manager.set_body_state(state)
+	injury_manager.set_body_state(state)
+	has_collapsed = false
+	body_state_dirty = true
+
+
+func _on_run_started(run: RunContext) -> void:
+	adopt_body_state(run.body_state)
+	if run.gear_state != null:
+		set_insulation(run.gear_state.get_warmth_rating())
+		if run.gear_state.has_method("get_total_weight"):
+			set_weight(run.gear_state.get_total_weight())
+
+
+## Feed the managers what the climber is actually doing: how fast they
+## move (activity generates heat and fatigue) and how steep it is
+func _physics_process(delta: float) -> void:
+	_sample_timer += delta
+	if _sample_timer < SAMPLE_INTERVAL:
+		return
+	_sample_timer = 0.0
+
+	var player := ServiceLocator.get_service("PlayerController") as PlayerController
+	if player == null or not player.is_inside_tree():
+		return
+	var speed := Vector2(player.velocity.x, player.velocity.z).length()
+	set_activity_level(clampf(speed / 2.4, 0.0, 1.0))
+	if player.current_cell != null:
+		set_slope(player.current_cell.slope_angle)
+
 
 func _process(delta: float) -> void:
 	_update_overall_condition()

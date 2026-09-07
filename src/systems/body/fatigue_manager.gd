@@ -25,7 +25,7 @@ signal collapse_imminent()
 
 @export_group("Base Rates")
 ## Base fatigue rate per second when moving
-@export var base_fatigue_rate: float = 0.001
+@export var base_fatigue_rate: float = 0.00025
 ## Recovery rate per second when resting
 @export var base_recovery_rate: float = 0.005
 
@@ -33,7 +33,7 @@ signal collapse_imminent()
 ## Fatigue multiplier for running/fast movement
 @export var speed_multiplier: float = 2.5
 ## Fatigue per degree of slope over threshold
-@export var slope_fatigue_per_degree: float = 0.05
+@export var slope_fatigue_per_degree: float = 0.03
 ## Slope threshold for extra fatigue
 @export var slope_threshold: float = 20.0
 ## Weight fatigue multiplier (per kg over base)

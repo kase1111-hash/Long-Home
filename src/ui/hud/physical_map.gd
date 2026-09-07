@@ -241,19 +241,14 @@ func _generate_map() -> void:
 	var bounds_min := terrain_service.terrain_bounds_min
 	var bounds_max := terrain_service.terrain_bounds_max
 
-	# Generate topo map data
-	var _t0 := Time.get_ticks_msec()
-	var chunks: Dictionary = terrain_service.get_all_chunks()
-	map_data = topo_generator.generate_map(chunks, bounds_min, bounds_max)
-
-	# Render to image
-	var resolution := Vector2i(600, 600)
-	var image := topo_generator.render_to_image(map_data, resolution)
+	# Map data and image are shared with the other map displays (generated
+	# once per terrain load)
+	map_data = topo_generator.get_terrain_map(terrain_service)
+	var image := topo_generator.get_terrain_image(terrain_service, Vector2i(600, 600))
 
 	# Create texture
 	map_texture = ImageTexture.create_from_image(image)
 	map_display.texture = map_texture
-	print("[TMP PhysicalMap] total %d ms" % (Time.get_ticks_msec() - _t0))
 
 
 func _update_player_position() -> void:
