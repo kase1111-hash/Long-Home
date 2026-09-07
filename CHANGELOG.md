@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Godot-native tests**: `tests/check_scripts.gd` (every script compiles),
   `tests/smoke_goal.gd` (menu → descent → base camp → resolution, headless),
   `tests/smoke_walk.gd` (walks the climber down the corridor to base camp at 4x speed),
+  `tests/smoke_slide.gd` (starts a slide on the nearest slideable slope and lets it end),
   `tests/ui_tour.gd` (presses every screen's real buttons and screenshots them),
   `tests/screenshot_tour.gd` (renders the descent to PNGs, with weather/time overrides).
 
@@ -79,6 +80,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Terrain mesh triangles were wound face-down; collision floated ~3000 m above the mesh;
   chunk seams had cracks; freshly built meshes were destroyed on `terrain_loaded`
 - The drone camera's `look_at` spammed one error per frame when hovering above the player
+- Every map display regenerated the whole topo map on `terrain_loaded` (3.4 s each, four
+  displays); one cached map per terrain load with single-pass contours brings the
+  descent-start hitch from ~6 s to ~2.5 s
+- Space now also starts a slide from a standstill on slideable snow, not only while walking
 - Resuming from the pause menu re-entered `DESCENT` and rebuilt the whole descent
   (respawning the player under every system that had cached it); one player node now lives
   for the whole session and is reset between runs

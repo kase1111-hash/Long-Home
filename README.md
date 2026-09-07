@@ -132,6 +132,9 @@ godot --headless --audio-driver Dummy --path . -s res://tests/smoke_goal.gd
 # Actually walk the climber down the corridor to base camp at 4x speed (~2 min wall clock)
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_walk.gd -- --mountain=knife_edge
 
+# Drop onto the nearest slideable slope, press Space, and let the slide play out
+godot --headless --audio-driver Dummy --path . -s res://tests/smoke_slide.gd
+
 # Walk every screen with the real buttons and save a screenshot of each (needs a display;
 # xvfb-run works on a headless Linux box)
 mkdir -p /tmp/tour && xvfb-run -a -s "-screen 0 1280x720x24" \

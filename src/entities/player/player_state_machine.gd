@@ -205,6 +205,11 @@ class StandingState extends PlayerState:
 		if player.input_handler and player.input_handler.is_action_just_pressed("check_self"):
 			return GameEnums.PlayerMovementState.RESTING
 
+		# Sitting down into a slide from a standstill is allowed too
+		if player.input_handler and player.input_handler.is_action_just_pressed("slide_initiate"):
+			if player.can_initiate_slide():
+				return GameEnums.PlayerMovementState.SLIDING
+
 		# Check for rope deployment
 		if player.input_handler and player.input_handler.is_action_just_pressed("rope_deploy"):
 			var cell := player.current_cell

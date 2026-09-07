@@ -130,6 +130,7 @@ godot --path . -- --quick-start --mountain=north_face
 godot --headless --path . -s res://tests/check_scripts.gd        # every script compiles
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_goal.gd   # menu -> descent -> base camp
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_walk.gd   # walks the corridor for real (~2 min)
+godot --headless --audio-driver Dummy --path . -s res://tests/smoke_slide.gd  # Space on a slideable slope
 xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-driver opengl3 \
   --audio-driver Dummy -s res://tests/ui_tour.gd -- --out=/tmp/tour    # every screen, with PNGs
 python tests/test_gdscript_validation.py
