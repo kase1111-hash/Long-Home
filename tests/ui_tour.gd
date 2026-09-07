@@ -107,11 +107,34 @@ func _run() -> void:
 		_expect(player.is_on_floor(), "player on the ground after walking")
 	_shot("06_descent_walk.png")
 
-	# 6. Pause menu (Esc)
+	# 6. Pause menu (Esc), then its Check Map and Check Body screens
 	_state_manager.toggle_pause()
 	await _wait(SETTLE)
 	_expect_state("PAUSED", "toggle_pause")
 	_shot("07_pause.png")
+
+	var pause_menu_node: Node = main_scene.get("pause_menu")
+	if pause_menu_node != null and pause_menu_node.has_method("_on_map_pressed"):
+		pause_menu_node._on_map_pressed()
+		await _wait(SETTLE * 2)
+		_expect_state("MAP_CHECK", "pause menu Check Map")
+		_shot("07b_map_check.png")
+		_state_manager.exit_map_check()
+		await _wait(SETTLE)
+		_expect_state("PAUSED", "leaving the map check")
+
+		pause_menu_node._on_self_check_pressed()
+		await _wait(SETTLE * 3)
+		var self_check: Node = main_scene.get("self_check_screen")
+		_expect(self_check != null and self_check.visible, "self-check screen opens from the pause menu")
+		_shot("07c_self_check.png")
+		if self_check != null and self_check.has_signal("close_requested"):
+			self_check.close_requested.emit()
+		await _wait(SETTLE)
+		_expect(pause_menu_node.visible, "pause menu returns after the self-check")
+	else:
+		_expect(false, "pause menu exists")
+
 	_state_manager.toggle_pause()
 	await _wait(SETTLE)
 	_expect_state("DESCENT", "resume")
