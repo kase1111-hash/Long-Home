@@ -49,6 +49,9 @@ var temperature_system: TemperatureSystem
 ## Surface condition tracking
 var surface_manager: SurfaceConditionManager
 
+## Visual layer: sky, sun light, fog and snowfall (procedural, no assets)
+var visuals: EnvironmentVisuals
+
 
 # =============================================================================
 # STATE
@@ -86,6 +89,11 @@ func _ready() -> void:
 	add_child(weather_service)
 	add_child(temperature_system)
 	add_child(surface_manager)
+
+	# Visuals go last so TimeService/WeatherService are already registered
+	visuals = EnvironmentVisuals.new()
+	visuals.name = "EnvironmentVisuals"
+	add_child(visuals)
 
 	# Connect signals
 	_connect_signals()
@@ -358,6 +366,11 @@ func get_conditions() -> EnvironmentConditions:
 	conditions.active_hazards = active_hazards.duplicate()
 
 	return conditions
+
+
+## Get the visual layer (sky, sun, fog, snowfall)
+func get_visuals() -> EnvironmentVisuals:
+	return visuals
 
 
 ## Get visibility range at position

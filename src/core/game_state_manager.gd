@@ -68,6 +68,7 @@ func _setup_valid_transitions() -> void:
 		GameEnums.GameState.PAUSED: [
 			GameEnums.GameState.DESCENT,
 			GameEnums.GameState.MAP_CHECK,
+			GameEnums.GameState.RESOLUTION,  # Abandon run from the pause menu
 			GameEnums.GameState.MAIN_MENU  # Abandon run
 		],
 		GameEnums.GameState.MAP_CHECK: [
@@ -87,6 +88,31 @@ func _setup_valid_transitions() -> void:
 func _connect_signals() -> void:
 	# Connect to relevant EventBus signals
 	EventBus.fatal_event_completed.connect(_on_fatal_event_completed)
+	EventBus.player_position_updated.connect(_on_player_position_updated)
+
+
+# =============================================================================
+# RUN TRACKING
+# =============================================================================
+
+## Advance the active run's clock while the descent is actually running.
+## Autoloads are pausable, so this stops on its own while the tree is paused;
+## the is_paused check is a guard for callers that pause without the tree.
+func _process(delta: float) -> void:
+	if current_state != GameEnums.GameState.DESCENT or is_paused:
+		return
+	if not is_run_active():
+		return
+	current_run.update_time(delta)
+
+
+## Feed player samples into the run (distance, elevation, path history)
+func _on_player_position_updated(position: Vector3, velocity: Vector3) -> void:
+	if not is_run_active():
+		return
+	if current_state != GameEnums.GameState.DESCENT and current_state != GameEnums.GameState.MAP_CHECK:
+		return
+	current_run.update_position(position, velocity)
 
 
 # =============================================================================
@@ -153,8 +179,12 @@ func _handle_state_enter(state: GameEnums.GameState) -> void:
 ## Start a new run with given conditions
 func start_run(mountain_id: String, conditions: StartConditions) -> RunContext:
 	if current_run != null:
-		push_warning("[GameStateManager] Abandoning existing run to start new one")
-		_abandon_run()
+		if current_run.is_complete:
+			# A finished run (already recorded by run_ended listeners) is just dropped
+			current_run = null
+		else:
+			push_warning("[GameStateManager] Abandoning existing run to start new one")
+			_abandon_run()
 
 	current_run = RunContext.create_new_run(mountain_id, conditions)
 	current_run.start_elevation = 0.0  # Will be set by terrain system after spawn
