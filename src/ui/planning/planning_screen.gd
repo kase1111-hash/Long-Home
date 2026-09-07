@@ -345,8 +345,10 @@ func _on_elevation_profile_draw() -> void:
 	if elevation_profile == null:
 		return
 
-	var profile_data = elevation_profile.get_meta("profile_data", null)
-	if profile_data == null:
+	if not elevation_profile.has_meta("profile_data"):
+		return
+	var profile_data: Dictionary = elevation_profile.get_meta("profile_data")
+	if profile_data.is_empty():
 		return
 
 	var distances: PackedFloat32Array = profile_data.get("distances", PackedFloat32Array())
