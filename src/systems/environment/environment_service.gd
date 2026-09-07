@@ -145,6 +145,10 @@ func initialize_run(config: EnvironmentConfig) -> void:
 	previous_rating = condition_rating
 	active_hazards.clear()
 
+	# Visuals snap to this run's weather instead of easing in from the last one
+	if visuals != null:
+		visuals.reset_for_run()
+
 	print("[EnvironmentService] Run initialized: %s, %.1f°C" % [
 		time_service.get_time_string(),
 		temperature_system.get_air_temperature()

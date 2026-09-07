@@ -133,13 +133,17 @@ func _process(delta: float) -> void:
 
 
 func _update_lod_from_camera() -> void:
-	# Find camera if not set
-	if camera == null:
-		camera = get_viewport().get_camera_3d()
-		if camera == null:
-			return
+	# Always follow the camera that is rendering right now. A camera cached
+	# earlier (the drone's, before it found its subject, sits near the
+	# origin 3 km below the mountain) would drive every chunk to its
+	# coarsest LOD
+	var active := camera
+	if active == null or not is_instance_valid(active) or not active.current:
+		active = get_viewport().get_camera_3d()
+	if active == null:
+		return
 
-	update_lod(camera.global_position)
+	update_lod(active.global_position)
 
 
 # =============================================================================
@@ -597,9 +601,10 @@ func update_lod(camera_pos: Vector3) -> void:
 				mesh_instance.mesh = lod_meshes[target_lod]
 				chunk_current_lod[coords] = target_lod
 
-		# Visibility culling for chunks far beyond the last LOD distance
-		var max_visible_distance := lod_distances[-1] * 3.0 if not lod_distances.is_empty() else 1000.0
-		mesh_instance.visible = distance < max_visible_distance
+		# The whole mountain stays visible (fog handles distance); LOD alone
+		# keeps the triangle count down. Distance culling once hid every
+		# chunk when a far-away camera was sampled
+		mesh_instance.visible = true
 
 
 ## Get current LOD level for a chunk

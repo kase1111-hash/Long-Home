@@ -306,10 +306,12 @@ func _check_collision(target: Vector3, ideal_pos: Vector3) -> Vector3:
 # CONTROL
 # =============================================================================
 
-## Re-seat the camera behind the climber on the next physics frame
-## (e.g. after a respawn or teleport)
+## Re-seat the camera behind the climber right away (e.g. after a respawn or
+## teleport) so the next rendered frame is already correct
 func snap_behind_player() -> void:
 	_initialised = false
+	if is_inside_tree() and player != null and is_instance_valid(player) and player.is_inside_tree():
+		_update_camera_position(0.0)
 
 
 # =============================================================================

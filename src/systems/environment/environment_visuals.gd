@@ -51,6 +51,10 @@ const SNOW_EMITTER_HEIGHT := 14.0
 ## Half-extents of the snowfall emission box (about 30 m across)
 const SNOW_BOX_EXTENTS := Vector3(16.0, 1.5, 16.0)
 
+## Particle buffer size; changing CPUParticles3D.amount wipes every live
+## flake, so it is allocated once and intensity is expressed through size/alpha
+const SNOW_MAX_AMOUNT := 2200
+
 ## Colours when the sun is well below the horizon
 const NIGHT_TOP := Color(0.010, 0.016, 0.045)
 const NIGHT_HORIZON := Color(0.035, 0.050, 0.095)
@@ -252,6 +256,7 @@ func _build_snowfall() -> void:
 	_snow_material = StandardMaterial3D.new()
 	_snow_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_snow_material.albedo_color = Color(0.95, 0.96, 1.0)
+	_snow_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	_snow_material.disable_receive_shadows = true
 
 	var flake := SphereMesh.new()
@@ -264,7 +269,7 @@ func _build_snowfall() -> void:
 	snowfall = CPUParticles3D.new()
 	snowfall.name = "Snowfall"
 	snowfall.emitting = false
-	snowfall.amount = 800
+	snowfall.amount = SNOW_MAX_AMOUNT
 	snowfall.lifetime = 8.0
 	snowfall.preprocess = 2.0
 	snowfall.randomness = 0.4
@@ -332,6 +337,16 @@ func _request_refresh() -> void:
 # REFRESH
 # =============================================================================
 
+## Start a run from its configured weather: the next refresh snaps fog and
+## snow instead of easing in from whatever the sky looked like before
+func reset_for_run() -> void:
+	_first_refresh = true
+	if snowfall != null:
+		snowfall.emitting = false
+		snowfall.restart()
+	_request_refresh()
+
+
 ## Recompute sun, sky, fog and snowfall from the current time and weather.
 ## [param elapsed] is the real time since the previous refresh (for smoothing).
 func _refresh(elapsed: float) -> void:
@@ -376,17 +391,23 @@ func _update_sun(sun_dir: Vector3, elevation: float, cloud: float, weather: Game
 		sun_light.light_color = color
 		sun_light.light_energy = maxf(SUN_ENERGY_MAX * scaled * horizon_fade, 0.02) * weather_factor
 	else:
-		# Night: a faint blue moon high in the opposite half of the sky
+		# Night: a faint blue moon high in the opposite half of the sky.
+		# Everything is continuous with the day branch at elevation 0: the
+		# light starts where the sun set (energy floor, golden colour) and
+		# swings up to the moon over the first six degrees of twilight
 		var flat := Vector3(-sun_dir.x, 0.0, -sun_dir.z)
 		if flat.length_squared() < 0.0001:
 			flat = Vector3(0, 0, -1)
 		var moon_dir := (flat.normalized() * 0.7 + Vector3.UP * 0.714).normalized()
-		_aim_light(moon_dir)
-		# Blend from dusk light to moonlight through the first degrees of twilight
+		var horizon_dir := Vector3(sun_dir.x, 0.0, sun_dir.z)
+		if horizon_dir.length_squared() < 0.0001:
+			horizon_dir = -flat
+		horizon_dir = (horizon_dir.normalized() + Vector3.UP * 0.02).normalized()
 		var twilight := clampf(-elevation / 6.0, 0.0, 1.0)
-		var dusk_color := Color(0.85, 0.55, 0.45)
-		sun_light.light_color = dusk_color.lerp(MOON_COLOR, twilight)
-		sun_light.light_energy = lerpf(0.12, MOON_ENERGY, twilight) * weather_factor
+		_aim_light(horizon_dir.slerp(moon_dir, twilight))
+		var sunset_color := Color(1.0, 0.8, 0.5)  # TimeService's colour at the horizon
+		sun_light.light_color = sunset_color.lerp(MOON_COLOR, twilight)
+		sun_light.light_energy = lerpf(0.02, MOON_ENERGY, twilight) * weather_factor
 
 
 func _update_sky_and_fog(elevation: float, cloud: float, visibility: float, weather: GameEnums.WeatherState, elapsed: float) -> void:
@@ -433,7 +454,10 @@ func _update_sky_and_fog(elevation: float, cloud: float, visibility: float, weat
 	# dark hole, so let the sun sink into the haze instead
 	var disc_luma := sun_light.light_color.get_luminance() * sun_light.light_energy
 	var show_disc := disc_luma >= horizon.get_luminance() * 0.9 and visibility > 0.5
-	sun_light.light_angular_distance = SUN_DISC_SIZE if show_disc else 0.0
+	# Hide the disc in the sky only: light_angular_distance also sets the
+	# soft-shadow penumbra on Forward+, so it must not change
+	sun_light.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_AND_SKY if show_disc \
+		else DirectionalLight3D.SKY_MODE_LIGHT_ONLY
 	sky_material.sun_angle_max = SUN_HALO_ANGLE if show_disc else 0.0
 
 	# --- Apply sky ----------------------------------------------------------
@@ -490,9 +514,11 @@ func _update_snowfall(weather: GameEnums.WeatherState, visibility: float) -> voi
 			snowfall.emitting = false
 		return
 
-	if target_amount != _snow_amount:
-		_snow_amount = target_amount
-		snowfall.amount = target_amount
+	# Intensity tiers change flake size and opacity, never the buffer size
+	_snow_amount = target_amount
+	var intensity := clampf(float(target_amount) / float(SNOW_MAX_AMOUNT), 0.0, 1.0)
+	snowfall.scale_amount_min = lerpf(0.3, 0.5, intensity)
+	snowfall.scale_amount_max = lerpf(0.6, 1.2, intensity)
 
 	# Drift with the wind: stronger wind, flatter and faster flakes
 	var drift := _wind_dir * (_wind_speed * 0.25)
@@ -504,7 +530,9 @@ func _update_snowfall(weather: GameEnums.WeatherState, visibility: float) -> voi
 	snowfall.spread = clampf(30.0 - _wind_speed, 8.0, 30.0)
 
 	# Flakes dull slightly in murk so they do not sparkle against grey
-	_snow_material.albedo_color = Color(0.95, 0.96, 1.0).lerp(Color(0.82, 0.84, 0.88), 1.0 - visibility)
+	var flake_color := Color(0.95, 0.96, 1.0).lerp(Color(0.82, 0.84, 0.88), 1.0 - visibility)
+	flake_color.a = lerpf(0.4, 1.0, intensity)
+	_snow_material.albedo_color = flake_color
 
 	if not snowfall.emitting:
 		snowfall.emitting = true

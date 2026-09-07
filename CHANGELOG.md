@@ -84,6 +84,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   displays); one cached map per terrain load with single-pass contours brings the
   descent-start hitch from ~6 s to ~2.5 s
 - Space now also starts a slide from a standstill on slideable snow, not only while walking
+- Sunset/sunrise no longer jumps six times brighter and flips shadows: the sun and "moon"
+  branches meet at the horizon
+- Fog and snowfall snap to each run's configured weather instead of easing in from the
+  previous run's sky; snowfall intensity changes no longer wipe every flake
+- The sun disc is hidden through the light's sky mode, so Forward+ soft shadows keep their
+  penumbra
+- The terrain generator followed whichever camera it saw first (the drone's, parked near the
+  origin), and culled every chunk as "too far"; it now follows the live camera and never
+  distance-culls the mountain. The world is revealed only once the climber and camera are
+  placed, so a second run never flashes the previous base camp
 - Resuming from the pause menu re-entered `DESCENT` and rebuilt the whole descent
   (respawning the player under every system that had cached it); one player node now lives
   for the whole session and is reset between runs

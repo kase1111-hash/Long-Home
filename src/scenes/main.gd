@@ -472,10 +472,8 @@ func _start_descent() -> void:
 	_hide_loadout_config()
 	_hide_planning()
 
-	# Show world
-	world.visible = true
-
-	# Initialize gameplay systems
+	# Initialize gameplay systems (terrain, environment, player, goal, HUD);
+	# the world is revealed inside, once the climber and camera are placed
 	await _initialize_descent_systems()
 
 	print("[Main] Descent initialized")
@@ -498,6 +496,11 @@ func _initialize_descent_systems() -> void:
 
 	# 3. Spawn player at start position
 	_spawn_player(run)
+
+	# Reveal the world now: the climber's camera must be the current one
+	# before anything else (the drone) enters the tree, and the first
+	# rendered frame should already be the new summit
+	world.visible = true
 
 	# 4. Base camp marker + arrival detection
 	_setup_descent_goal()
