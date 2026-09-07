@@ -18,10 +18,10 @@ signal view_replay_pressed()
 
 @onready var topo_view: Control = $HSplitContainer/TopoContainer/TopoView
 @onready var path_line: Line2D = $HSplitContainer/TopoContainer/TopoView/PathLine
-@onready var moments_container: VBoxContainer = $HSplitContainer/MomentsPanel/MomentsContainer
-@onready var insight_label: Label = $HSplitContainer/MomentsPanel/InsightLabel
-@onready var return_button: Button = $HSplitContainer/MomentsPanel/ButtonContainer/ReturnButton
-@onready var retry_button: Button = $HSplitContainer/MomentsPanel/ButtonContainer/RetryButton
+@onready var moments_container: VBoxContainer = $HSplitContainer/MomentsPanel/Layout/MomentsContainer
+@onready var insight_label: Label = $HSplitContainer/MomentsPanel/Layout/InsightLabel
+@onready var return_button: Button = $HSplitContainer/MomentsPanel/Layout/ButtonContainer/ReturnButton
+@onready var retry_button: Button = $HSplitContainer/MomentsPanel/Layout/ButtonContainer/RetryButton
 
 # =============================================================================
 # CONFIGURATION
@@ -78,6 +78,14 @@ func _apply_theme() -> void:
 func show_analysis(context: RunContext) -> void:
 	run_context = context
 
+	# The first time this screen is shown its containers have not been laid
+	# out yet (topo_view.size is zero); wait a frame before measuring
+	visible = true
+	modulate.a = 0.0
+	await get_tree().process_frame
+	if run_context != context:
+		return
+
 	# Extract path and moments
 	_extract_path_data()
 	_extract_key_moments()
@@ -92,9 +100,6 @@ func show_analysis(context: RunContext) -> void:
 	retry_button.visible = context.outcome != GameEnums.ResolutionType.FATALITY
 
 	# Show and start path animation
-	visible = true
-	modulate.a = 0.0
-
 	var tween := create_tween()
 	tween.tween_property(self, "modulate:a", 1.0, 0.5)
 	tween.tween_callback(_start_path_drawing)

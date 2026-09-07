@@ -25,6 +25,15 @@ var scree_min_slope: float = 30.0
 ## Maximum slope for snow accumulation (degrees)
 var snow_max_slope: float = 55.0
 
+## Slope above which faces shed snow and show rock even above the snow line (degrees)
+var rock_slope_threshold: float = 44.0
+
+## Drainage above which a cell counts as a gully floor (0-1)
+var gully_drainage_threshold: float = 0.45
+
+## Gullies within this height above the snow line fill with scree instead of snow (metres)
+var scree_band_height: float = 120.0
+
 # =============================================================================
 # ENVIRONMENTAL STATE
 # =============================================================================
@@ -55,18 +64,49 @@ var is_precipitating: bool = false
 # SURFACE CLASSIFICATION
 # =============================================================================
 
-## Classify surface at a given cell
+## Classify surface at a given cell (also refreshes cell.sun_exposure)
 func classify_surface(cell: TerrainCell, time_of_day: float = 12.0) -> GameEnums.SurfaceType:
 	var temp := get_temperature_at(cell.elevation)
 	var sun_exposure := _calculate_sun_exposure(cell, time_of_day)
+	cell.sun_exposure = sun_exposure
 
-	# Determine base surface
+	# Below the snow line: rock, scree and wet rock
 	if cell.elevation < snow_line:
 		return _classify_rock_surface(cell, temp)
-	elif cell.slope_angle > snow_max_slope:
+
+	# Cliffs and very steep faces
+	if cell.slope_angle > snow_max_slope:
 		return _classify_steep_surface(cell, temp)
-	else:
-		return _classify_snow_surface(cell, temp, sun_exposure)
+
+	# Steep faces shed snow: bare rock, iced where water collects
+	if cell.slope_angle > rock_slope_threshold:
+		if temp < freeze_threshold and cell.drainage > 0.5:
+			return GameEnums.SurfaceType.ICE
+		return GameEnums.SurfaceType.ROCK_DRY
+
+	# Gullies just above the snow line fill with loose scree
+	if (
+		cell.drainage > gully_drainage_threshold and
+		cell.slope_angle >= scree_min_slope and
+		cell.elevation < snow_line + scree_band_height
+	):
+		return GameEnums.SurfaceType.SCREE
+
+	return _classify_snow_surface(cell, temp, sun_exposure)
+
+
+## Set the snow line from the loaded terrain's elevation range: the lowest
+## part of the descent (fraction of the range) is bare rock and scree
+func configure_for_elevation_range(min_elevation: float, max_elevation: float, rock_fraction: float = 0.2) -> void:
+	var range_height := maxf(max_elevation - min_elevation, 1.0)
+	snow_line = min_elevation + range_height * clampf(rock_fraction, 0.0, 0.9)
+	permanent_snow_line = min_elevation + range_height * 0.85
+	scree_band_height = clampf(range_height * 0.2, 30.0, 200.0)
+
+
+## Sun exposure for a cell under the current sun position (0-1)
+func get_sun_exposure(cell: TerrainCell, time_of_day: float = 12.0) -> float:
+	return _calculate_sun_exposure(cell, time_of_day)
 
 
 ## Classify rock/below snow line surfaces

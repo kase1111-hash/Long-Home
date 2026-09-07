@@ -488,11 +488,11 @@ func get_knowledge_level(mountain_id: String) -> GameEnums.KnowledgeLevel:
 	return get_progress(mountain_id).knowledge
 
 
-func select_mountain(mountain_id: String) -> bool:
+func select_mountain(mountain_id: String, ignore_lock: bool = false) -> bool:
 	if not mountains.has(mountain_id):
 		return false
 
-	if not _is_unlocked(mountain_id):
+	if not ignore_lock and not _is_unlocked(mountain_id):
 		return false
 
 	selected_mountain = mountain_id

@@ -68,11 +68,13 @@ func _setup_valid_transitions() -> void:
 		GameEnums.GameState.PAUSED: [
 			GameEnums.GameState.DESCENT,
 			GameEnums.GameState.MAP_CHECK,
+			GameEnums.GameState.RESOLUTION,  # Abandon run from the pause menu
 			GameEnums.GameState.MAIN_MENU  # Abandon run
 		],
 		GameEnums.GameState.MAP_CHECK: [
 			GameEnums.GameState.DESCENT,
-			GameEnums.GameState.PAUSED
+			GameEnums.GameState.PAUSED,
+			GameEnums.GameState.RESOLUTION  # A run can end while the map is open
 		],
 		GameEnums.GameState.RESOLUTION: [
 			GameEnums.GameState.POST_GAME
@@ -87,6 +89,34 @@ func _setup_valid_transitions() -> void:
 func _connect_signals() -> void:
 	# Connect to relevant EventBus signals
 	EventBus.fatal_event_completed.connect(_on_fatal_event_completed)
+	EventBus.player_position_updated.connect(_on_player_position_updated)
+
+
+# =============================================================================
+# RUN TRACKING
+# =============================================================================
+
+## Advance the active run's clock while the descent is actually running.
+## Autoloads are pausable, so this stops on its own while the tree is paused;
+## the is_paused check is a guard for callers that pause without the tree.
+func _process(delta: float) -> void:
+	if current_state != GameEnums.GameState.DESCENT or is_paused:
+		return
+	if not is_run_active():
+		return
+	current_run.update_time(delta)
+
+
+## Feed player samples into the run (distance, elevation, path history)
+func _on_player_position_updated(position: Vector3, velocity: Vector3) -> void:
+	if not is_run_active():
+		return
+	if current_state != GameEnums.GameState.DESCENT and current_state != GameEnums.GameState.MAP_CHECK:
+		return
+	# Until Main has placed the climber, samples still describe the old spot
+	if current_run.start_elevation <= 0.0:
+		return
+	current_run.update_position(position, velocity)
 
 
 # =============================================================================
@@ -134,7 +164,12 @@ func _handle_state_exit(state: GameEnums.GameState) -> void:
 			if is_paused:
 				_set_paused(false)
 		GameEnums.GameState.PAUSED:
-			_set_paused(false)
+			# Checking the map from the pause menu stays paused
+			if current_state != GameEnums.GameState.MAP_CHECK:
+				_set_paused(false)
+		GameEnums.GameState.MAP_CHECK:
+			if current_state != GameEnums.GameState.PAUSED and is_paused:
+				_set_paused(false)
 
 
 ## Handle entering a state
@@ -153,8 +188,12 @@ func _handle_state_enter(state: GameEnums.GameState) -> void:
 ## Start a new run with given conditions
 func start_run(mountain_id: String, conditions: StartConditions) -> RunContext:
 	if current_run != null:
-		push_warning("[GameStateManager] Abandoning existing run to start new one")
-		_abandon_run()
+		if current_run.is_complete:
+			# A finished run (already recorded by run_ended listeners) is just dropped
+			current_run = null
+		else:
+			push_warning("[GameStateManager] Abandoning existing run to start new one")
+			_abandon_run()
 
 	current_run = RunContext.create_new_run(mountain_id, conditions)
 	current_run.start_elevation = 0.0  # Will be set by terrain system after spawn
@@ -180,6 +219,9 @@ func is_run_active() -> bool:
 func complete_run(outcome: GameEnums.ResolutionType, cause: String = "") -> void:
 	if current_run == null:
 		push_warning("[GameStateManager] No run to complete")
+		return
+	if current_run.is_complete:
+		# Already ended (e.g. abandoned after a fatal event): never record twice
 		return
 
 	current_run.complete_run(outcome, cause)

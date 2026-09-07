@@ -65,7 +65,14 @@ func _ready() -> void:
 		_build_ui()
 	_resolve_nodes()
 
-	ServiceLocator.get_service_async("TerrainService", func(t): terrain_service = t)
+	ServiceLocator.get_service_async("TerrainService", func(t):
+		terrain_service = t
+		# The map display (a child) regenerates first on terrain_loaded;
+		# analyse after it so the summit/base markers are current
+		if not terrain_service.terrain_loaded.is_connected(_on_terrain_loaded):
+			terrain_service.terrain_loaded.connect(_on_terrain_loaded)
+		_analyze_current_route.call_deferred()
+	)
 	ServiceLocator.get_service_async("WeatherService", func(w):
 		weather_service = w
 		_update_weather_display()
@@ -73,6 +80,17 @@ func _ready() -> void:
 
 	_connect_signals()
 	_setup_ui()
+	_update_weather_display()
+
+
+func _on_terrain_loaded(_mountain_id: String) -> void:
+	_analyze_current_route.call_deferred()
+
+
+## Re-evaluate the route and forecast (called by Main whenever the screen is shown)
+func refresh() -> void:
+	_analyze_current_route()
+	_update_weather_display()
 
 
 func _resolve_nodes() -> void:
@@ -80,7 +98,9 @@ func _resolve_nodes() -> void:
 	route_info_panel = get_node_or_null("InfoPanel") as Control
 	elevation_profile = get_node_or_null("ElevationProfile") as Control
 	controls_panel = get_node_or_null("ControlsPanel") as Control
-	weather_panel = get_node_or_null("WeatherPanel") as Control
+	weather_panel = get_node_or_null("InfoPanel/WeatherPanel") as Control
+	if weather_panel == null:
+		weather_panel = get_node_or_null("WeatherPanel") as Control
 	confirm_button = get_node_or_null("ControlsPanel/ConfirmButton") as Button
 	clear_button = get_node_or_null("ControlsPanel/ClearButton") as Button
 	back_button = get_node_or_null("ControlsPanel/BackButton") as Button
@@ -172,11 +192,11 @@ func _on_clear_pressed() -> void:
 	if map_display:
 		map_display.clear_waypoints()
 
-	current_analysis = null
-	route_valid = false
-	confirm_button.disabled = true
-
-	_update_route_info()
+	# The direct summit-to-base line is still a route: analyse it again
+	if elevation_profile != null and elevation_profile.has_meta("profile_data"):
+		elevation_profile.remove_meta("profile_data")
+		elevation_profile.queue_redraw()
+	_analyze_current_route()
 
 
 func _on_back_pressed() -> void:
@@ -201,7 +221,9 @@ func _analyze_current_route() -> void:
 		return
 
 	current_analysis = route_planner.analyze_route(route, terrain_service)
-	route_valid = current_analysis.is_viable
+	# Planning is advisory: the climber may commit to a risky line and live
+	# with the consequences, so any analysed route can be started
+	route_valid = current_analysis != null
 	confirm_button.disabled = not route_valid
 
 	_update_route_info()
@@ -232,7 +254,7 @@ func _update_route_info() -> void:
 		time_label.text = "Est. Time: --"
 		risk_label.text = "Risk: --"
 		warnings_label.text = ""
-		recommendations_label.text = "Double-click to place waypoints"
+		recommendations_label.text = "Waiting for terrain..."
 		return
 
 	# Update stats
@@ -257,14 +279,16 @@ func _update_route_info() -> void:
 		warnings_label.text = ""
 
 	# Recommendations
-	if current_analysis.recommendations.size() > 0:
-		recommendations_label.text = "Notes:\n" + "\n".join(current_analysis.recommendations)
-	else:
-		recommendations_label.text = ""
+	var notes: Array[String] = []
+	notes.append("Double-click the map to add waypoints; the line runs summit to base camp.")
+	for recommendation in current_analysis.recommendations:
+		notes.append(str(recommendation))
+	recommendations_label.text = "\n".join(notes)
 
 	# Viability
 	if not current_analysis.is_viable:
 		warnings_label.text += "\n\n⚠ " + current_analysis.viability_reason
+		warnings_label.text += "\nYou can still commit to this line."
 
 
 func _get_or_create_label(parent: Control, label_name: String) -> Label:
@@ -295,17 +319,45 @@ func _update_elevation_profile() -> void:
 
 
 func _update_weather_display() -> void:
-	if weather_panel == null or weather_service == null:
+	if weather_panel == null:
 		return
 
 	var weather_label := _get_or_create_label(weather_panel, "WeatherLabel")
-	var conditions := weather_service.get_conditions_summary()
 
-	var weather_text := "Weather: %s\n" % conditions.get("state", "Unknown")
-	weather_text += "Temp: %.0f°C\n" % conditions.get("temperature", 0)
-	weather_text += "Wind: %s" % conditions.get("wind_strength", "Unknown")
+	# Live weather is only meaningful while a run is in progress (the
+	# service keeps simulating between runs); otherwise show the mountain's
+	# typical conditions as the forecast
+	if weather_service != null and GameStateManager.is_run_active():
+		var conditions := weather_service.get_conditions_summary()
+		var weather_name: String = str(conditions.get("weather", "UNKNOWN")).capitalize()
+		var wind_name: String = str(conditions.get("wind_strength", "UNKNOWN")).capitalize()
+		var weather_text: String = "Weather: %s\n" % weather_name
+		var temperature_system := ServiceLocator.get_service("TemperatureSystem") as TemperatureSystem
+		if temperature_system != null:
+			weather_text += "Temp: %.0f°C\n" % temperature_system.get_air_temperature()
+		weather_text += "Wind: %s" % wind_name
+		weather_label.text = weather_text
+		return
 
-	weather_label.text = weather_text
+	var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
+	var mountain: MountainDatabase.MountainData = mountain_db.get_selected_mountain() if mountain_db else null
+	if mountain == null:
+		weather_label.text = "Forecast: unavailable"
+		return
+
+	var volatility := "stable"
+	if mountain.weather_volatility > 0.66:
+		volatility = "volatile"
+	elif mountain.weather_volatility > 0.33:
+		volatility = "changeable"
+	var wind := "sheltered"
+	if mountain.wind_exposure > 0.66:
+		wind = "exposed"
+	elif mountain.wind_exposure > 0.33:
+		wind = "breezy"
+	weather_label.text = "Forecast: %s\nSummit temp: %.0f°C\nWind: %s" % [
+		volatility, mountain.typical_temperature, wind
+	]
 
 
 func _show_location_info(world_pos: Vector2) -> void:
@@ -345,8 +397,10 @@ func _on_elevation_profile_draw() -> void:
 	if elevation_profile == null:
 		return
 
-	var profile_data = elevation_profile.get_meta("profile_data", null)
-	if profile_data == null:
+	if not elevation_profile.has_meta("profile_data"):
+		return
+	var profile_data: Dictionary = elevation_profile.get_meta("profile_data")
+	if profile_data.is_empty():
 		return
 
 	var distances: PackedFloat32Array = profile_data.get("distances", PackedFloat32Array())
@@ -356,8 +410,8 @@ func _on_elevation_profile_draw() -> void:
 		return
 
 	# Calculate bounds
-	var min_elev := elevations.min()
-	var max_elev := elevations.max()
+	var min_elev := _packed_min(elevations)
+	var max_elev := _packed_max(elevations)
 	var total_dist: float = profile_data.get("total_distance", 1.0)
 
 	var rect := elevation_profile.get_rect()
@@ -406,6 +460,7 @@ func _build_ui() -> void:
 	map_container.name = "MapContainer"
 	map_container.set_anchors_preset(Control.PRESET_FULL_RECT)
 	map_container.offset_right = -300  # Leave room for panels
+	map_container.offset_bottom = -160  # Leave room for the elevation profile
 	add_child(map_container)
 
 	# Topo map display
@@ -430,6 +485,13 @@ func _build_ui() -> void:
 	title.text = "Route Planning"
 	title.add_theme_font_size_override("font_size", 24)
 	info_panel.add_child(title)
+
+	info_panel.add_child(HSeparator.new())
+
+	# Forecast (typical conditions before the run, live weather during it)
+	var weather := VBoxContainer.new()
+	weather.name = "WeatherPanel"
+	info_panel.add_child(weather)
 
 	info_panel.add_child(HSeparator.new())
 
@@ -487,17 +549,28 @@ func _build_ui() -> void:
 	back.text = "Back"
 	controls.add_child(back)
 
-	# Weather panel (top right)
-	var weather := VBoxContainer.new()
-	weather.name = "WeatherPanel"
-	weather.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	weather.offset_left = -150
-	weather.offset_right = -10
-	weather.offset_top = 10
-	weather.offset_bottom = 100
-	add_child(weather)
 
 	var weather_label := Label.new()
 	weather_label.name = "WeatherLabel"
 	weather_label.text = "Weather: --"
 	weather.add_child(weather_label)
+
+
+## Smallest value in a PackedFloat32Array (PackedFloat32Array has no min() in Godot 4.2)
+func _packed_min(values: PackedFloat32Array) -> float:
+	if values.is_empty():
+		return 0.0
+	var result: float = values[0]
+	for value in values:
+		result = minf(result, value)
+	return result
+
+
+## Largest value in a PackedFloat32Array (PackedFloat32Array has no max() in Godot 4.2)
+func _packed_max(values: PackedFloat32Array) -> float:
+	if values.is_empty():
+		return 0.0
+	var result: float = values[0]
+	for value in values:
+		result = maxf(result, value)
+	return result

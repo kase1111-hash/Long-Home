@@ -235,11 +235,11 @@ func get_warmth_rating() -> float:
 	var warmth := 0.3  # Base warmth
 
 	if has_item(GameEnums.GearType.LAYERS):
-		var layers := items[GameEnums.GearType.LAYERS]
+		var layers: GearItem = items[GameEnums.GearType.LAYERS]
 		warmth += layers.properties.get("warmth", 0.5) * layers.get_effectiveness()
 
 	if has_item(GameEnums.GearType.GLOVES):
-		var gloves := items[GameEnums.GearType.GLOVES]
+		var gloves: GearItem = items[GameEnums.GearType.GLOVES]
 		warmth += gloves.properties.get("warmth", 0.3) * gloves.get_effectiveness() * 0.2
 
 	return clampf(warmth, 0.0, 1.0)

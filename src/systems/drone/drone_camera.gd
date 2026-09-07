@@ -172,7 +172,7 @@ func _update_tracking(delta: float) -> void:
 	# Calculate target rotation
 	var direction := (target_pos - global_position).normalized()
 	if direction.length() > 0.01:
-		target_rotation = Quaternion(global_transform.basis.looking_at(direction, Vector3.UP))
+		target_rotation = Quaternion(Basis.looking_at(direction, _safe_up(direction)))
 
 	# Smooth rotation
 	var current_quat := Quaternion(global_transform.basis)
@@ -295,7 +295,15 @@ func set_target(new_target: Node3D) -> void:
 func look_at_position(pos: Vector3) -> void:
 	var direction := (pos - global_position).normalized()
 	if direction.length() > 0.01:
-		look_at(pos, Vector3.UP)
+		look_at(pos, _safe_up(direction))
+
+
+## Up vector that is never parallel to the view direction (looking straight
+## down at the subject is common for a hovering drone)
+func _safe_up(direction: Vector3) -> Vector3:
+	if absf(direction.dot(Vector3.UP)) > 0.995:
+		return Vector3.FORWARD
+	return Vector3.UP
 
 
 ## Set signal strength (affects visual quality)

@@ -332,7 +332,7 @@ func _maybe_random_imperfection() -> void:
 
 func _trigger_imperfection(type: ImperfectionType, trigger: String) -> void:
 	# Avoid repeating same imperfection too often
-	var type_name := ImperfectionType.keys()[type]
+	var type_name: String = ImperfectionType.keys()[type]
 	if type_name in recent_imperfections:
 		return
 

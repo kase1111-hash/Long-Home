@@ -49,6 +49,9 @@ var temperature_system: TemperatureSystem
 ## Surface condition tracking
 var surface_manager: SurfaceConditionManager
 
+## Visual layer: sky, sun light, fog and snowfall (procedural, no assets)
+var visuals: EnvironmentVisuals
+
 
 # =============================================================================
 # STATE
@@ -86,6 +89,11 @@ func _ready() -> void:
 	add_child(weather_service)
 	add_child(temperature_system)
 	add_child(surface_manager)
+
+	# Visuals go last so TimeService/WeatherService are already registered
+	visuals = EnvironmentVisuals.new()
+	visuals.name = "EnvironmentVisuals"
+	add_child(visuals)
 
 	# Connect signals
 	_connect_signals()
@@ -125,7 +133,8 @@ func initialize_run(config: EnvironmentConfig) -> void:
 	# Initialize time
 	time_service.initialize_run(config.start_hour, config.day_of_year)
 
-	# Generate weather windows
+	# Start from this run's weather, not whatever the last run left behind
+	weather_service.reset_for_run(config.start_weather)
 	weather_service.generate_weather_windows(config.start_hour, config.difficulty)
 
 	# Set initial elevation
@@ -136,6 +145,10 @@ func initialize_run(config: EnvironmentConfig) -> void:
 	condition_rating = _calculate_condition_rating()
 	previous_rating = condition_rating
 	active_hazards.clear()
+
+	# Visuals snap to this run's weather instead of easing in from the last one
+	if visuals != null:
+		visuals.reset_for_run()
 
 	print("[EnvironmentService] Run initialized: %s, %.1f°C" % [
 		time_service.get_time_string(),
@@ -360,6 +373,11 @@ func get_conditions() -> EnvironmentConditions:
 	return conditions
 
 
+## Get the visual layer (sky, sun, fog, snowfall)
+func get_visuals() -> EnvironmentVisuals:
+	return visuals
+
+
 ## Get visibility range at position
 func get_visibility_at(position: Vector3) -> float:
 	var weather_vis := weather_service.get_visibility_range()
@@ -473,6 +491,7 @@ class EnvironmentConfig:
 	var day_of_year: int = 180
 	var difficulty: float = 0.5
 	var start_elevation: float = 4000.0
+	var start_weather: GameEnums.WeatherState = GameEnums.WeatherState.CLEAR
 
 	static func create_default() -> EnvironmentConfig:
 		return EnvironmentConfig.new()

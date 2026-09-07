@@ -437,7 +437,7 @@ static func get_fatigue_modifier(fatigue: float, modifier_name: String) -> float
 	# Find interpolation range
 	for i in range(points.size() - 1):
 		if fatigue <= points[i + 1]:
-			var t := (fatigue - points[i]) / (points[i + 1] - points[i])
+			var t: float = (fatigue - points[i]) / (points[i + 1] - points[i])
 			return lerpf(values[i], values[i + 1], t)
 
 	return values[-1]
@@ -457,7 +457,7 @@ static func get_posture_modifier(posture: float, modifier_name: String) -> float
 	# Find interpolation range
 	for i in range(points.size() - 1):
 		if posture <= points[i + 1]:
-			var t := (posture - points[i]) / (points[i + 1] - points[i])
+			var t: float = (posture - points[i]) / (points[i + 1] - points[i])
 			return lerpf(values[i], values[i + 1], t)
 
 	return values[-1]

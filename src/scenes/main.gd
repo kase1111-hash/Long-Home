@@ -86,8 +86,14 @@ var time_service: TimeService = null
 ## Weather service reference
 var weather_service: WeatherService = null
 
-## Environment light
-var environment_light: DirectionalLight3D = null
+## Base camp marker + arrival detection for the active descent
+var descent_goal: DescentGoal = null
+
+## In-game HUD (elevation, distance to base camp, control hints)
+var descent_hud: Control = null
+
+## HUD scene path (loaded lazily so the scene is optional)
+const DESCENT_HUD_SCENE := "res://src/ui/hud/descent_hud.tscn"
 
 # =============================================================================
 # LIFECYCLE
@@ -108,6 +114,7 @@ func _initialize_game() -> void:
 	EventBus.game_state_changed.connect(_on_game_state_changed)
 	EventBus.run_started.connect(_on_run_started)
 	EventBus.run_ended.connect(_on_run_ended)
+	EventBus.player_position_updated.connect(_on_player_position_updated)
 
 	# Create the always-on services (databases, persistence, audio, camera AI)
 	_bootstrap_core_services()
@@ -120,8 +127,9 @@ func _initialize_game() -> void:
 
 	print("[Main] Initialization complete")
 
-	# For testing: Start a quick run with default conditions
-	if OS.is_debug_build():
+	# Developer shortcut straight into a descent (opt-in):
+	#   godot --path . -- --quick-start [--mountain=<id>]
+	if _has_user_arg("--quick-start"):
 		_debug_quick_start()
 
 
@@ -196,12 +204,40 @@ func _bootstrap_descent_systems() -> void:
 # DEBUG
 # =============================================================================
 
+## True when the given flag was passed after "--" on the command line
+func _has_user_arg(flag: String) -> bool:
+	return flag in OS.get_cmdline_user_args()
+
+
+## Value of a "--name=value" user argument, or the default when absent
+func _get_user_arg_value(flag: String, default: String) -> String:
+	var prefix := flag + "="
+	for arg in OS.get_cmdline_user_args():
+		var text := str(arg)
+		if text.begins_with(prefix):
+			return text.trim_prefix(prefix)
+	return default
+
+
 func _debug_quick_start() -> void:
-	# Quick start for development testing
-	print("[Main] DEBUG: Quick start enabled")
+	# Skip the menus and start a descent on a real mountain
+	var mountain_id := _get_user_arg_value("--mountain", "knife_edge")
+	print("[Main] Quick start requested for '%s'" % mountain_id)
+
+	# The developer shortcut ignores unlock progress
+	var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
+	if mountain_db != null and not mountain_db.select_mountain(mountain_id, true):
+		var available := mountain_db.get_available_mountains()
+		if available.is_empty():
+			push_error("[Main] Quick start: no mountains available")
+			return
+		mountain_id = available[0].id
+		mountain_db.select_mountain(mountain_id, true)
+		print("[Main] Quick start: unknown mountain, using '%s'" % mountain_id)
 
 	# Create test conditions
 	var conditions := StartConditions.create_moderate()
+	conditions.mountain_id = mountain_id
 
 	# Transition through states with frame delays to let signal handlers complete
 	GameStateManager.transition_to(GameEnums.GameState.MOUNTAIN_SELECT)
@@ -213,11 +249,11 @@ func _debug_quick_start() -> void:
 	GameStateManager.transition_to(GameEnums.GameState.PLANNING)
 	await get_tree().process_frame
 
-	var run := GameStateManager.start_run("test_mountain", conditions)
+	var run := GameStateManager.start_run(mountain_id, conditions)
 	if run:
-		print("[Main] Test run created: %s" % run.run_id)
+		print("[Main] Quick start run created: %s" % run.run_id)
 	else:
-		push_error("[Main] DEBUG: Failed to create test run")
+		push_error("[Main] Quick start: failed to create run")
 		return
 
 	GameStateManager.transition_to(GameEnums.GameState.DESCENT)
@@ -233,6 +269,8 @@ func _on_game_state_changed(old_state: GameEnums.GameState, new_state: GameEnums
 		GameEnums.GameState.keys()[new_state]
 	])
 
+	_update_mouse_mode(new_state)
+
 	match new_state:
 		GameEnums.GameState.MAIN_MENU:
 			_show_main_menu()
@@ -243,12 +281,16 @@ func _on_game_state_changed(old_state: GameEnums.GameState, new_state: GameEnums
 		GameEnums.GameState.PLANNING:
 			_show_planning()
 		GameEnums.GameState.DESCENT:
-			_start_descent()
+			# Only a fresh descent builds the world; returning from the pause
+			# menu or the map check just resumes it
+			if old_state != GameEnums.GameState.PAUSED and old_state != GameEnums.GameState.MAP_CHECK:
+				_start_descent()
 		GameEnums.GameState.PAUSED:
 			_show_pause_menu()
 		GameEnums.GameState.MAP_CHECK:
 			_show_map_check()
 		GameEnums.GameState.RESOLUTION:
+			_end_descent()
 			_show_resolution()
 		GameEnums.GameState.POST_GAME:
 			_show_post_game()
@@ -264,6 +306,14 @@ func _on_game_state_changed(old_state: GameEnums.GameState, new_state: GameEnums
 				_on_return_to_pause_from_map()
 
 
+## The mouse is captured for camera look only while actually descending
+func _update_mouse_mode(state: GameEnums.GameState) -> void:
+	if state == GameEnums.GameState.DESCENT:
+		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	else:
+		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+
+
 func _on_run_started(run_context: RunContext) -> void:
 	print("[Main] Run started: %s" % run_context.run_id)
 	print("[Main] Difficulty: %.2f" % run_context.start_conditions.get_difficulty_score())
@@ -273,6 +323,24 @@ func _on_run_ended(run_context: RunContext, outcome: GameEnums.ResolutionType) -
 	print("[Main] Run ended: %s" % GameEnums.ResolutionType.keys()[outcome])
 	var summary := run_context.get_run_summary()
 	print("[Main] Summary: %s" % str(summary))
+
+	# Progress, knowledge and unlocks live in the mountain database
+	var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
+	if mountain_db != null:
+		mountain_db.record_run(run_context.mountain_id, outcome, run_context.game_time_elapsed * 60.0)
+
+
+## Feed the climber's altitude to the environment (temperature, hazards)
+var _environment_sample_time: float = 0.0
+
+func _on_player_position_updated(position: Vector3, _velocity: Vector3) -> void:
+	if environment_service == null or GameStateManager.current_state != GameEnums.GameState.DESCENT:
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - _environment_sample_time < 0.5:
+		return
+	_environment_sample_time = now
+	environment_service.update_player_position(position)
 
 
 # =============================================================================
@@ -343,6 +411,10 @@ func _show_loadout_config() -> void:
 		ui.add_child(loadout_config_screen)
 	else:
 		loadout_config_screen.visible = true
+		# The selection may have changed since the screen was built
+		var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
+		if mountain_db != null:
+			loadout_config_screen.set_mountain(mountain_db.get_selected_mountain())
 
 	print("[Main] Loadout config loaded")
 
@@ -355,10 +427,12 @@ func _hide_loadout_config() -> void:
 func _show_planning() -> void:
 	print("[Main] Showing planning screen...")
 
-	# Hide other screens
+	# Hide other screens (Retry arrives here straight from the post-game analysis)
 	_hide_main_menu()
 	_hide_mountain_select()
 	_hide_loadout_config()
+	_hide_post_game_screen()
+	_hide_resolution_screen()
 
 	# Get mountain and loadout for planning
 	var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
@@ -376,6 +450,7 @@ func _show_planning() -> void:
 		planning_screen.planning_complete.connect(_on_planning_complete)
 	else:
 		planning_screen.visible = true
+		planning_screen.refresh()
 
 	print("[Main] Planning screen loaded")
 
@@ -418,13 +493,16 @@ func _on_planning_complete(route: PackedVector3Array) -> void:
 func _start_descent() -> void:
 	print("[Main] Starting descent...")
 
-	# Hide main menu
+	# Hide every menu screen; the world is the view now
 	_hide_main_menu()
+	_hide_mountain_select()
+	_hide_loadout_config()
+	_hide_planning()
+	_hide_post_game_screen()
+	_hide_resolution_screen()
 
-	# Show world
-	world.visible = true
-
-	# Initialize gameplay systems
+	# Initialize gameplay systems (terrain, environment, player, goal, HUD);
+	# the world is revealed inside, once the climber and camera are placed
 	await _initialize_descent_systems()
 
 	print("[Main] Descent initialized")
@@ -448,8 +526,13 @@ func _initialize_descent_systems() -> void:
 	# 3. Spawn player at start position
 	_spawn_player(run)
 
-	# 4. Setup lighting
-	_setup_lighting(run)
+	# Reveal the world now: the climber's camera must be the current one
+	# before anything else (the drone) enters the tree, and the first
+	# rendered frame should already be the new summit
+	world.visible = true
+
+	# 4. Base camp marker + arrival detection
+	_setup_descent_goal()
 
 	# 5. Setup HUD elements
 	_setup_hud()
@@ -499,28 +582,40 @@ func _setup_environment(run: RunContext) -> void:
 	var config := EnvironmentService.EnvironmentConfig.new()
 	config.start_hour = run.start_conditions.time_of_day
 	config.difficulty = run.start_conditions.get_difficulty_score()
+	config.start_weather = run.start_conditions.weather
+	config.start_elevation = _get_start_position().y
 	environment_service.initialize_run(config)
-
-	# Apply the configured starting weather
-	if weather_service:
-		weather_service.current_weather = run.start_conditions.weather
 
 
 func _spawn_player(run: RunContext) -> void:
 	print("[Main] Spawning player...")
 
-	# Remove existing player if any
-	if player != null:
-		player.queue_free()
-		player = null
+	# One player node lives for the whole session: every system that cached
+	# it or connected to its signals keeps working across runs
+	var is_new := false
+	if player == null or not is_instance_valid(player):
+		player = PlayerScene.instantiate()
+		world.add_child(player)
+		is_new = true
+	else:
+		player.visible = true
+		player.process_mode = Node.PROCESS_MODE_INHERIT
 
-	# Create new player
-	player = PlayerScene.instantiate()
-	world.add_child(player)
-
-	# Position at summit/start area
+	# Position at summit/start area, facing base camp so the first view is
+	# down the mountain; the camera snaps behind the climber after that
 	var start_pos := _get_start_position()
 	player.global_position = start_pos
+	var goal_pos := _get_goal_position()
+	var to_goal := goal_pos - start_pos
+	to_goal.y = 0.0
+	if to_goal.length_squared() > 0.01:
+		player.look_at(start_pos + to_goal, Vector3.UP)
+	if is_new:
+		var pivot := player.camera_pivot as PlayerCamera
+		if pivot != null:
+			pivot.snap_behind_player()
+	else:
+		player.reset_for_new_run()
 
 	# Link run context to player
 	player.body_state = run.body_state
@@ -530,14 +625,19 @@ func _spawn_player(run: RunContext) -> void:
 	run.position = start_pos
 	run.start_elevation = start_pos.y
 	run.current_elevation = start_pos.y
-	run.target_elevation = 0.0  # Base camp at sea level (simplified)
+	run.target_elevation = goal_pos.y
+	run.reset_position_tracking()
 
-	print("[Main] Player spawned at: %s" % start_pos)
+	print("[Main] Player spawned at: %s (base camp at %s)" % [start_pos, goal_pos])
 
 
 func _get_start_position() -> Vector3:
-	# Find highest point in terrain as start
 	if terrain_service != null:
+		# Terrain provides a flattened summit plateau to start from
+		if terrain_service.start_position != Vector3.ZERO:
+			return terrain_service.start_position + Vector3(0, 0.5, 0)
+
+		# Otherwise start near the centre, at terrain height
 		var bounds_max := terrain_service.terrain_bounds_max
 		var bounds_min := terrain_service.terrain_bounds_min
 
@@ -552,44 +652,26 @@ func _get_start_position() -> Vector3:
 	return Vector3(0, 3000, 0)
 
 
-func _setup_lighting(run: RunContext) -> void:
-	# Create or get directional light for sun
-	if environment_light == null:
-		environment_light = DirectionalLight3D.new()
-		environment_light.name = "SunLight"
-		environment_light.shadow_enabled = true
-		environment_light.light_energy = 1.0
-		environment_light.light_color = Color(1.0, 0.95, 0.9)
-		world.add_child(environment_light)
+## Base camp position: terrain goal, else the lowest terrain corner
+func _get_goal_position() -> Vector3:
+	if terrain_service == null:
+		return Vector3.ZERO
+	if terrain_service.goal_position != Vector3.ZERO:
+		return terrain_service.goal_position
+	return Vector3(
+		terrain_service.terrain_bounds_min.x,
+		terrain_service.terrain_bounds_min.y,
+		terrain_service.terrain_bounds_min.z
+	)
 
-	# Position sun based on time of day
-	_update_sun_position(run.start_conditions.time_of_day)
 
+func _setup_descent_goal() -> void:
+	if descent_goal != null:
+		descent_goal.queue_free()
 
-func _update_sun_position(game_time: float) -> void:
-	if environment_light == null:
-		return
-
-	# Simple sun arc calculation
-	# 6:00 = sunrise (east), 12:00 = noon (high), 18:00 = sunset (west)
-	var time_normalized := (game_time - 6.0) / 12.0  # 0 at sunrise, 1 at sunset
-	time_normalized = clampf(time_normalized, 0.0, 1.0)
-
-	# Sun angle: 0° at horizon, 60° at noon
-	var elevation_angle := sin(time_normalized * PI) * 60.0
-	var azimuth_angle := time_normalized * 180.0 - 90.0  # -90° (east) to 90° (west)
-
-	environment_light.rotation_degrees = Vector3(-elevation_angle, azimuth_angle, 0)
-
-	# Adjust light color/intensity based on time
-	if game_time < 7.0 or game_time > 17.0:
-		# Golden hour
-		environment_light.light_color = Color(1.0, 0.8, 0.6)
-		environment_light.light_energy = 0.7
-	else:
-		# Daytime
-		environment_light.light_color = Color(1.0, 0.98, 0.95)
-		environment_light.light_energy = 1.0
+	descent_goal = DescentGoal.new()
+	descent_goal.player_ref = player
+	world.add_child(descent_goal)
 
 
 func _setup_hud() -> void:
@@ -600,24 +682,46 @@ func _setup_hud() -> void:
 		physical_map = PhysicalMapScene.instantiate()
 		ui.add_child(physical_map)
 
+	# Descent HUD (elevation, distance to base camp, control hints)
+	if descent_hud == null and ResourceLoader.exists(DESCENT_HUD_SCENE):
+		var hud_scene := load(DESCENT_HUD_SCENE) as PackedScene
+		if hud_scene != null:
+			descent_hud = hud_scene.instantiate() as Control
+			ui.add_child(descent_hud)
+
 	print("[Main] HUD ready")
 
 
-func _cleanup_descent() -> void:
-	# Clean up player
-	if player != null:
-		player.queue_free()
-		player = null
+## The run is over: freeze the climber where they stand (still visible
+## behind the resolution screen) and stop the goal from firing again
+func _end_descent() -> void:
+	if player != null and is_instance_valid(player):
+		player.velocity = Vector3.ZERO
+		player.process_mode = Node.PROCESS_MODE_DISABLED
+	if descent_goal != null and is_instance_valid(descent_goal):
+		descent_goal.set_physics_process(false)
 
-	# Clean up lighting
-	if environment_light != null:
-		environment_light.queue_free()
-		environment_light = null
+
+func _cleanup_descent() -> void:
+	# Park the player until the next run (see _spawn_player)
+	if player != null and is_instance_valid(player):
+		player.velocity = Vector3.ZERO
+		player.visible = false
+		player.process_mode = Node.PROCESS_MODE_DISABLED
+
+	# Clean up base camp marker
+	if descent_goal != null:
+		descent_goal.queue_free()
+		descent_goal = null
 
 	# Clean up HUD
 	if physical_map != null:
 		physical_map.queue_free()
 		physical_map = null
+
+	if descent_hud != null:
+		descent_hud.queue_free()
+		descent_hud = null
 
 	if self_check_screen != null:
 		self_check_screen.queue_free()

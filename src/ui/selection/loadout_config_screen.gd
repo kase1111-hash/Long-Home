@@ -607,10 +607,17 @@ func _on_start_pressed() -> void:
 # =============================================================================
 
 func set_mountain(m: MountainDatabase.MountainData) -> void:
+	if m == null or m == mountain:
+		return
 	mountain = m
 	if ui_built:
-		# Would need to rebuild left panel
-		pass
+		# Destination, requirements and validation all depend on the mountain
+		for child in get_children():
+			remove_child(child)
+			child.queue_free()
+		ui_built = false
+		_build_ui()
+		_update_summary()
 
 
 func get_loadout() -> GearState:

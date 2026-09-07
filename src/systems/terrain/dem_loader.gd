@@ -38,7 +38,7 @@ func load_mountain_manifest(mountain_id: String) -> Dictionary:
 	var manifest_path := mountains_data_path + mountain_id + "/manifest.json"
 
 	if not FileAccess.file_exists(manifest_path):
-		push_warning("[DEMLoader] No manifest found at: %s" % manifest_path)
+		push_warning("[DEMLoader] No manifest at %s (procedural fallback will be used)" % manifest_path)
 		return {}
 
 	var file := FileAccess.open(manifest_path, FileAccess.READ)
@@ -127,13 +127,15 @@ func load_heightmap(mountain_id: String, chunk_coords: Vector2i = Vector2i.ZERO)
 ## Load heightmap from PNG (16-bit grayscale or 8-bit)
 func _load_png_heightmap(file_path: String) -> PackedFloat32Array:
 	if not FileAccess.file_exists(file_path):
-		push_warning("[DEMLoader] PNG file not found: %s" % file_path)
+		# Expected for built-in mountains: they ship a manifest but no heightmap
+		# and fall back to procedural terrain
+		push_warning("[DEMLoader] PNG heightmap not found: %s (using procedural terrain)" % file_path)
 		return PackedFloat32Array()
 
 	var image := Image.new()
 	var error := image.load(file_path)
 	if error != OK:
-		push_error("[DEMLoader] Failed to load PNG: %s (error: %d)" % [file_path, error])
+		push_warning("[DEMLoader] Failed to load PNG: %s (error: %d)" % [file_path, error])
 		return PackedFloat32Array()
 
 	var width := image.get_width()
@@ -312,7 +314,8 @@ func load_surface_overlay(mountain_id: String) -> Dictionary:
 	if not surface_config.get("has_overlay", false):
 		return {}
 
-	var overlay_path := mountains_data_path + mountain_id + "/" + surface_config.get("filename", "surfaces.png")
+	var overlay_filename: String = surface_config.get("filename", "surfaces.png")
+	var overlay_path: String = mountains_data_path + mountain_id + "/" + overlay_filename
 
 	if not FileAccess.file_exists(overlay_path):
 		return {}

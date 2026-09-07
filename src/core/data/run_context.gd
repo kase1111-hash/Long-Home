@@ -88,6 +88,14 @@ extends Resource
 ## Timestamps for path history (parallel array)
 @export var path_timestamps: PackedFloat64Array = PackedFloat64Array()
 
+## A single position sample further than this is a teleport (spawn, debug
+## warp, test harness), not travel - it resets tracking instead of adding
+## a bogus distance
+const MAX_SAMPLE_STEP := 50.0
+
+## True once update_position() has received its first real sample
+var _has_position_sample: bool = false
+
 # =============================================================================
 # RUN OUTCOME
 # =============================================================================
@@ -138,15 +146,20 @@ static func create_new_run(mountain: String, conditions: StartConditions) -> Run
 # STATE UPDATES
 # =============================================================================
 
-## Update position and record to history
+## Update position and record to history.
+## The first sample (and any teleport-sized jump) only anchors tracking;
+## distance is accumulated between consecutive real samples.
 func update_position(new_position: Vector3, new_velocity: Vector3) -> void:
 	var old_position := position
 	position = new_position
 	velocity = new_velocity
 
 	# Track distance
-	if old_position != Vector3.ZERO:
-		distance_traveled += old_position.distance_to(new_position)
+	if _has_position_sample:
+		var step := old_position.distance_to(new_position)
+		if step <= MAX_SAMPLE_STEP:
+			distance_traveled += step
+	_has_position_sample = true
 
 	# Update elevation
 	current_elevation = position.y
@@ -155,6 +168,12 @@ func update_position(new_position: Vector3, new_velocity: Vector3) -> void:
 	if path_history.is_empty() or path_history[-1].distance_to(position) >= 1.0:
 		path_history.append(position)
 		path_timestamps.append(game_time_elapsed)
+
+
+## Forget the last position sample so the next update_position() call
+## anchors tracking again (used when the player is placed, not moved)
+func reset_position_tracking() -> void:
+	_has_position_sample = false
 
 
 ## Update time

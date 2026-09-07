@@ -336,7 +336,7 @@ func get_most_familiar_route(mountain_id: String) -> StoredRoute:
 	var best_familiarity := 0.0
 
 	for route in routes_by_mountain[mountain_id]:
-		var familiarity := route.get_familiarity()
+		var familiarity: float = route.get_familiarity()
 		if familiarity > best_familiarity:
 			best = route
 			best_familiarity = familiarity
@@ -356,7 +356,7 @@ func get_familiarity_at_position(mountain_id: String, position: Vector3) -> floa
 			var dist := position.distance_to(waypoint)
 			if dist < 100.0:  # Within 100m of a waypoint
 				var proximity := 1.0 - (dist / 100.0)
-				var familiarity := route.get_familiarity() * proximity
+				var familiarity: float = route.get_familiarity() * proximity
 				max_familiarity = maxf(max_familiarity, familiarity)
 
 	return max_familiarity

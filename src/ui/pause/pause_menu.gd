@@ -319,7 +319,7 @@ func _update_status() -> void:
 	_add_status_row(grid, "Progress", "%.0f%%" % percent)
 
 	# Weather
-	var weather_name := GameEnums.WeatherState.keys()[run_context.current_weather]
+	var weather_name: String = GameEnums.WeatherState.keys()[run_context.current_weather]
 	_add_status_row(grid, "Weather", weather_name.capitalize())
 
 	# Body state

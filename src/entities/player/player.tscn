@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3 uid="uid://c6mxp3q8k2yva"]
+[gd_scene load_steps=23 format=3 uid="uid://c6mxp3q8k2yva"]
 
 [ext_resource type="Script" path="res://src/entities/player/player_controller.gd" id="1_controller"]
 [ext_resource type="Script" path="res://src/entities/player/player_camera.gd" id="2_camera"]
@@ -9,13 +9,78 @@
 radius = 0.3
 height = 1.8
 
-[sub_resource type="CapsuleMesh" id="CapsuleMesh_1"]
-radius = 0.3
-height = 1.8
+[sub_resource type="StandardMaterial3D" id="mat_jacket"]
+albedo_color = Color(0.9, 0.33, 0.1, 1)
+roughness = 0.85
+
+[sub_resource type="StandardMaterial3D" id="mat_pants"]
+albedo_color = Color(0.14, 0.14, 0.16, 1)
+roughness = 0.9
+
+[sub_resource type="StandardMaterial3D" id="mat_boots"]
+albedo_color = Color(0.07, 0.07, 0.08, 1)
+roughness = 0.7
+
+[sub_resource type="StandardMaterial3D" id="mat_skin"]
+albedo_color = Color(0.86, 0.64, 0.5, 1)
+roughness = 0.8
+
+[sub_resource type="StandardMaterial3D" id="mat_helmet"]
+cull_mode = 2
+albedo_color = Color(0.95, 0.78, 0.12, 1)
+roughness = 0.45
+
+[sub_resource type="StandardMaterial3D" id="mat_pack"]
+albedo_color = Color(0.1, 0.16, 0.38, 1)
+roughness = 0.9
+
+[sub_resource type="CapsuleMesh" id="mesh_torso"]
+material = SubResource("mat_jacket")
+radius = 0.22
+height = 0.72
+
+[sub_resource type="CapsuleMesh" id="mesh_leg"]
+material = SubResource("mat_pants")
+radius = 0.09
+height = 0.8
+
+[sub_resource type="BoxMesh" id="mesh_boot"]
+material = SubResource("mat_boots")
+size = Vector3(0.16, 0.1, 0.28)
+
+[sub_resource type="SphereMesh" id="mesh_head"]
+material = SubResource("mat_skin")
+radius = 0.13
+height = 0.26
+
+[sub_resource type="SphereMesh" id="mesh_helmet"]
+material = SubResource("mat_helmet")
+radius = 0.155
+height = 0.155
+is_hemisphere = true
+
+[sub_resource type="BoxMesh" id="mesh_goggles"]
+material = SubResource("mat_boots")
+size = Vector3(0.2, 0.06, 0.06)
+
+[sub_resource type="BoxMesh" id="mesh_pack"]
+material = SubResource("mat_pack")
+size = Vector3(0.34, 0.46, 0.2)
+
+[sub_resource type="CapsuleMesh" id="mesh_arm"]
+material = SubResource("mat_jacket")
+radius = 0.06
+height = 0.6
+
+[sub_resource type="SphereMesh" id="mesh_glove"]
+material = SubResource("mat_boots")
+radius = 0.07
+height = 0.14
 
 [node name="Player" type="CharacterBody3D"]
 collision_layer = 2
 collision_mask = 1
+safe_margin = 0.01
 script = ExtResource("1_controller")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
@@ -26,7 +91,59 @@ shape = SubResource("CapsuleShape3D_1")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
 
 [node name="Body" type="MeshInstance3D" parent="PlayerMesh"]
-mesh = SubResource("CapsuleMesh_1")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.24, 0)
+mesh = SubResource("mesh_torso")
+surface_material_override/0 = SubResource("mat_jacket")
+
+[node name="Backpack" type="MeshInstance3D" parent="PlayerMesh"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.28, 0.27)
+mesh = SubResource("mesh_pack")
+
+[node name="Head" type="MeshInstance3D" parent="PlayerMesh"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.75, 0)
+mesh = SubResource("mesh_head")
+
+[node name="Helmet" type="MeshInstance3D" parent="PlayerMesh"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.74, 0)
+mesh = SubResource("mesh_helmet")
+
+[node name="Goggles" type="MeshInstance3D" parent="PlayerMesh"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.76, -0.1)
+mesh = SubResource("mesh_goggles")
+
+[node name="ArmL" type="MeshInstance3D" parent="PlayerMesh"]
+transform = Transform3D(0.990268, 0.139173, 0, -0.139173, 0.990268, 0, 0, 0, 1, -0.3, 0.24, 0)
+mesh = SubResource("mesh_arm")
+surface_material_override/0 = SubResource("mat_jacket")
+
+[node name="ArmR" type="MeshInstance3D" parent="PlayerMesh"]
+transform = Transform3D(0.990268, -0.139173, 0, 0.139173, 0.990268, 0, 0, 0, 1, 0.3, 0.24, 0)
+mesh = SubResource("mesh_arm")
+surface_material_override/0 = SubResource("mat_jacket")
+
+[node name="GloveL" type="MeshInstance3D" parent="PlayerMesh"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.33, -0.08, 0)
+mesh = SubResource("mesh_glove")
+
+[node name="GloveR" type="MeshInstance3D" parent="PlayerMesh"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.33, -0.08, 0)
+mesh = SubResource("mesh_glove")
+
+[node name="LegL" type="MeshInstance3D" parent="PlayerMesh"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.11, -0.5, 0)
+mesh = SubResource("mesh_leg")
+
+[node name="LegR" type="MeshInstance3D" parent="PlayerMesh"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.11, -0.5, 0)
+mesh = SubResource("mesh_leg")
+
+[node name="BootL" type="MeshInstance3D" parent="PlayerMesh"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.11, -0.85, -0.03)
+mesh = SubResource("mesh_boot")
+
+[node name="BootR" type="MeshInstance3D" parent="PlayerMesh"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.11, -0.85, -0.03)
+mesh = SubResource("mesh_boot")
 
 [node name="AnimationController" type="Node" parent="."]
 script = ExtResource("3_anim")
@@ -35,12 +152,12 @@ script = ExtResource("3_anim")
 script = ExtResource("4_footstep")
 
 [node name="CameraPivot" type="Node3D" parent="."]
+top_level = true
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)
 script = ExtResource("2_camera")
 
 [node name="Camera3D" type="Camera3D" parent="CameraPivot"]
-transform = Transform3D(1, 0, 0, 0, 0.939693, 0.34202, 0, -0.34202, 0.939693, 0, 2, 5)
 current = true
 fov = 70.0
 near = 0.1
-far = 1000.0
+far = 4000.0

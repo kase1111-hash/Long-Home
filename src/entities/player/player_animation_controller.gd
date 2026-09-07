@@ -38,6 +38,16 @@ const FOOTSTEP_DISTANCE := 0.8
 const MIN_ANIM_SPEED := 0.3
 const MAX_ANIM_SPEED := 1.5
 
+## Alpine jacket colour of the placeholder climber (matches player.tscn).
+## State colours below are variations of this so the jacket stays a jacket
+const JACKET_COLOR := Color(0.90, 0.33, 0.10)
+
+## Fatigue pulls the jacket toward this washed-out tone
+const FATIGUE_COLOR := Color(0.55, 0.40, 0.32)
+
+## Danger states push the jacket toward this hot red
+const DANGER_COLOR := Color(0.98, 0.30, 0.20)
+
 # =============================================================================
 # REFERENCES
 # =============================================================================
@@ -91,8 +101,8 @@ var breathing_phase: float = 0.0
 ## Shake/stumble offset
 var shake_offset: Vector3 = Vector3.ZERO
 
-## Base color for state indication
-var base_color: Color = Color(0.7, 0.7, 0.75)
+## Base color for state indication (the jacket)
+var base_color: Color = JACKET_COLOR
 
 # =============================================================================
 # ANIMATION STATE DATA
@@ -104,79 +114,79 @@ var animation_data := {
 		"base_speed": 1.0,
 		"sway_amount": 0.02,
 		"breathing_speed": 0.5,
-		"color": Color(0.7, 0.7, 0.75),
+		"color": Color(0.90, 0.33, 0.10),
 	},
 	&"walking": {
 		"base_speed": 1.0,
 		"sway_amount": 0.03,
 		"breathing_speed": 0.8,
-		"color": Color(0.65, 0.7, 0.75),
+		"color": Color(0.90, 0.33, 0.10),
 	},
 	&"walking_uphill": {
 		"base_speed": 0.8,
 		"sway_amount": 0.04,
 		"breathing_speed": 1.2,
-		"color": Color(0.6, 0.65, 0.7),
+		"color": Color(0.86, 0.30, 0.09),
 	},
 	&"walking_downhill": {
 		"base_speed": 1.1,
 		"sway_amount": 0.035,
 		"breathing_speed": 0.9,
-		"color": Color(0.65, 0.68, 0.72),
+		"color": Color(0.90, 0.33, 0.10),
 	},
 	&"downclimbing": {
 		"base_speed": 0.6,
 		"sway_amount": 0.02,
 		"breathing_speed": 1.0,
-		"color": Color(0.6, 0.6, 0.65),
+		"color": Color(0.84, 0.30, 0.10),
 	},
 	&"traversing": {
 		"base_speed": 0.7,
 		"sway_amount": 0.025,
 		"breathing_speed": 0.9,
-		"color": Color(0.62, 0.65, 0.7),
+		"color": Color(0.88, 0.32, 0.10),
 	},
 	&"sliding": {
 		"base_speed": 1.5,
 		"sway_amount": 0.08,
 		"breathing_speed": 1.5,
-		"color": Color(0.8, 0.6, 0.5),
+		"color": Color(0.95, 0.30, 0.16),
 	},
 	&"sliding_controlled": {
 		"base_speed": 1.2,
 		"sway_amount": 0.05,
 		"breathing_speed": 1.3,
-		"color": Color(0.75, 0.65, 0.55),
+		"color": Color(0.92, 0.32, 0.13),
 	},
 	&"roping": {
 		"base_speed": 0.8,
 		"sway_amount": 0.015,
 		"breathing_speed": 0.7,
-		"color": Color(0.5, 0.6, 0.7),
+		"color": Color(0.86, 0.32, 0.12),
 	},
 	&"falling": {
 		"base_speed": 2.0,
 		"sway_amount": 0.15,
 		"breathing_speed": 2.0,
-		"color": Color(0.9, 0.4, 0.3),
+		"color": Color(0.98, 0.22, 0.14),
 	},
 	&"arrested": {
 		"base_speed": 1.0,
 		"sway_amount": 0.06,
 		"breathing_speed": 1.8,
-		"color": Color(0.85, 0.55, 0.4),
+		"color": Color(0.95, 0.28, 0.14),
 	},
 	&"resting": {
 		"base_speed": 0.3,
 		"sway_amount": 0.01,
 		"breathing_speed": 0.4,
-		"color": Color(0.5, 0.55, 0.6),
+		"color": Color(0.80, 0.32, 0.12),
 	},
 	&"incapacitated": {
 		"base_speed": 0.1,
 		"sway_amount": 0.005,
 		"breathing_speed": 0.2,
-		"color": Color(0.4, 0.35, 0.35),
+		"color": Color(0.55, 0.28, 0.18),
 	},
 }
 
@@ -191,10 +201,12 @@ func _ready() -> void:
 		push_error("[AnimationController] Must be child of PlayerController")
 		return
 
-	# Find mesh nodes
+	# Find mesh nodes. Body is the torso (jacket); the other limbs of the
+	# placeholder climber are siblings and are never tinted here
 	player_mesh = player.get_node_or_null("PlayerMesh")
 	if player_mesh:
 		body_mesh = player_mesh.get_node_or_null("Body") as MeshInstance3D
+	_ensure_jacket_material()
 
 	_connect_signals()
 	print("[AnimationController] Initialized")
@@ -431,26 +443,44 @@ func _apply_procedural_animation(delta: float) -> void:
 	_update_placeholder_color(data)
 
 
+## Make sure the torso has its own StandardMaterial3D override (the jacket)
+## so state tinting never touches a material shared with other meshes
+func _ensure_jacket_material() -> void:
+	if body_mesh == null:
+		return
+
+	var override := body_mesh.get_surface_override_material(0)
+	if override is StandardMaterial3D:
+		return
+
+	var jacket := StandardMaterial3D.new()
+	jacket.albedo_color = JACKET_COLOR
+	jacket.roughness = 0.85
+	var active := body_mesh.get_active_material(0)
+	if active is StandardMaterial3D:
+		jacket.albedo_color = (active as StandardMaterial3D).albedo_color
+	body_mesh.set_surface_override_material(0, jacket)
+
+
+## Tint only the jacket (torso) to reflect state, fatigue and danger
 func _update_placeholder_color(data: Dictionary) -> void:
 	if body_mesh == null:
 		return
 
-	var material := body_mesh.get_surface_override_material(0)
+	var material := body_mesh.get_surface_override_material(0) as StandardMaterial3D
 	if material == null:
-		material = StandardMaterial3D.new()
-		body_mesh.set_surface_override_material(0, material)
+		return
 
-	if material is StandardMaterial3D:
-		var target_color: Color = data.get("color", Color(0.7, 0.7, 0.75))
+	var target_color: Color = data.get("color", JACKET_COLOR)
 
-		# Fatigue desaturates and darkens
-		target_color = target_color.lerp(Color(0.5, 0.5, 0.55), fatigue_blend * 0.3)
+	# Fatigue desaturates and darkens
+	target_color = target_color.lerp(FATIGUE_COLOR, fatigue_blend * 0.3)
 
-		# Danger states add red tint
-		if current_anim_state in [&"falling", &"sliding", &"arrested"]:
-			target_color = target_color.lerp(Color(0.9, 0.5, 0.4), 0.3)
+	# Danger states add red tint
+	if current_anim_state in [&"falling", &"sliding", &"arrested"]:
+		target_color = target_color.lerp(DANGER_COLOR, 0.3)
 
-		material.albedo_color = material.albedo_color.lerp(target_color, 0.1)
+	material.albedo_color = material.albedo_color.lerp(target_color, 0.1)
 
 
 # =============================================================================

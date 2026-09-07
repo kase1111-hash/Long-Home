@@ -258,8 +258,9 @@ func _track_distance(delta: float) -> void:
 	if distance_accumulator >= fatigue_distance:
 		distance_accumulator -= fatigue_distance
 
-		# Add fatigue based on slope and speed
-		var fatigue_amount := 0.01
+		# Add fatigue based on slope and speed (per fatigue_distance metres;
+		# FatigueManager adds the time-based component on top)
+		var fatigue_amount := 0.003
 
 		if is_uphill and player.current_cell:
 			fatigue_amount *= 1.0 + (player.current_cell.slope_angle / 45.0)

@@ -423,7 +423,7 @@ func _on_injury(injury: Injury) -> void:
 	_record_event("injury", {
 		"type": GameEnums.InjuryType.keys()[injury.type],
 		"severity": injury.severity,
-		"body_part": GameEnums.BodyPart.keys()[injury.body_part]
+		"body_part": GameEnums.BodyPart.keys()[injury.location]
 	})
 
 

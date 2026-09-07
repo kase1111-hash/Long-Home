@@ -115,11 +115,11 @@ func _load_gear_data() -> void:
 		4.5,
 		false
 	))
-	items[GameEnums.GearType.ROPE].variants = [
+	items[GameEnums.GearType.ROPE].variants.assign([
 		{"name": "Light (50m)", "weight": 3.5, "length": 50.0},
 		{"name": "Standard (60m)", "weight": 4.5, "length": 60.0},
 		{"name": "Long (70m)", "weight": 5.5, "length": 70.0}
-	]
+	])
 
 	_add_item(GearItemInfo.new(
 		GameEnums.GearType.HARNESS,
@@ -156,11 +156,11 @@ func _load_gear_data() -> void:
 		1.0,
 		true
 	))
-	items[GameEnums.GearType.CRAMPONS].variants = [
+	items[GameEnums.GearType.CRAMPONS].variants.assign([
 		{"name": "Light Aluminum", "weight": 0.8, "durability": 0.7},
 		{"name": "Steel Hybrid", "weight": 1.0, "durability": 1.0},
 		{"name": "Heavy Steel", "weight": 1.2, "durability": 1.2}
-	]
+	])
 
 	_add_item(GearItemInfo.new(
 		GameEnums.GearType.ICE_AXE,
@@ -170,11 +170,11 @@ func _load_gear_data() -> void:
 		0.5,
 		true
 	))
-	items[GameEnums.GearType.ICE_AXE].variants = [
+	items[GameEnums.GearType.ICE_AXE].variants.assign([
 		{"name": "Light (50cm)", "weight": 0.4, "length": 50},
 		{"name": "Standard (60cm)", "weight": 0.5, "length": 60},
 		{"name": "Long (70cm)", "weight": 0.6, "length": 70}
-	]
+	])
 
 	# Clothing Category
 	_add_item(GearItemInfo.new(
@@ -185,11 +185,11 @@ func _load_gear_data() -> void:
 		2.0,
 		true
 	))
-	items[GameEnums.GearType.LAYERS].variants = [
+	items[GameEnums.GearType.LAYERS].variants.assign([
 		{"name": "Light System", "weight": 1.5, "warmth": 0.6},
 		{"name": "Standard System", "weight": 2.0, "warmth": 0.8},
 		{"name": "Heavy System", "weight": 2.5, "warmth": 1.0}
-	]
+	])
 
 	_add_item(GearItemInfo.new(
 		GameEnums.GearType.GLOVES,
@@ -199,11 +199,11 @@ func _load_gear_data() -> void:
 		0.2,
 		true
 	))
-	items[GameEnums.GearType.GLOVES].variants = [
+	items[GameEnums.GearType.GLOVES].variants.assign([
 		{"name": "Light Gloves", "weight": 0.15, "warmth": 0.5, "dexterity": 0.9},
 		{"name": "Insulated Gloves", "weight": 0.2, "warmth": 0.7, "dexterity": 0.8},
 		{"name": "Heavy Mittens", "weight": 0.3, "warmth": 1.0, "dexterity": 0.5}
-	]
+	])
 
 	# Survival Category
 	_add_item(GearItemInfo.new(
@@ -214,11 +214,11 @@ func _load_gear_data() -> void:
 		2.5,
 		false
 	))
-	items[GameEnums.GearType.BIVY_GEAR].variants = [
+	items[GameEnums.GearType.BIVY_GEAR].variants.assign([
 		{"name": "Emergency Bivy", "weight": 1.5, "warmth": 0.4},
 		{"name": "Standard Bivy", "weight": 2.5, "warmth": 0.7},
 		{"name": "Full Bivy", "weight": 3.5, "warmth": 1.0}
-	]
+	])
 
 	is_loaded = true
 	database_loaded.emit()

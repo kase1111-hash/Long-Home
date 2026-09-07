@@ -6,7 +6,8 @@ Long-Home is an atmospheric, narrative-driven mountaineering descent simulation 
 
 **Philosophy:** "The game is about consequence, not conquest. You don't win by reaching the summit. You win by returning intact, having made good decisions."
 
-**Status:** v0.1.0-alpha | 111 GDScript files
+**Status:** v0.1.0-alpha | 118 GDScript files | boots to the menu and plays end to end
+(summit → base camp → resolution → post-game) with procedural terrain, sky and a climber
 
 ## Tech Stack
 
@@ -55,11 +56,12 @@ src/
 │   └── data/           # Core data structures (RunContext, BodyState, GearState, etc.)
 ├── entities/
 │   └── player/         # Player controller and components (9 files)
-├── systems/            # Game systems (73 files)
-│   ├── terrain/        # Terrain generation and queries (8 files)
+├── systems/            # Game systems (77 files)
+│   ├── descent_goal.gd # Base camp marker + run completion (win condition)
+│   ├── terrain/        # Procedural mountains, meshes/collision, analysis (10 files)
 │   ├── sliding/        # Slide physics (5 files)
 │   ├── rope/           # Rope and rappelling (7 files)
-│   ├── environment/    # Weather, time, temperature (5 files)
+│   ├── environment/    # Weather, time, temperature, sky/sun/fog visuals (6 files)
 │   ├── body/           # Fatigue, cold, injuries (4 files)
 │   ├── drone/          # Drone camera system (5 files)
 │   ├── camera_director/# AI Camera Director (5 files)
@@ -70,10 +72,11 @@ src/
 │   ├── save/           # Persistence (5 files)
 │   ├── replay/         # Recording and playback (5 files)
 │   └── streaming/      # OBS integration (1 file)
-├── ui/                 # User interface (17 files)
+├── ui/                 # User interface (18 files, incl. hud/descent_hud.gd)
 ├── data/               # Gear and mountain databases (2 files)
 └── scenes/             # Scene management (1 file)
-tests/                  # Python validation scripts
+tests/                  # Godot-native checks (check_scripts, smoke_goal, ui_tour,
+                        # screenshot_tour) + Python regex validators
 ```
 
 ## Key Systems
@@ -118,12 +121,31 @@ SLIDING ↔ ARRESTED ↔ FALLING → INCAPACITATED
 godot --editor project.godot
 
 # Run game directly
-godot project.godot
+godot --path .
 
-# Run tests
+# Skip the menus (developer shortcut)
+godot --path . -- --quick-start --mountain=north_face
+
+# Tests (run these before every commit; all need a Godot 4.2.x binary)
+godot --headless --path . -s res://tests/check_scripts.gd        # every script compiles
+godot --headless --audio-driver Dummy --path . -s res://tests/smoke_goal.gd   # menu -> descent -> base camp
+godot --headless --audio-driver Dummy --path . -s res://tests/smoke_walk.gd   # walks the corridor for real (~2 min)
+godot --headless --audio-driver Dummy --path . -s res://tests/smoke_slide.gd  # Space on a slideable slope
+xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-driver opengl3 \
+  --audio-driver Dummy -s res://tests/ui_tour.gd -- --out=/tmp/tour    # every screen, with PNGs
 python tests/test_gdscript_validation.py
 python tests/test_procedural_generation.py
 ```
+
+Godot 4.2 gotchas that bit this project:
+- A `var x := <Variant expression>` (Dictionary.get, untyped Array element, enum `keys()[i]`,
+  `pop_back`, `get_meta`, ...) is a parse error. Always annotate: `var cell: TerrainCell = ...`
+- `Array[T]` fields cannot be assigned an untyped literal at runtime; use `.assign([...])`
+- New `class_name` files need an import pass (`godot --headless --path . --import`) before
+  other scripts can reference them from a headless run
+- Test harnesses run with `-s` are compiled before the autoloads exist: reach
+  `GameStateManager` etc. via `root.get_node("/root/GameStateManager")` and `load()` (see
+  `tests/smoke_goal.gd`)
 
 ## Coding Conventions
 
@@ -204,6 +226,11 @@ print("[SystemName] Debug message")
 | Camera director | `src/systems/camera_director/camera_director.gd` |
 | Fatal events | `src/systems/fatal_event/fatal_event_manager.gd` |
 | Game states | `src/core/game_state_manager.gd` |
+| Descent flow, spawn, HUD/goal lifecycle | `src/scenes/main.gd` |
+| Win condition / base camp | `src/systems/descent_goal.gd`, `TerrainService.goal_position` |
+| Procedural mountain shape | `src/systems/terrain/procedural_mountain_generator.gd` |
+| Sky, sun, fog, snowfall | `src/systems/environment/environment_visuals.gd` |
+| Descent HUD | `src/ui/hud/descent_hud.gd` |
 | Run data | `src/core/data/run_context.gd` |
 | UI screens | `src/ui/` |
 

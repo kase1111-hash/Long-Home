@@ -7,7 +7,122 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (the game is now playable end to end)
+
+- **Rendered, walkable terrain.** `TerrainService` owns a `TerrainGenerator`, so every
+  mountain produces seam-exact meshes and `HeightMapShape3D` collision. A new
+  `ProceduralMountainGenerator` builds a 640 m mountain per mountain id (FastNoiseLite seeded
+  from the id, shaped by the mountain database: summit plateau, benches, slideable snow
+  slopes, downclimb faces, cliff bands scaled by exposure, gullies) with a guaranteed
+  sub-slide-angle corridor from summit to base camp. `CliffDistanceField` replaces the
+  O(cells x cliffs) search with an O(cells) chamfer transform.
+- **Sky, sun, fog and weather visuals.** `EnvironmentVisuals` (owned by `EnvironmentService`)
+  adds a procedural alpine sky, a sun light driven by `TimeService`, weather-driven fog and
+  snowfall particles, on both Forward+ and Compatibility renderers.
+- **A climber.** The player capsule is replaced by a primitive-built climber (jacket, helmet,
+  pack, limbs); the chase camera pivot is top-level and starts behind the climber.
+- **A goal.** `DescentGoal` builds a visible base camp (tent, flag, beacon beam) and completes
+  the run with `CLEAN_RETURN` / `INJURED_RETURN` on arrival (or `FATALITY` when falling out of
+  the world). Previously a run could only end by abandonment or a fatal event.
+- **Descent HUD** (`src/ui/hud/descent_hud.*`): elevation, descent progress, distance to base
+  camp, movement state, time and temperature, plus control hints (`H` toggles) and the
+  diegetic message channel.
+- **Run tracking.** `GameStateManager` feeds player position samples and elapsed time into
+  the `RunContext`, so distance, elevation progress and the post-game path are real.
+- **Godot-native tests**: `tests/check_scripts.gd` (every script compiles),
+  `tests/smoke_goal.gd` (menu → descent → base camp → resolution, headless),
+  `tests/smoke_walk.gd` (walks the climber down the corridor to base camp at 4x speed),
+  `tests/smoke_slide.gd` (starts a slide on the nearest slideable slope and lets it end),
+  `tests/ui_tour.gd` (presses every screen's real buttons and screenshots them),
+  `tests/screenshot_tour.gd` (renders the descent to PNGs, with weather/time overrides).
+
+### Changed
+
+- The debug quick start no longer runs on every debug build. It is opt-in:
+  `godot --path . -- --quick-start [--mountain=<id>]`, and it selects a real mountain.
+- Mouse capture is owned by `main.gd`: captured during `DESCENT`, visible in every other
+  state. `player_camera.gd` no longer toggles it or handles `Esc`.
+- Planning: the default summit-to-base line is analysed on entry, so **Begin Descent** is
+  available without placing waypoints; risky lines show a warning instead of blocking. The
+  topo map's summit/base markers use the terrain's real start and goal, and the forecast
+  panel shows the mountain's typical conditions before a run.
+- The player spawns on the summit plateau facing base camp; `run.start_elevation` and
+  `run.target_elevation` come from the terrain.
+
+### Balance
+
+- The guaranteed corridor tops out at 27° (a cautious walk); steeper sliding terrain lies
+  beside it. Walking speed is 2.4 m/s base and no longer collapses with stability.
+- Fatigue accrues about a third as fast; a full descent ends tired rather than collapsed.
+
 ### Fixed
+
+#### Gameplay (the climber ground to a halt within ten seconds)
+- "Hesitation" counted any held movement key, drained stability to zero and, because speed
+  scaled with stability, stopped the climber dead. Hesitation is now input that produces no
+  movement.
+- BodyConditionService simulated a private BodyState nobody read and never received the
+  climber's activity, slope, weight or insulation, so the cold model treated a moving,
+  clothed climber as standing still naked (frostbite in minutes). It now adopts the run's
+  body state and samples the player and gear.
+- RecordingService read a non-existent `body_part` field on injuries.
+
+#### Compilation (95 of 111 scripts failed to load in Godot 4.2)
+- Added explicit static types wherever a variable was inferred from a `Variant`
+  (`Dictionary.get`, untyped array elements, enum `keys()[i]`, `pop_back`, `get_meta`);
+  Godot 4.2 rejects those at parse time and treats the inference warning as an error
+- `PackedFloat32Array` has no `min()`/`max()` in 4.2; `TextureRect.EXPAND_KEEP_ASPECT_CENTERED`
+  no longer exists; `TerrainService.get_all_chunks()` / `get_bounds()` were called but never
+  defined; `TopoMapGenerator.generate_map` takes `Vector3` bounds
+- `Array[Dictionary]` gear variant lists were assigned untyped literals (runtime error);
+  `get_meta()` with a null default errored on a missing key
+- The planning screen stayed visible over the world during a descent
+- Terrain mesh triangles were wound face-down; collision floated ~3000 m above the mesh;
+  chunk seams had cracks; freshly built meshes were destroyed on `terrain_loaded`
+- The drone camera's `look_at` spammed one error per frame when hovering above the player
+- Every map display regenerated the whole topo map on `terrain_loaded` (3.4 s each, four
+  displays); one cached map per terrain load with single-pass contours brings the
+  descent-start hitch from ~6 s to ~2.5 s
+- Space now also starts a slide from a standstill on slideable snow, not only while walking
+- Sunset/sunrise no longer jumps six times brighter and flips shadows: the sun and "moon"
+  branches meet at the horizon
+- Fog and snowfall snap to each run's configured weather instead of easing in from the
+  previous run's sky; snowfall intensity changes no longer wipe every flake
+- The sun disc is hidden through the light's sky mode, so Forward+ soft shadows keep their
+  penumbra
+- `TerrainCell.slope_direction` was the height gradient (uphill) while every consumer treated it
+  as downhill: slides pushed the climber into the slope and never moved the body, micro-slips
+  shoved uphill, and walking downhill got the uphill penalty. It now points downhill; slides
+  carry the climber and a self-arrest stops them, and the corridor walk is about twice as fast
+- Checking the map from the pause menu unpaused the whole simulation; a run ending while the
+  map was open could never reach the resolution screen and was recorded twice on abandon
+- Retry from the post-game screen left that screen covering the planning map and the climber
+  live at the old base camp; the climber is now frozen when a run ends, the post-game and
+  resolution screens are hidden when planning starts, and position samples are ignored until
+  the new run is anchored
+- Mountains never unlocked (nothing recorded runs in the mountain database); the loadout
+  screen kept the first mountain's requirements; waypoints survived onto the next mountain;
+  "Clear Route" disabled Begin Descent; the forecast panel read keys the weather service never
+  provides; the physical map kept the previous mountain and jumped to the corner after its
+  open animation; the map-check marker was drawn before layout and against the wrong rect;
+  the first post-game path was measured before layout
+- Weather (precipitation, fog, transitions) leaked from the previous run into the next; the
+  temperature was computed at a fixed 4000 m on every mountain; audio ducked at the resolution
+  screen was never restored; the fatal sequence read a non-existent drone field; the drone
+  never re-acquired the climber on later runs; a DEM's chunk layout stuck for the session;
+  the fatigue threshold event never fired on a second run
+- The sun disc appeared and vanished several times a day (luminance heuristic); it now follows
+  the weather and sun height
+- The terrain generator followed whichever camera it saw first (the drone's, parked near the
+  origin), and culled every chunk as "too far"; it now follows the live camera and never
+  distance-culls the mountain. The world is revealed only once the climber and camera are
+  placed, so a second run never flashes the previous base camp
+- Resuming from the pause menu re-entered `DESCENT` and rebuilt the whole descent
+  (respawning the player under every system that had cached it); one player node now lives
+  for the whole session and is reset between runs
+- The post-game panel stacked its moments list, insight and buttons on top of each other
+- One-shot 3D audio players were positioned before entering the tree (an engine error on
+  every footstep)
 
 #### Service Bootstrap (game was unplayable past the main menu)
 - Added a service bootstrapper in `main.gd`: 25 service classes (MountainDatabase,

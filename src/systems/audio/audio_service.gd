@@ -82,6 +82,8 @@ func _setup_audio_buses() -> void:
 
 
 func _connect_event_bus() -> void:
+	EventBus.audio_restore_requested.connect(restore_audio)
+	EventBus.audio_duck_requested.connect(duck_audio)
 	# Game state
 	EventBus.game_state_changed.connect(_on_game_state_changed)
 	EventBus.descent_ready.connect(_on_descent_ready)
@@ -191,8 +193,11 @@ func _on_game_state_changed(old_state: GameEnums.GameState, new_state: GameEnums
 
 	match new_state:
 		GameEnums.GameState.MAIN_MENU:
+			restore_audio()
 			_enter_menu_audio()
 		GameEnums.GameState.DESCENT:
+			if old_state != GameEnums.GameState.PAUSED and old_state != GameEnums.GameState.MAP_CHECK:
+				restore_audio()
 			_enter_descent_audio()
 		GameEnums.GameState.RESOLUTION:
 			_enter_resolution_audio()
@@ -432,8 +437,8 @@ func play_effect_3d(stream: AudioStream, position: Vector3, volume_db: float = 0
 	player.stream = stream
 	player.volume_db = volume_db
 	player.bus = BUS_EFFECTS
-	player.global_position = position
 	add_child(player)
+	player.global_position = position
 	player.play()
 	player.finished.connect(player.queue_free)
 
@@ -452,9 +457,9 @@ func play_footstep(sound_name: String, volume_db: float, pitch: float, position:
 		player.volume_db = volume_db
 		player.pitch_scale = pitch
 		player.bus = BUS_PLAYER
-		player.global_position = position
 		player.max_distance = 30.0
 		add_child(player)
+		player.global_position = position
 
 		# Generate simple footstep sound procedurally
 		player.stream = _generate_footstep_placeholder()
