@@ -136,7 +136,8 @@ func _generate_map() -> void:
 	world_bounds_min = Vector2(bounds_min.x, bounds_min.z)
 	world_bounds_max = Vector2(bounds_max.x, bounds_max.z)
 
-	# Set summit and base
+	# Set summit and base: the terrain's real start plateau and base camp when
+	# it provides them, otherwise the top and bottom edges of the map
 	summit_position = Vector2(
 		(world_bounds_min.x + world_bounds_max.x) / 2,
 		world_bounds_min.y  # Top of map
@@ -145,6 +146,12 @@ func _generate_map() -> void:
 		(world_bounds_min.x + world_bounds_max.x) / 2,
 		world_bounds_max.y  # Bottom of map
 	)
+	var start_3d: Vector3 = terrain_service.start_position
+	if start_3d != Vector3.ZERO:
+		summit_position = Vector2(start_3d.x, start_3d.z)
+	var goal_3d: Vector3 = terrain_service.goal_position
+	if goal_3d != Vector3.ZERO:
+		base_position = Vector2(goal_3d.x, goal_3d.z)
 
 	# Generate map data
 	map_data = topo_generator.generate_map(

@@ -228,6 +228,54 @@ func _update_tracking(delta: float) -> void:
 # =============================================================================
 
 ## Change to a new movement state
+## Put the climber back into a fresh standing state for another descent.
+## The same player node is reused across runs so every system that cached
+## it or connected to its signals keeps working; call this after placing it.
+func reset_for_new_run() -> void:
+	velocity = Vector3.ZERO
+	smooth_velocity = Vector3.ZERO
+	last_position = global_position
+	_last_position_initialized = false
+	state_time = 0.0
+	stability = 1.0
+	posture_state = GameEnums.PostureState.STABLE
+	is_grounded = true
+	current_cell = null
+	input_delay_buffer = 0.0
+
+	if input_handler != null:
+		input_handler.input_buffer.clear()
+		input_handler.move_input = Vector2.ZERO
+		input_handler.raw_move_input = Vector2.ZERO
+		input_handler.hesitation_time = 0.0
+		input_handler.actions_just_pressed.clear()
+		input_handler.actions_held.clear()
+		input_handler.lean_input = 0.0
+		input_handler.is_map_open = false
+		input_handler.is_self_checking = false
+	if posture != null:
+		posture.micro_slip_timer = 0.0
+		posture.stability_modifiers.clear()
+		posture.recent_slips.clear()
+		posture.is_precarious = false
+	if movement != null:
+		movement.target_velocity = Vector3.ZERO
+		movement.move_direction = Vector3.ZERO
+		movement.distance_accumulator = 0.0
+		movement.slope_factor = 1.0
+
+	if current_state != GameEnums.PlayerMovementState.STANDING:
+		change_state(GameEnums.PlayerMovementState.STANDING)
+	elif state_machine != null:
+		state_machine.transition_to(GameEnums.PlayerMovementState.STANDING)
+
+	var pivot := camera_pivot as PlayerCamera
+	if pivot != null:
+		pivot.snap_behind_player()
+
+	print("[PlayerController] Reset for new run")
+
+
 func change_state(new_state: GameEnums.PlayerMovementState) -> void:
 	if new_state == current_state:
 		return

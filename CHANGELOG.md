@@ -7,7 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (the game is now playable end to end)
+
+- **Rendered, walkable terrain.** `TerrainService` owns a `TerrainGenerator`, so every
+  mountain produces seam-exact meshes and `HeightMapShape3D` collision. A new
+  `ProceduralMountainGenerator` builds a 640 m mountain per mountain id (FastNoiseLite seeded
+  from the id, shaped by the mountain database: summit plateau, benches, slideable snow
+  slopes, downclimb faces, cliff bands scaled by exposure, gullies) with a guaranteed
+  sub-slide-angle corridor from summit to base camp. `CliffDistanceField` replaces the
+  O(cells x cliffs) search with an O(cells) chamfer transform.
+- **Sky, sun, fog and weather visuals.** `EnvironmentVisuals` (owned by `EnvironmentService`)
+  adds a procedural alpine sky, a sun light driven by `TimeService`, weather-driven fog and
+  snowfall particles, on both Forward+ and Compatibility renderers.
+- **A climber.** The player capsule is replaced by a primitive-built climber (jacket, helmet,
+  pack, limbs); the chase camera pivot is top-level and starts behind the climber.
+- **A goal.** `DescentGoal` builds a visible base camp (tent, flag, beacon beam) and completes
+  the run with `CLEAN_RETURN` / `INJURED_RETURN` on arrival (or `FATALITY` when falling out of
+  the world). Previously a run could only end by abandonment or a fatal event.
+- **Descent HUD** (`src/ui/hud/descent_hud.*`): elevation, descent progress, distance to base
+  camp, movement state, time and temperature, plus control hints (`H` toggles) and the
+  diegetic message channel.
+- **Run tracking.** `GameStateManager` feeds player position samples and elapsed time into
+  the `RunContext`, so distance, elevation progress and the post-game path are real.
+- **Godot-native tests**: `tests/check_scripts.gd` (every script compiles),
+  `tests/smoke_goal.gd` (menu → descent → base camp → resolution, headless),
+  `tests/ui_tour.gd` (presses every screen's real buttons and screenshots them),
+  `tests/screenshot_tour.gd` (renders the descent to PNGs, with weather/time overrides).
+
+### Changed
+
+- The debug quick start no longer runs on every debug build. It is opt-in:
+  `godot --path . -- --quick-start [--mountain=<id>]`, and it selects a real mountain.
+- Mouse capture is owned by `main.gd`: captured during `DESCENT`, visible in every other
+  state. `player_camera.gd` no longer toggles it or handles `Esc`.
+- Planning: the default summit-to-base line is analysed on entry, so **Begin Descent** is
+  available without placing waypoints; risky lines show a warning instead of blocking. The
+  topo map's summit/base markers use the terrain's real start and goal, and the forecast
+  panel shows the mountain's typical conditions before a run.
+- The player spawns on the summit plateau facing base camp; `run.start_elevation` and
+  `run.target_elevation` come from the terrain.
+
 ### Fixed
+
+#### Compilation (95 of 111 scripts failed to load in Godot 4.2)
+- Added explicit static types wherever a variable was inferred from a `Variant`
+  (`Dictionary.get`, untyped array elements, enum `keys()[i]`, `pop_back`, `get_meta`);
+  Godot 4.2 rejects those at parse time and treats the inference warning as an error
+- `PackedFloat32Array` has no `min()`/`max()` in 4.2; `TextureRect.EXPAND_KEEP_ASPECT_CENTERED`
+  no longer exists; `TerrainService.get_all_chunks()` / `get_bounds()` were called but never
+  defined; `TopoMapGenerator.generate_map` takes `Vector3` bounds
+- `Array[Dictionary]` gear variant lists were assigned untyped literals (runtime error);
+  `get_meta()` with a null default errored on a missing key
+- The planning screen stayed visible over the world during a descent
+- Terrain mesh triangles were wound face-down; collision floated ~3000 m above the mesh;
+  chunk seams had cracks; freshly built meshes were destroyed on `terrain_loaded`
+- The drone camera's `look_at` spammed one error per frame when hovering above the player
 
 #### Service Bootstrap (game was unplayable past the main menu)
 - Added a service bootstrapper in `main.gd`: 25 service classes (MountainDatabase,

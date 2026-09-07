@@ -279,7 +279,10 @@ func _on_game_state_changed(old_state: GameEnums.GameState, new_state: GameEnums
 		GameEnums.GameState.PLANNING:
 			_show_planning()
 		GameEnums.GameState.DESCENT:
-			_start_descent()
+			# Only a fresh descent builds the world; returning from the pause
+			# menu or the map check just resumes it
+			if old_state != GameEnums.GameState.PAUSED and old_state != GameEnums.GameState.MAP_CHECK:
+				_start_descent()
 		GameEnums.GameState.PAUSED:
 			_show_pause_menu()
 		GameEnums.GameState.MAP_CHECK:
@@ -420,6 +423,7 @@ func _show_planning() -> void:
 		planning_screen.planning_complete.connect(_on_planning_complete)
 	else:
 		planning_screen.visible = true
+		planning_screen.refresh()
 
 	print("[Main] Planning screen loaded")
 
@@ -462,8 +466,11 @@ func _on_planning_complete(route: PackedVector3Array) -> void:
 func _start_descent() -> void:
 	print("[Main] Starting descent...")
 
-	# Hide main menu
+	# Hide every menu screen; the world is the view now
 	_hide_main_menu()
+	_hide_mountain_select()
+	_hide_loadout_config()
+	_hide_planning()
 
 	# Show world
 	world.visible = true
@@ -553,18 +560,22 @@ func _setup_environment(run: RunContext) -> void:
 func _spawn_player(run: RunContext) -> void:
 	print("[Main] Spawning player...")
 
-	# Remove existing player if any
-	if player != null:
-		player.queue_free()
-		player = null
-
-	# Create new player
-	player = PlayerScene.instantiate()
-	world.add_child(player)
+	# One player node lives for the whole session: every system that cached
+	# it or connected to its signals keeps working across runs
+	var is_new := false
+	if player == null or not is_instance_valid(player):
+		player = PlayerScene.instantiate()
+		world.add_child(player)
+		is_new = true
+	else:
+		player.visible = true
+		player.process_mode = Node.PROCESS_MODE_INHERIT
 
 	# Position at summit/start area
 	var start_pos := _get_start_position()
 	player.global_position = start_pos
+	if not is_new:
+		player.reset_for_new_run()
 
 	# Face the base camp so the first view is down the mountain
 	var goal_pos := _get_goal_position()
@@ -649,10 +660,11 @@ func _setup_hud() -> void:
 
 
 func _cleanup_descent() -> void:
-	# Clean up player
-	if player != null:
-		player.queue_free()
-		player = null
+	# Park the player until the next run (see _spawn_player)
+	if player != null and is_instance_valid(player):
+		player.velocity = Vector3.ZERO
+		player.visible = false
+		player.process_mode = Node.PROCESS_MODE_DISABLED
 
 	# Clean up base camp marker
 	if descent_goal != null:

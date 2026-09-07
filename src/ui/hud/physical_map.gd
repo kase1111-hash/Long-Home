@@ -509,6 +509,7 @@ func open_map() -> void:
 		is_transitioning = false
 		is_open = true
 		map_opened.emit()
+		EventBus.map_opened.emit()
 	)
 
 
@@ -533,6 +534,7 @@ func close_map() -> void:
 		is_open = false
 		visible = false
 		map_closed.emit()
+		EventBus.map_closed.emit()
 	)
 
 

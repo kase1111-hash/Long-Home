@@ -59,16 +59,16 @@ As a first-person mountain survival experience, Long-Home combines realistic ter
 
 | System | Status | Description |
 |--------|--------|-------------|
-| **Terrain & World** | Complete | DEM loading, slope analysis, 11 surface types, 6 terrain zones |
+| **Terrain & World** | Complete | Procedural 640 m mountains per peak (DEM loading optional), rendered meshes + collision, slope analysis, 11 surface types, 6 terrain zones |
 | **Sliding Mechanics** | Complete | High-skill descent with control spectrum |
 | **Rope System** | Complete | Deployment, anchors, rappelling with time/safety trade-offs |
-| **Time & Environment** | Complete | Day/night cycles, 9 weather states, temperature |
+| **Time & Environment** | Complete | Day/night cycles with a sun-lit procedural sky, 9 weather states with fog and snowfall, temperature |
 | **Body Condition** | Complete | Fatigue, cold exposure, injuries (diegetic feedback) |
 | **Risk Detection** | Complete | Terrain analysis, fall prediction, diegetic risk cues |
 | **Drone Camera** | Partial | Spectator drone implemented; scout drone not yet implemented |
 | **Camera Director AI** | Complete | AI filmmaker with 5 shot intent types |
 | **Fatal Event Handling** | Complete | Ethical 5-phase death sequence system |
-| **User Interface** | Complete | Minimalist, diegetic UI across all game phases |
+| **User Interface** | Complete | Minimalist UI across all game phases plus a small descent HUD and control hints |
 | **Tutorial System** | Structural | Framework exists; instructor dialogue and interactions incomplete |
 | **Audio Design** | Structural | System architecture in place; uses placeholder audio assets |
 | **Streaming & Replay** | Complete | Recording, playback, OBS integration, highlights |
@@ -80,7 +80,9 @@ As a first-person mountain survival experience, Long-Home combines realistic ter
 
 ### Prerequisites
 
-- [Godot Engine 4.2+](https://godotengine.org/download)
+- [Godot Engine 4.2.x](https://godotengine.org/download) (developed and tested with 4.2.2; the
+  project uses the Forward+ renderer but also runs with the Compatibility/OpenGL 3 renderer)
+- No external assets are required: terrain, sky, the climber and base camp are all procedural
 
 ### Installation
 
@@ -97,15 +99,52 @@ As a first-person mountain survival experience, Long-Home combines realistic ter
 
 3. Run the game:
    - Press `F5` in the Godot editor, or
-   - Click the "Play" button in the top-right corner
+   - Click the "Play" button in the top-right corner, or
+   - From a terminal: `godot --path .`
+
+4. Play: **New Descent** → pick a mountain → choose your kit → look at the topo map
+   (double-click to add waypoints, or just **Begin Descent** on the direct line) → walk,
+   slide and rope your way from the summit plateau down to the lit base camp beacon.
+   Reaching base camp ends the run and opens the resolution and post-game analysis.
+
+### Developer quick start
+
+Skip the menus and drop straight onto a mountain:
+
+```bash
+godot --path . -- --quick-start                 # The Knife Edge
+godot --path . -- --quick-start --mountain=north_face
+```
+
+Mountain ids: `knife_edge`, `north_face`, `the_couloir`, `storm_peak`, `long_way_down`.
 
 ### Running Tests
 
-```bash
-# Static analysis validation
-python tests/test_gdscript_validation.py
+The Godot-native checks need the `godot` binary on your `PATH` (a 4.2.x release build):
 
-# Procedural generation tests
+```bash
+# Every script must compile (Godot 4.2 treats several inference warnings as errors)
+godot --headless --path . -s res://tests/check_scripts.gd
+
+# Boot headless, walk into a descent, reach base camp, land on the resolution screen
+godot --headless --audio-driver Dummy --path . -s res://tests/smoke_goal.gd
+
+# Walk every screen with the real buttons and save a screenshot of each (needs a display;
+# xvfb-run works on a headless Linux box)
+mkdir -p /tmp/tour && xvfb-run -a -s "-screen 0 1280x720x24" \
+  godot --path . --rendering-driver opengl3 --audio-driver Dummy \
+  -s res://tests/ui_tour.gd -- --out=/tmp/tour
+
+# Render the descent itself to PNGs (supports --weather=STORM, --time=18.5, --hide-ui)
+mkdir -p /tmp/shots && xvfb-run -a -s "-screen 0 1280x720x24" \
+  godot --path . --rendering-driver opengl3 --audio-driver Dummy \
+  -s res://tests/screenshot_tour.gd -- --out=/tmp/shots --quick-start
+```
+
+Python-only checks (regex based, no Godot needed):
+
+```bash
+python tests/test_gdscript_validation.py
 python tests/test_procedural_generation.py
 ```
 
@@ -121,6 +160,7 @@ python tests/test_procedural_generation.py
 | Move Back | `S` |
 | Move Left | `A` |
 | Move Right | `D` |
+| Look | Mouse (captured during the descent) |
 
 ### Actions
 
@@ -132,6 +172,11 @@ python tests/test_procedural_generation.py
 | Open Map | `M` |
 | Lean Left (during slide) | `Q` |
 | Lean Right (during slide) | `E` |
+| Pause / resume | `Esc` |
+| Toggle control hints | `H` |
+
+The HUD is deliberately small: elevation, how far you have descended, distance to base camp,
+what you are doing, the time and the temperature. Everything else is read from the mountain.
 
 ---
 
@@ -158,7 +203,8 @@ Long-Home/
 │   │       ├── player_movement.gd    # Movement physics
 │   │       ├── player_input.gd       # Input handling
 │   │       ├── player_animation_controller.gd
-│   │       ├── player_camera.gd      # First-person perspective
+│   │       ├── player_camera.gd      # Third-person chase camera
+│   │       └── player.tscn           # Procedural climber model
 │   │       ├── player_state_machine.gd
 │   │       ├── posture_system.gd     # Stance & posture
 │   │       ├── footstep_system.gd    # Footstep audio
@@ -169,8 +215,9 @@ Long-Home/
 │   │   ├── body/                     # Physical condition (4 files)
 │   │   ├── sliding/                  # Slide mechanics (5 files)
 │   │   ├── rope/                     # Rope system (7 files)
-│   │   ├── terrain/                  # Terrain analysis (8 files)
-│   │   ├── environment/              # Weather & time (5 files)
+│   │   ├── terrain/                  # Procedural mountains, meshes, collision, analysis (10 files)
+│   │   ├── environment/              # Weather, time, sky/sun/fog visuals (6 files)
+│   │   ├── descent_goal.gd           # Base camp marker + run completion
 │   │   ├── risk/                     # Risk detection (5 files)
 │   │   ├── drone/                    # Drone camera (5 files)
 │   │   ├── camera_director/          # AI film director (5 files)
@@ -184,7 +231,7 @@ Long-Home/
 │   │   ├── main_menu.gd
 │   │   ├── selection/                # Gear & mountain selection
 │   │   ├── planning/                 # Route planning phase
-│   │   ├── hud/                      # In-game diegetic UI
+│   │   ├── hud/                      # Descent HUD, physical map, self-check
 │   │   ├── pause/                    # Pause menu
 │   │   ├── analysis/                 # Post-game analysis
 │   │   ├── stats/                    # Statistics display
@@ -204,7 +251,8 @@ Long-Home/
 │       └── sample_mountain/
 │           └── manifest.json
 │
-├── tests/                            # Unit tests
+├── tests/                            # Godot-native checks (check_scripts, smoke_goal, ui_tour,
+│                                     # screenshot_tour) and Python regex validators
 ├── SPEC-SHEET.md                     # Complete game specification
 ├── PROGRAMMING-ROADMAP.md            # Implementation guide
 ├── project.godot                     # Godot configuration

@@ -111,9 +111,14 @@ func _check_core_services() -> void:
 # SERVICE RETRIEVAL
 # =============================================================================
 
-## Get a service by name (returns null if not registered)
+## Get a service by name (returns null if not registered or already freed)
 func get_service(service_name: String) -> Object:
-	return _services.get(service_name, null)
+	var service: Object = _services.get(service_name, null)
+	if service != null and not is_instance_valid(service):
+		# A node that was freed without unregistering; drop the dead entry
+		_services.erase(service_name)
+		return null
+	return service
 
 
 ## Get a service, asserting it exists
@@ -123,15 +128,15 @@ func require_service(service_name: String) -> Object:
 	return service
 
 
-## Check if a service is registered
+## Check if a service is registered (and still alive)
 func has_service(service_name: String) -> bool:
-	return _services.has(service_name)
+	return get_service(service_name) != null
 
 
 ## Get a service when it becomes available
 ## If already available, callback is called immediately
 func get_service_async(service_name: String, callback: Callable) -> void:
-	if _services.has(service_name):
+	if has_service(service_name):
 		callback.call(_services[service_name])
 		return
 
