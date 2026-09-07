@@ -91,8 +91,12 @@ func set_profile_data(data: Dictionary) -> void:
 	total_distance = data.get("total_distance", 0.0)
 
 	if elevations.size() > 0:
-		min_elevation = elevations.min()
-		max_elevation = elevations.max()
+		# PackedFloat32Array has no min()/max() in Godot 4.2; scan manually
+		min_elevation = elevations[0]
+		max_elevation = elevations[0]
+		for i in range(1, elevations.size()):
+			min_elevation = minf(min_elevation, elevations[i])
+			max_elevation = maxf(max_elevation, elevations[i])
 
 		# Add some padding
 		var range_val := max_elevation - min_elevation

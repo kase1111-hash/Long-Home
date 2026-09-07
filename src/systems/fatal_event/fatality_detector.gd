@@ -194,7 +194,7 @@ func _update_slide_detection(delta: float) -> void:
 
 ## Check impact for fatality
 func check_impact(force: float, surface: GameEnums.SurfaceType, position: Vector3) -> void:
-	var modifier := surface_survival_modifiers.get(
+	var modifier: float = surface_survival_modifiers.get(
 		GameEnums.SurfaceType.keys()[surface],
 		1.0
 	)
@@ -216,7 +216,7 @@ func check_impact(force: float, surface: GameEnums.SurfaceType, position: Vector
 func check_fall_landing(fall_distance: float, surface: GameEnums.SurfaceType, position: Vector3) -> void:
 	is_falling = false
 
-	var modifier := surface_survival_modifiers.get(
+	var modifier: float = surface_survival_modifiers.get(
 		GameEnums.SurfaceType.keys()[surface],
 		1.0
 	)

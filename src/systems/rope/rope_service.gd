@@ -166,8 +166,8 @@ func analyze_terrain_ahead(look_distance: float = 30.0) -> TerrainAnalysis:
 	if player == null or terrain_service == null:
 		return analysis
 
-	var player_pos := player.global_position
-	var player_forward := -player.global_transform.basis.z
+	var player_pos: Vector3 = player.global_position
+	var player_forward: Vector3 = -player.global_transform.basis.z
 
 	# Sample terrain ahead
 	var max_slope := 0.0
@@ -175,7 +175,7 @@ func analyze_terrain_ahead(look_distance: float = 30.0) -> TerrainAnalysis:
 	var has_cliff := false
 
 	for i in range(1, 10):
-		var sample_pos := player_pos + player_forward * (look_distance * i / 10.0)
+		var sample_pos: Vector3 = player_pos + player_forward * (look_distance * i / 10.0)
 		var cell := terrain_service.get_cell_at(sample_pos)
 		if cell == null:
 			continue

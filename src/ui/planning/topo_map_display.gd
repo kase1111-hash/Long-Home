@@ -131,9 +131,10 @@ func _generate_map() -> void:
 		return
 
 	# Get terrain bounds
-	var bounds := terrain_service.get_bounds()
-	world_bounds_min = Vector2(bounds["min"].x, bounds["min"].z)
-	world_bounds_max = Vector2(bounds["max"].x, bounds["max"].z)
+	var bounds_min: Vector3 = terrain_service.terrain_bounds_min
+	var bounds_max: Vector3 = terrain_service.terrain_bounds_max
+	world_bounds_min = Vector2(bounds_min.x, bounds_min.z)
+	world_bounds_max = Vector2(bounds_max.x, bounds_max.z)
 
 	# Set summit and base
 	summit_position = Vector2(
@@ -148,8 +149,8 @@ func _generate_map() -> void:
 	# Generate map data
 	map_data = topo_generator.generate_map(
 		terrain_service.get_all_chunks(),
-		Vector3(world_bounds_min.x, bounds["min"].y, world_bounds_min.y),
-		Vector3(world_bounds_max.x, bounds["max"].y, world_bounds_max.y)
+		bounds_min,
+		bounds_max
 	)
 
 	# Render base map

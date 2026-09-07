@@ -300,17 +300,17 @@ func _apply_surface_overlay(mountain_id: String) -> void:
 
 	# Get terrain bounds for coordinate mapping
 	var bounds := dem_loader.get_terrain_bounds(mountain_id)
-	var world_width := bounds.max_x - bounds.min_x
-	var world_depth := bounds.max_z - bounds.min_z
+	var world_width: float = bounds.max_x - bounds.min_x
+	var world_depth: float = bounds.max_z - bounds.min_z
 
 	for chunk in chunks.values():
 		for x in range(chunk.resolution):
 			for z in range(chunk.resolution):
-				var cell := chunk.get_cell(Vector2i(x, z))
+				var cell: TerrainCell = chunk.get_cell(Vector2i(x, z))
 
 				# Map cell position to image coordinates
-				var world_x := cell.position.x
-				var world_z := cell.position.z
+				var world_x: float = cell.position.x
+				var world_z: float = cell.position.z
 				var img_x := int((world_x - bounds.min_x) / world_width * image.get_width())
 				var img_z := int((world_z - bounds.min_z) / world_depth * image.get_height())
 
@@ -471,6 +471,11 @@ func _update_terrain_bounds() -> void:
 # =============================================================================
 # POSITION QUERIES
 # =============================================================================
+
+## Get all loaded chunks keyed by chunk coordinates (Vector2i -> TerrainChunk)
+func get_all_chunks() -> Dictionary:
+	return chunks
+
 
 ## Get the chunk containing a world position
 func get_chunk_at(world_pos: Vector3) -> TerrainChunk:

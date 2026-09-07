@@ -170,7 +170,7 @@ func _extract_key_events(run_context: RunContext) -> Array[Dictionary]:
 func _trim_history() -> void:
 	# Trim global entries
 	while entries.size() > MAX_ENTRIES:
-		var removed := entries.pop_back()
+		var removed: HistoryEntry = entries.pop_back()
 		# Also remove from mountain index
 		if by_mountain.has(removed.mountain_id):
 			var mountain_entries: Array = by_mountain[removed.mountain_id]

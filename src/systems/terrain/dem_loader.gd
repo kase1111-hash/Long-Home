@@ -312,7 +312,8 @@ func load_surface_overlay(mountain_id: String) -> Dictionary:
 	if not surface_config.get("has_overlay", false):
 		return {}
 
-	var overlay_path := mountains_data_path + mountain_id + "/" + surface_config.get("filename", "surfaces.png")
+	var overlay_filename: String = surface_config.get("filename", "surfaces.png")
+	var overlay_path: String = mountains_data_path + mountain_id + "/" + overlay_filename
 
 	if not FileAccess.file_exists(overlay_path):
 		return {}

@@ -403,13 +403,15 @@ func _generate_topo_map() -> void:
 	if terrain_service == null:
 		return
 
-	map_bounds_min = terrain_service.terrain_bounds_min
-	map_bounds_max = terrain_service.terrain_bounds_max
+	var bounds_min_3d: Vector3 = terrain_service.terrain_bounds_min
+	var bounds_max_3d: Vector3 = terrain_service.terrain_bounds_max
+	map_bounds_min = Vector2(bounds_min_3d.x, bounds_min_3d.z)
+	map_bounds_max = Vector2(bounds_max_3d.x, bounds_max_3d.z)
 
 	# Generate topo map
 	var topo_generator := TopoMapGenerator.new()
-	var chunks := terrain_service.get_all_chunks()
-	var map_data := topo_generator.generate_map(chunks, map_bounds_min, map_bounds_max)
+	var chunks: Dictionary = terrain_service.get_all_chunks()
+	var map_data := topo_generator.generate_map(chunks, bounds_min_3d, bounds_max_3d)
 
 	# Render to texture
 	var resolution := Vector2i(600, 600)
@@ -550,7 +552,7 @@ func _draw_moment_markers() -> void:
 		var screen_pos := _world_to_screen(world_pos)
 
 		# Only draw if path has reached this point
-		var moment_progress := moment["time"] / maxf(total_duration, 0.1)
+		var moment_progress: float = moment["time"] / maxf(total_duration, 0.1)
 		if moment_progress > path_draw_progress and is_drawing_path:
 			continue
 
@@ -585,7 +587,7 @@ func _draw_playhead() -> void:
 
 
 func _on_timeline_draw() -> void:
-	var track := timeline_container.get_child(1)  # Timeline track
+	var track: Control = timeline_container.get_child(1)  # Timeline track
 	var size := track.size
 
 	# Background
@@ -597,8 +599,8 @@ func _on_timeline_draw() -> void:
 
 	# Moment markers on timeline
 	for moment in moments:
-		var moment_progress := moment["time"] / maxf(total_duration, 0.1)
-		var x := size.x * moment_progress
+		var moment_progress: float = moment["time"] / maxf(total_duration, 0.1)
+		var x: float = size.x * moment_progress
 		var color := _get_moment_color(moment)
 		track.draw_line(Vector2(x, 8), Vector2(x, 32), color, 2.0)
 
@@ -671,8 +673,8 @@ func _on_speed_pressed() -> void:
 func _on_timeline_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		if event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-			var track := timeline_container.get_child(1)
-			var relative_x := event.position.x / track.size.x
+			var track: Control = timeline_container.get_child(1)
+			var relative_x: float = event.position.x / track.size.x
 			playback_time = relative_x * total_duration
 			_update_playhead_position()
 			_update_time_label()

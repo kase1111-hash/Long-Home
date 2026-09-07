@@ -209,7 +209,7 @@ func _check_terrain_danger(delta: float) -> void:
 # =============================================================================
 
 func _trigger(type: TriggerType, severity: float) -> void:
-	var type_name := TriggerType.keys()[type]
+	var type_name: String = TriggerType.keys()[type]
 
 	# Check cooldown
 	var current_time := Time.get_ticks_msec() / 1000.0
@@ -347,7 +347,7 @@ func _get_safe_speed_for_terrain() -> float:
 
 
 func _can_trigger(type: TriggerType) -> bool:
-	var type_name := TriggerType.keys()[type]
+	var type_name: String = TriggerType.keys()[type]
 	var current_time := Time.get_ticks_msec() / 1000.0
 
 	if last_trigger_times.has(type_name):

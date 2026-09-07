@@ -332,8 +332,8 @@ func _analyze_cell(cell: TerrainCell, x: int, z: int) -> void:
 	var neighbors := _get_neighbor_heights(x, z)
 
 	# Gradient using Sobel-like filter
-	var dx := (neighbors.e - neighbors.w) / (2.0 * cell_size)
-	var dz := (neighbors.s - neighbors.n) / (2.0 * cell_size)
+	var dx: float = (neighbors.e - neighbors.w) / (2.0 * cell_size)
+	var dz: float = (neighbors.s - neighbors.n) / (2.0 * cell_size)
 
 	# Slope angle
 	var gradient := sqrt(dx * dx + dz * dz)
@@ -356,8 +356,8 @@ func _analyze_cell(cell: TerrainCell, x: int, z: int) -> void:
 
 	# Curvature (second derivative)
 	var center := cell.elevation
-	var d2x := (neighbors.e + neighbors.w - 2.0 * center) / (cell_size * cell_size)
-	var d2z := (neighbors.n + neighbors.s - 2.0 * center) / (cell_size * cell_size)
+	var d2x: float = (neighbors.e + neighbors.w - 2.0 * center) / (cell_size * cell_size)
+	var d2z: float = (neighbors.n + neighbors.s - 2.0 * center) / (cell_size * cell_size)
 	cell.curvature = (d2x + d2z) * 0.5
 
 	# Drainage (how much water would collect here)

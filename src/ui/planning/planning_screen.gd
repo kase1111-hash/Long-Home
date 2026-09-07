@@ -301,7 +301,7 @@ func _update_weather_display() -> void:
 	var weather_label := _get_or_create_label(weather_panel, "WeatherLabel")
 	var conditions := weather_service.get_conditions_summary()
 
-	var weather_text := "Weather: %s\n" % conditions.get("state", "Unknown")
+	var weather_text: String = "Weather: %s\n" % conditions.get("state", "Unknown")
 	weather_text += "Temp: %.0f°C\n" % conditions.get("temperature", 0)
 	weather_text += "Wind: %s" % conditions.get("wind_strength", "Unknown")
 
@@ -356,8 +356,8 @@ func _on_elevation_profile_draw() -> void:
 		return
 
 	# Calculate bounds
-	var min_elev := elevations.min()
-	var max_elev := elevations.max()
+	var min_elev := _packed_min(elevations)
+	var max_elev := _packed_max(elevations)
 	var total_dist: float = profile_data.get("total_distance", 1.0)
 
 	var rect := elevation_profile.get_rect()
@@ -501,3 +501,23 @@ func _build_ui() -> void:
 	weather_label.name = "WeatherLabel"
 	weather_label.text = "Weather: --"
 	weather.add_child(weather_label)
+
+
+## Smallest value in a PackedFloat32Array (PackedFloat32Array has no min() in Godot 4.2)
+func _packed_min(values: PackedFloat32Array) -> float:
+	if values.is_empty():
+		return 0.0
+	var result: float = values[0]
+	for value in values:
+		result = minf(result, value)
+	return result
+
+
+## Largest value in a PackedFloat32Array (PackedFloat32Array has no max() in Godot 4.2)
+func _packed_max(values: PackedFloat32Array) -> float:
+	if values.is_empty():
+		return 0.0
+	var result: float = values[0]
+	for value in values:
+		result = maxf(result, value)
+	return result

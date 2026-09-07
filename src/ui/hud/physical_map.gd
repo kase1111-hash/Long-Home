@@ -161,7 +161,7 @@ func _build_ui() -> void:
 	map_display = TextureRect.new()
 	map_display.name = "MapDisplay"
 	map_display.set_anchors_preset(Control.PRESET_FULL_RECT)
-	map_display.expand_mode = TextureRect.EXPAND_KEEP_ASPECT_CENTERED
+	map_display.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	map_display.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	map_area.add_child(map_display)
 
@@ -242,7 +242,7 @@ func _generate_map() -> void:
 	var bounds_max := terrain_service.terrain_bounds_max
 
 	# Generate topo map data
-	var chunks := terrain_service.get_all_chunks()
+	var chunks: Dictionary = terrain_service.get_all_chunks()
 	map_data = topo_generator.generate_map(chunks, bounds_min, bounds_max)
 
 	# Render to image

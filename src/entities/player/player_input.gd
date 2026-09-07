@@ -154,7 +154,7 @@ func _process_buffered_input(delta: float) -> void:
 		if input_buffer.size() > 0:
 			# Partial responsiveness - blend toward buffered input
 			var target: Vector2 = input_buffer[0].input
-			var blend := 1.0 - (input_buffer[0].time / current_delay)
+			var blend: float = 1.0 - (input_buffer[0].time / current_delay)
 			move_input = move_input.lerp(target, blend * 0.5)
 
 	# Limit buffer size (secondary safeguard)

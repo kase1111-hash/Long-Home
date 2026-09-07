@@ -123,11 +123,11 @@ func _calculate_dz(h: Dictionary) -> float:
 
 ## Calculate curvature (Laplacian)
 func _calculate_curvature(h: Dictionary) -> float:
-	var center := h.get("c", 0.0)
+	var center: float = h.get("c", 0.0)
 
 	# Second derivatives
-	var d2x := (h.get("e", center) + h.get("w", center) - 2.0 * center)
-	var d2z := (h.get("n", center) + h.get("s", center) - 2.0 * center)
+	var d2x: float = (h.get("e", center) + h.get("w", center) - 2.0 * center)
+	var d2z: float = (h.get("n", center) + h.get("s", center) - 2.0 * center)
 
 	# Mean curvature
 	return (d2x + d2z) / (2.0 * cell_size * cell_size)

@@ -88,7 +88,7 @@ func _generate_contours(
 	var contours: Array[ContourLine] = []
 
 	# Calculate contour elevations
-	var start_elev := floor(min_elev / minor_contour_interval) * minor_contour_interval
+	var start_elev: float = floorf(min_elev / minor_contour_interval) * minor_contour_interval
 	var elev := start_elev
 
 	while elev <= max_elev:
@@ -223,11 +223,11 @@ func _find_cliff_zones(chunks: Dictionary) -> Array[PackedVector2Array]:
 
 	for chunk in chunks.values():
 		for cliff_coords in chunk.cliff_cells:
-			var cell := chunk.get_cell(cliff_coords)
+			var cell: TerrainCell = chunk.get_cell(cliff_coords)
 			var zone := PackedVector2Array()
 
 			# Create a small polygon around the cliff cell
-			var half_size := chunk.cell_size * 0.5
+			var half_size: float = chunk.cell_size * 0.5
 			zone.append(Vector2(cell.position.x - half_size, cell.position.z - half_size))
 			zone.append(Vector2(cell.position.x + half_size, cell.position.z - half_size))
 			zone.append(Vector2(cell.position.x + half_size, cell.position.z + half_size))
@@ -244,7 +244,7 @@ func _find_exit_zone_markers(chunks: Dictionary) -> Array[Vector2]:
 
 	for chunk in chunks.values():
 		for exit_coords in chunk.exit_zone_cells:
-			var cell := chunk.get_cell(exit_coords)
+			var cell: TerrainCell = chunk.get_cell(exit_coords)
 			# Only mark high-quality exit zones
 			if cell.exit_zone_quality > 0.5:
 				markers.append(Vector2(cell.position.x, cell.position.z))
@@ -259,7 +259,7 @@ func _generate_hazard_markers(chunks: Dictionary) -> Array[Dictionary]:
 	for chunk in chunks.values():
 		# Mark rope-required zones
 		for rope_coords in chunk.rope_required_cells:
-			var cell := chunk.get_cell(rope_coords)
+			var cell: TerrainCell = chunk.get_cell(rope_coords)
 			markers.append({
 				"type": "rope_required",
 				"position": Vector2(cell.position.x, cell.position.z),

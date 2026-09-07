@@ -154,7 +154,7 @@ func transition_to(new_state: GameEnums.PlayerMovementState) -> void:
 	if current_state:
 		current_state.exit()
 
-	var next := states.get(new_state)
+	var next: PlayerState = states.get(new_state)
 	if next == null:
 		push_warning("[PlayerStateMachine] No state instance for: %s" % GameEnums.PlayerMovementState.keys()[new_state])
 		return

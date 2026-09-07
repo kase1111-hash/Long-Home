@@ -161,7 +161,7 @@ func process_frostbite(body_part: GameEnums.BodyPart) -> Injury:
 	if body_state == null:
 		return null
 
-	var cold := body_state.extremity_cold.get(body_part, 0.0)
+	var cold: float = body_state.extremity_cold.get(body_part, 0.0)
 	if cold < 0.8:
 		return null
 

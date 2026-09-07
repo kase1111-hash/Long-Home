@@ -105,7 +105,7 @@ func _build_ui() -> void:
 	map_display = TextureRect.new()
 	map_display.name = "MapDisplay"
 	map_display.set_anchors_preset(Control.PRESET_FULL_RECT)
-	map_display.expand_mode = TextureRect.EXPAND_KEEP_ASPECT_CENTERED
+	map_display.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	map_display.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	map_container.add_child(map_display)
 
@@ -231,7 +231,7 @@ func _generate_map() -> void:
 	var bounds_max := terrain_service.terrain_bounds_max
 
 	# Generate topo map data
-	var chunks := terrain_service.get_all_chunks()
+	var chunks: Dictionary = terrain_service.get_all_chunks()
 	map_data = topo_generator.generate_map(chunks, bounds_min, bounds_max)
 
 	# Render to image
@@ -306,7 +306,7 @@ func _on_position_marker_draw() -> void:
 	var center := position_marker.size / 2
 
 	# Uncertainty circle
-	var uncertainty_pixels := (uncertainty_radius / (map_data.bounds_max.x - map_data.bounds_min.x)) * map_display.size.x if map_data else 20
+	var uncertainty_pixels: float = (uncertainty_radius / (map_data.bounds_max.x - map_data.bounds_min.x)) * map_display.size.x if map_data else 20.0
 	position_marker.draw_arc(center, uncertainty_pixels, 0, TAU, 32, Color(0.3, 0.6, 0.9, 0.3), 2.0)
 
 	# Position dot
@@ -403,10 +403,10 @@ func _update_info_panel() -> void:
 
 	# Conditions section
 	_add_section_header(content, "Conditions")
-	var weather := GameEnums.WeatherState.keys()[run_context.current_weather]
+	var weather: String = GameEnums.WeatherState.keys()[run_context.current_weather]
 	_add_info_row(content, "Weather", weather.capitalize())
 
-	var wind := GameEnums.WindStrength.keys()[run_context.current_wind]
+	var wind: String = GameEnums.WindStrength.keys()[run_context.current_wind]
 	_add_info_row(content, "Wind", wind.capitalize())
 
 	# Separator

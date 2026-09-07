@@ -152,7 +152,7 @@ func _play_footstep_sound(surface: GameEnums.SurfaceType, foot: StringName) -> v
 	var sound_name: String = sounds[footstep_count % sounds.size()]
 
 	# Calculate volume
-	var volume := BASE_VOLUME + sound_data.get("volume_mod", 0.0)
+	var volume: float = BASE_VOLUME + float(sound_data.get("volume_mod", 0.0))
 	volume += randf_range(-VOLUME_VARIATION, VOLUME_VARIATION)
 
 	# Adjust for movement speed
@@ -165,7 +165,7 @@ func _play_footstep_sound(surface: GameEnums.SurfaceType, foot: StringName) -> v
 		volume += run.body_state.fatigue * 2.0
 
 	# Calculate pitch
-	var pitch := BASE_PITCH + sound_data.get("pitch_mod", 0.0)
+	var pitch: float = BASE_PITCH + float(sound_data.get("pitch_mod", 0.0))
 	pitch += randf_range(-PITCH_VARIATION, PITCH_VARIATION)
 
 	# Slight difference between left/right foot

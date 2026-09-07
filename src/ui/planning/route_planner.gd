@@ -349,8 +349,8 @@ func suggest_waypoints(
 	var perpendicular := Vector3(end.z - start.z, 0, start.x - end.x).normalized()
 
 	# Try offsets perpendicular to direct route
-	for offset_mult in [-100.0, -50.0, 50.0, 100.0]:
-		var test_point := mid + perpendicular * offset_mult
+	for offset_mult: float in [-100.0, -50.0, 50.0, 100.0]:
+		var test_point: Vector3 = mid + perpendicular * offset_mult
 		test_point.y = terrain.get_height_at(test_point)
 
 		# Analyze route through this point
