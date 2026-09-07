@@ -84,51 +84,32 @@ layout_mode = 2
 size_flags_horizontal = 0
 custom_minimum_size = Vector2(280, 0)
 
-[node name="MomentsContainer" type="VBoxContainer" parent="HSplitContainer/MomentsPanel"]
+[node name="Layout" type="VBoxContainer" parent="HSplitContainer/MomentsPanel"]
 layout_mode = 2
-size_flags_horizontal = 3
+theme_override_constants/separation = 16
+
+[node name="MomentsContainer" type="VBoxContainer" parent="HSplitContainer/MomentsPanel/Layout"]
+layout_mode = 2
 size_flags_vertical = 3
 theme_override_constants/separation = 6
 
-[node name="InsightLabel" type="Label" parent="HSplitContainer/MomentsPanel"]
+[node name="InsightLabel" type="Label" parent="HSplitContainer/MomentsPanel/Layout"]
 layout_mode = 2
-anchors_preset = 7
-anchor_left = 0.5
-anchor_top = 1.0
-anchor_right = 0.5
-anchor_bottom = 1.0
-offset_left = -130.0
-offset_top = -100.0
-offset_right = 130.0
-offset_bottom = -60.0
-grow_horizontal = 2
-grow_vertical = 0
 text = "You were moving fast when you needed margin."
 horizontal_alignment = 1
 autowrap_mode = 2
 
-[node name="ButtonContainer" type="HBoxContainer" parent="HSplitContainer/MomentsPanel"]
+[node name="ButtonContainer" type="HBoxContainer" parent="HSplitContainer/MomentsPanel/Layout"]
 layout_mode = 2
-anchors_preset = 7
-anchor_left = 0.5
-anchor_top = 1.0
-anchor_right = 0.5
-anchor_bottom = 1.0
-offset_left = -120.0
-offset_top = -50.0
-offset_right = 120.0
-offset_bottom = -10.0
-grow_horizontal = 2
-grow_vertical = 0
 alignment = 1
 theme_override_constants/separation = 20
 
-[node name="RetryButton" type="Button" parent="HSplitContainer/MomentsPanel/ButtonContainer"]
+[node name="RetryButton" type="Button" parent="HSplitContainer/MomentsPanel/Layout/ButtonContainer"]
 custom_minimum_size = Vector2(100, 36)
 layout_mode = 2
 text = "Retry"
 
-[node name="ReturnButton" type="Button" parent="HSplitContainer/MomentsPanel/ButtonContainer"]
+[node name="ReturnButton" type="Button" parent="HSplitContainer/MomentsPanel/Layout/ButtonContainer"]
 custom_minimum_size = Vector2(100, 36)
 layout_mode = 2
 text = "Return"

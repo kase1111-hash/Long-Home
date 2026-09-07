@@ -18,10 +18,10 @@ signal view_replay_pressed()
 
 @onready var topo_view: Control = $HSplitContainer/TopoContainer/TopoView
 @onready var path_line: Line2D = $HSplitContainer/TopoContainer/TopoView/PathLine
-@onready var moments_container: VBoxContainer = $HSplitContainer/MomentsPanel/MomentsContainer
-@onready var insight_label: Label = $HSplitContainer/MomentsPanel/InsightLabel
-@onready var return_button: Button = $HSplitContainer/MomentsPanel/ButtonContainer/ReturnButton
-@onready var retry_button: Button = $HSplitContainer/MomentsPanel/ButtonContainer/RetryButton
+@onready var moments_container: VBoxContainer = $HSplitContainer/MomentsPanel/Layout/MomentsContainer
+@onready var insight_label: Label = $HSplitContainer/MomentsPanel/Layout/InsightLabel
+@onready var return_button: Button = $HSplitContainer/MomentsPanel/Layout/ButtonContainer/ReturnButton
+@onready var retry_button: Button = $HSplitContainer/MomentsPanel/Layout/ButtonContainer/RetryButton
 
 # =============================================================================
 # CONFIGURATION

@@ -432,8 +432,8 @@ func play_effect_3d(stream: AudioStream, position: Vector3, volume_db: float = 0
 	player.stream = stream
 	player.volume_db = volume_db
 	player.bus = BUS_EFFECTS
-	player.global_position = position
 	add_child(player)
+	player.global_position = position
 	player.play()
 	player.finished.connect(player.queue_free)
 
@@ -452,9 +452,9 @@ func play_footstep(sound_name: String, volume_db: float, pitch: float, position:
 		player.volume_db = volume_db
 		player.pitch_scale = pitch
 		player.bus = BUS_PLAYER
-		player.global_position = position
 		player.max_distance = 30.0
 		add_child(player)
+		player.global_position = position
 
 		# Generate simple footstep sound procedurally
 		player.stream = _generate_footstep_placeholder()

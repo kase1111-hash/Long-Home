@@ -169,9 +169,11 @@ func _build_environment() -> void:
 	sky_material.sky_horizon_color = DAY_HORIZON
 	sky_material.sky_curve = 0.12
 	sky_material.sky_energy_multiplier = 1.0
-	sky_material.ground_horizon_color = DAY_HORIZON * Color(0.85, 0.87, 0.90)
-	sky_material.ground_bottom_color = DAY_HORIZON * 0.4
-	sky_material.ground_curve = 0.02
+	# The ground half of the sky reads as distant haze below the horizon,
+	# not a dark sea: keep it close to the horizon colour
+	sky_material.ground_horizon_color = DAY_HORIZON
+	sky_material.ground_bottom_color = DAY_HORIZON * Color(0.72, 0.75, 0.80)
+	sky_material.ground_curve = 0.12
 	# Tight sun disc with a short halo; the default 30 degree glow whites out
 	# the whole horizon when a low sun is in frame
 	sky_material.sun_angle_max = SUN_HALO_ANGLE
@@ -437,8 +439,8 @@ func _update_sky_and_fog(elevation: float, cloud: float, visibility: float, weat
 	# --- Apply sky ----------------------------------------------------------
 	sky_material.sky_top_color = top
 	sky_material.sky_horizon_color = horizon
-	sky_material.ground_horizon_color = horizon * Color(0.85, 0.87, 0.90)
-	sky_material.ground_bottom_color = horizon * 0.4
+	sky_material.ground_horizon_color = horizon
+	sky_material.ground_bottom_color = horizon * Color(0.72, 0.75, 0.80)
 
 	# Ambient: a flat colour between horizon and zenith (see _build_environment).
 	# Flatter and a touch brighter under cloud; storm skies are dark, so lift

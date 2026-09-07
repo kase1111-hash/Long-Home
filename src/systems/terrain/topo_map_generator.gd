@@ -59,6 +59,7 @@ class TopoMapData:
 ## Generate topo map data from terrain chunks
 func generate_map(chunks: Dictionary, bounds_min: Vector3, bounds_max: Vector3) -> TopoMapData:
 	var map_data := TopoMapData.new()
+	var _t0 := Time.get_ticks_msec()
 
 	map_data.bounds_min = Vector2(bounds_min.x, bounds_min.z)
 	map_data.bounds_max = Vector2(bounds_max.x, bounds_max.z)
@@ -66,6 +67,7 @@ func generate_map(chunks: Dictionary, bounds_min: Vector3, bounds_max: Vector3) 
 
 	# Generate contour lines
 	map_data.contour_lines = _generate_contours(chunks, bounds_min.y, bounds_max.y)
+	var _t1 := Time.get_ticks_msec()
 
 	# Find cliff zones
 	map_data.cliff_zones = _find_cliff_zones(chunks)
@@ -75,6 +77,11 @@ func generate_map(chunks: Dictionary, bounds_min: Vector3, bounds_max: Vector3) 
 
 	# Generate hazard markers
 	map_data.hazard_markers = _generate_hazard_markers(chunks)
+	var _t2 := Time.get_ticks_msec()
+	var _npts := 0
+	for c in map_data.contour_lines:
+		_npts += c.points.size()
+	print("[TMP TopoMapGenerator] generate_map: contours %d ms (%d lines, %d pts), hazards %d ms (%d cliffs, %d exits, %d rope)" % [_t1 - _t0, map_data.contour_lines.size(), _npts, _t2 - _t1, map_data.cliff_zones.size(), map_data.exit_zones.size(), map_data.hazard_markers.size()])
 
 	return map_data
 
@@ -275,6 +282,7 @@ func _generate_hazard_markers(chunks: Dictionary) -> Array[Dictionary]:
 
 ## Render topo map to an image
 func render_to_image(map_data: TopoMapData, resolution: Vector2i) -> Image:
+	var _t0 := Time.get_ticks_msec()
 	var image := Image.create(resolution.x, resolution.y, false, Image.FORMAT_RGBA8)
 	image.fill(Color(0.95, 0.93, 0.88, 1.0))  # Paper color
 
@@ -309,6 +317,7 @@ func render_to_image(map_data: TopoMapData, resolution: Vector2i) -> Image:
 		var img_pos := _world_to_image(exit_pos, map_data.bounds_min, scale)
 		_draw_marker(image, img_pos, exit_zone_color, 4)
 
+	print("[TMP TopoMapGenerator] render_to_image %dx%d: %d ms" % [resolution.x, resolution.y, Time.get_ticks_msec() - _t0])
 	return image
 
 

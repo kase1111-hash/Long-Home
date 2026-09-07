@@ -154,22 +154,29 @@ func _generate_map() -> void:
 		base_position = Vector2(goal_3d.x, goal_3d.z)
 
 	# Generate map data
+	var _t0 := Time.get_ticks_msec()
 	map_data = topo_generator.generate_map(
 		terrain_service.get_all_chunks(),
 		bounds_min,
 		bounds_max
 	)
+	var _t1 := Time.get_ticks_msec()
 
 	# Render base map
 	var base_image := topo_generator.render_to_image(map_data, map_resolution)
 	base_map_texture = ImageTexture.create_from_image(base_image)
+	var _t2 := Time.get_ticks_msec()
 
 	# Generate overlays
 	_generate_slope_overlay()
+	var _t3 := Time.get_ticks_msec()
 	_generate_hazard_overlay()
+	var _t4 := Time.get_ticks_msec()
 
 	# Initial route overlay (empty)
 	_update_route_overlay()
+	var _t5 := Time.get_ticks_msec()
+	print("[TMP TopoMapDisplay] generate %d ms, render %d ms, slope %d ms, hazard %d ms, route %d ms, total %d ms" % [_t1 - _t0, _t2 - _t1, _t3 - _t2, _t4 - _t3, _t5 - _t4, _t5 - _t0])
 
 	queue_redraw()
 
