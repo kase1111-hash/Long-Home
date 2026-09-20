@@ -60,9 +60,9 @@ As a first-person mountain survival experience, Long-Home combines realistic ter
 | System | Status | Description |
 |--------|--------|-------------|
 | **Terrain & World** | Complete | Procedural 640 m mountains per peak (DEM loading optional), rendered meshes + collision, slope analysis, 11 surface types, 6 terrain zones |
-| **Sliding Mechanics** | Complete | High-skill descent with control spectrum |
+| **Sliding Mechanics** | Complete | High-skill descent with control spectrum; snow spray or dust trails the climber, impacts throw bursts |
 | **Rope System** | Complete | Deployment, anchors, rappelling with time/safety trade-offs |
-| **Time & Environment** | Complete | Day/night cycles with a sun-lit procedural sky, 9 weather states with fog and snowfall, temperature |
+| **Time & Environment** | Complete | Day/night cycles with a sun-lit procedural sky, wind-driven cloud sheet and distant ranges, 9 weather states with fog, snow, rain and spindrift, temperature; glow/SSAO/cascaded shadows on Forward+ |
 | **Body Condition** | Complete | Fatigue, cold exposure, injuries (diegetic feedback) |
 | **Risk Detection** | Complete | Terrain analysis, fall prediction, diegetic risk cues |
 | **Drone Camera** | Partial | Spectator drone implemented; scout drone not yet implemented |
@@ -82,7 +82,7 @@ As a first-person mountain survival experience, Long-Home combines realistic ter
 
 - [Godot Engine 4.2.x](https://godotengine.org/download) (developed and tested with 4.2.2; the
   project uses the Forward+ renderer but also runs with the Compatibility/OpenGL 3 renderer)
-- No external assets are required: terrain, sky, the climber and base camp are all procedural
+- No external assets are required: terrain, sky, clouds, distant ranges, particles, the climber and base camp are all procedural
 
 ### Installation
 
@@ -222,7 +222,7 @@ Long-Home/
 │   │   ├── sliding/                  # Slide mechanics (5 files)
 │   │   ├── rope/                     # Rope system (7 files)
 │   │   ├── terrain/                  # Procedural mountains, meshes, collision, analysis (10 files)
-│   │   ├── environment/              # Weather, time, sky/sun/fog visuals (6 files)
+│   │   ├── environment/              # Weather, time, sky/clouds/ranges/fog/precipitation visuals (8 files)
 │   │   ├── descent_goal.gd           # Base camp marker + run completion
 │   │   ├── risk/                     # Risk detection (5 files)
 │   │   ├── drone/                    # Drone camera (5 files)
