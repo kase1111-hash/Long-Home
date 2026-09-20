@@ -74,12 +74,12 @@ func _ready() -> void:
 
 	_puff_texture = _make_puff_texture()
 
-	_spray = _make_emitter("SnowSpray", SPRAY_AMOUNT, 0.9, false, 0.4)
+	_spray = _make_emitter("SnowSpray", SPRAY_AMOUNT, 0.9, false, 0.9)
 	_spray.gravity = Vector3(0.0, -3.5, 0.0)
 	_spray.scale_amount_curve = _make_growth_curve(0.35, 1.0)
 	add_child(_spray)
 
-	_dust = _make_emitter("Dust", DUST_AMOUNT, 1.6, false, 0.15)
+	_dust = _make_emitter("Dust", DUST_AMOUNT, 1.6, false, 0.45)
 	_dust.gravity = Vector3(0.0, -0.6, 0.0)
 	_dust.damping_min = 1.0
 	_dust.damping_max = 2.0
@@ -87,7 +87,7 @@ func _ready() -> void:
 	add_child(_dust)
 
 	for i in range(BURST_POOL_SIZE):
-		var burst := _make_emitter("Burst%d" % i, BURST_AMOUNT, 1.3, true, 0.3)
+		var burst := _make_emitter("Burst%d" % i, BURST_AMOUNT, 1.3, true, 0.7)
 		burst.gravity = Vector3(0.0, -2.5, 0.0)
 		burst.damping_min = 1.5
 		burst.damping_max = 3.0
@@ -95,7 +95,7 @@ func _ready() -> void:
 		add_child(burst)
 		_bursts.append(burst)
 
-	_step_puff = _make_emitter("StepPuff", STEP_AMOUNT, 0.7, true, 0.25)
+	_step_puff = _make_emitter("StepPuff", STEP_AMOUNT, 0.7, true, 0.5)
 	_step_puff.gravity = Vector3(0.0, -0.8, 0.0)
 	_step_puff.damping_min = 2.0
 	_step_puff.damping_max = 3.0
@@ -180,6 +180,7 @@ func _drive_plume(
 	var color := _medium_color(medium)
 	color.a *= lerpf(0.45, 1.0, strength)
 	emitter.color = color
+	_tint_self_light(emitter, color)
 	emitter.scale_amount_min = lerpf(0.2, 0.35, strength)
 	emitter.scale_amount_max = lerpf(0.5, 1.2, strength)
 
@@ -215,6 +216,7 @@ func _burst(strength: float, medium: int = -1) -> void:
 	var color := _medium_color(medium)
 	color.a *= lerpf(0.4, 0.8, strength)
 	burst.color = color
+	_tint_self_light(burst, color)
 	burst.scale_amount_min = lerpf(0.2, 0.35, strength)
 	burst.scale_amount_max = lerpf(0.55, 1.0, strength)
 	burst.restart()
@@ -235,6 +237,7 @@ func _footstep_puff(medium: int) -> void:
 	var color := _medium_color(medium)
 	color.a *= 0.5
 	_step_puff.color = color
+	_tint_self_light(_step_puff, color)
 	_step_puff.scale_amount_min = 0.25
 	_step_puff.scale_amount_max = 0.6
 	_step_puff.restart()
@@ -379,11 +382,13 @@ func _make_emitter(
 	return emitter
 
 
-## Lit billboard sprite. The puffs take the same sun and ambient light as
-## the snow they fly over (an unshaded white sprite sits well below sunlit
-## snow after exposure and reads as a grey smudge); [param self_light] adds a
-## touch of emission, tinted by the particle colour, so backlit spray still
-## glows the way scattered snow does
+## Lit billboard sprite. The puffs take the sun and ambient light of the
+## snow they fly over, plus [param self_light] worth of emission in the
+## medium's colour (set per emitter by _tint_self_light), so a backlit plume
+## glows the way scattered snow does instead of going dark. An unshaded
+## white sprite is no good either: after exposure it sits below sunlit snow
+## and reads as a grey smudge. Note the emission texture defaults to black,
+## so the operator must stay additive or the emission vanishes
 func _make_puff_mesh(self_light: float) -> QuadMesh:
 	var material := StandardMaterial3D.new()
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
@@ -392,7 +397,7 @@ func _make_puff_mesh(self_light: float) -> QuadMesh:
 	material.emission_enabled = true
 	material.emission = Color(1.0, 1.0, 1.0)
 	material.emission_energy_multiplier = self_light
-	material.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
+	material.emission_operator = BaseMaterial3D.EMISSION_OP_ADD
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	material.blend_mode = BaseMaterial3D.BLEND_MODE_MIX
 	# The particle billboard mode keeps each puff's own spin (angular
@@ -415,6 +420,16 @@ func _make_puff_mesh(self_light: float) -> QuadMesh:
 	quad.size = Vector2(1.0, 1.0)
 	quad.material = material
 	return quad
+
+
+## Emission takes the medium's colour so dust glows dusty and snow glows white
+func _tint_self_light(emitter: CPUParticles3D, color: Color) -> void:
+	var quad := emitter.mesh as QuadMesh
+	if quad == null:
+		return
+	var material := quad.material as StandardMaterial3D
+	if material != null:
+		material.emission = Color(color.r, color.g, color.b, 1.0)
 
 
 ## Soft radial sprite: opaque core fading to nothing at the edge
