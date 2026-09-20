@@ -837,7 +837,9 @@ func _update_sky_and_fog(elevation: float, cloud: float, visibility: float, weat
 	environment.fog_light_color = fog_color
 	environment.fog_sun_scatter = 0.08 * visibility
 	environment.fog_aerial_perspective = 0.35 * visibility
-	environment.fog_sky_affect = lerpf(0.2, 1.0, t_vis * t_vis)
+	# The sky takes the fog fully a little before a true whiteout, or the
+	# darker ground half of the sky shows as a band below the horizon
+	environment.fog_sky_affect = lerpf(0.2, 1.0, clampf(t_vis * t_vis * 1.3, 0.0, 1.0))
 
 	# Valley haze below the playable terrain (see VALLEY_HAZE_*). The depth
 	# fog takes over as visibility drops, so the haze thins with it
