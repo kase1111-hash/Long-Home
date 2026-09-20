@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (graphics: lighting, atmosphere and particles)
+
+- **Clouds and distant ranges.** `CloudLayer` is a wind-driven procedural cloud sheet above
+  the summit (one small shader, two seamless noise textures) whose coverage, softness and
+  colour follow the weather and the hour. `HorizonRange` rings the 640 m heightfield with two
+  parallax rows of snow-capped ridges and a hazy valley floor, so the world no longer ends at
+  a hard line of haze.
+- **Lighting and post-processing.** On Forward+ / Mobile the environment gains a soft bloom,
+  a touch of contrast and saturation, SSAO (Forward+), four blended shadow cascades out to
+  420 m, and volumetric murk near the climber once visibility drops; the Compatibility
+  renderer keeps its plain, acne-free setup. Renderer detection lives in
+  `EnvironmentVisuals.detect_rendering_method()`. A thin valley haze (height fog) pools below
+  the lowest terrain. The terrain material gets a triplanar noise normal map and a faint sheen
+  so snow and rock catch a low sun.
+- **Precipitation.** Snowflakes are soft billboard sprites that flutter instead of hard
+  five-segment spheres. Rain streaks (velocity-aligned, wind-slanted) replace snow when the air
+  at the climber is above +1.5 C, with sleet (both) in between; spindrift races across the
+  ground from about 9 m/s of wind. `EnvironmentVisuals.get_precipitation_form()` reports what
+  is falling.
+- **Slide spray and dust.** `PlayerSurfaceEffects` (in the player scene) trails snow spray or
+  dust behind a sliding or self-arresting climber, coloured by the surface underfoot and
+  scaled by speed; slide endings, hard landings, stumbles and micro-slips throw one-shot
+  bursts, and footsteps on loose ground leave small puffs.
+- `tests/screenshot_tour.gd` gains `--wind=<NAME>`, `--temperature=<C>` and `--slide`, so
+  storms, rain and the slide spray can be rendered to PNGs on either renderer.
+
 ### Added (the game is now playable end to end)
 
 - **Rendered, walkable terrain.** `TerrainService` owns a `TerrainGenerator`, so every

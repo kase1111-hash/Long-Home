@@ -23,6 +23,11 @@ extends SceneTree
 ##   --hide-ui          hide the UI CanvasLayer so only the 3D world is captured
 ##   --weather=<NAME>   force a GameEnums.WeatherState (e.g. STORM, WHITEOUT)
 ##   --time=<hour>      force the TimeService clock (e.g. 18.5 for dusk)
+##   --wind=<NAME>      force a GameEnums.WindStrength (e.g. STRONG, GALE)
+##   --temperature=<C>  shift TemperatureSystem.base_temperature so the air at
+##                      the climber reaches this value (e.g. 4 for rain)
+##   --slide            after the walk, teleport onto the nearest slideable
+##                      slope, press Space and save slide_01/02.png mid-slide
 ##   --settle=<frames>  frames to wait before the first shot (default 90;
 ##                      fog and weather ease in over a few seconds, so use
 ##                      ~400 when forcing a storm or whiteout)
@@ -45,6 +50,9 @@ var out_dir: String = "/tmp"
 var hide_ui: bool = false
 var force_weather: String = ""
 var force_time: float = -1.0
+var force_wind: String = ""
+var force_temperature: float = -999.0
+var do_slide: bool = false
 var settle_frames: int = SETTLE_FRAMES
 
 ## Autoload nodes (resolved at run time, see note above)
@@ -71,6 +79,12 @@ func _init() -> void:
 			force_weather = text.trim_prefix("--weather=").to_upper()
 		elif text.begins_with("--time="):
 			force_time = float(text.trim_prefix("--time="))
+		elif text.begins_with("--wind="):
+			force_wind = text.trim_prefix("--wind=").to_upper()
+		elif text.begins_with("--temperature="):
+			force_temperature = float(text.trim_prefix("--temperature="))
+		elif text == "--slide":
+			do_slide = true
 		elif text.begins_with("--settle="):
 			settle_frames = maxi(int(text.trim_prefix("--settle=")), 1)
 	call_deferred("_run")
@@ -131,6 +145,10 @@ func _run() -> void:
 	Input.action_release("move_forward")
 	await process_frame
 	_save_shot("descent_03.png")
+
+	# 6. Optionally start a slide and capture the spray
+	if do_slide:
+		await _slide_shots()
 
 	print("[ScreenshotTour] Done")
 	quit(0)
@@ -229,6 +247,89 @@ func _apply_overrides(main_scene: Node) -> void:
 			print("[ScreenshotTour] Time forced to %.2f" % force_time)
 		else:
 			push_warning("[ScreenshotTour] No TimeService; --time ignored")
+
+	if force_wind != "":
+		var wind_obj: Object = await _wait_for_service("WeatherService")
+		var wind_states: Dictionary = _enums.WindStrength
+		if is_instance_valid(wind_obj) and wind_states.has(force_wind):
+			var wind_value: int = wind_states[force_wind]
+			wind_obj.current_wind_strength = wind_value
+			print("[ScreenshotTour] Wind forced to %s" % force_wind)
+		else:
+			push_warning("[ScreenshotTour] Unknown wind '%s' or no WeatherService" % force_wind)
+
+	if force_temperature > -900.0:
+		var temp_obj: Object = await _wait_for_service("TemperatureSystem")
+		if is_instance_valid(temp_obj):
+			# Let one update run so the shift is measured against live conditions
+			await process_frame
+			await process_frame
+			var current: float = temp_obj.get_air_temperature()
+			var base: float = temp_obj.base_temperature
+			temp_obj.base_temperature = base + (force_temperature - current)
+			print("[ScreenshotTour] Air temperature forced to %.1f C (base %.1f -> %.1f)" % [
+				force_temperature, base, temp_obj.base_temperature])
+		else:
+			push_warning("[ScreenshotTour] No TemperatureSystem; --temperature ignored")
+
+
+## Teleport onto the steepest slideable cell near the summit (as
+## tests/smoke_slide.gd does), press Space and save two shots mid-slide
+func _slide_shots() -> void:
+	var player := _get_player()
+	var terrain: Object = _locator.get_service("TerrainService")
+	if player == null or not is_instance_valid(terrain):
+		push_warning("[ScreenshotTour] No player or terrain; --slide skipped")
+		return
+
+	# Only slopes whose run-out stays well inside the heightfield: a slide
+	# that leaves the 640 m world falls into the valley haze instead
+	var bounds_min: Vector3 = terrain.terrain_bounds_min
+	var bounds_max: Vector3 = terrain.terrain_bounds_max
+	var margin := 140.0
+	var inside := func(point: Vector3) -> bool:
+		return point.x > bounds_min.x + margin and point.x < bounds_max.x - margin \
+			and point.z > bounds_min.z + margin and point.z < bounds_max.z - margin
+	var cells: Array = terrain.find_cells(player.global_position, 160.0,
+		func(cell: Object) -> bool:
+			if not cell.is_slideable or cell.distance_to_cliff <= 40.0:
+				return false
+			var run_out: Vector3 = cell.position + cell.slope_direction * 120.0
+			return inside.call(cell.position) and inside.call(run_out)
+	)
+	if cells.is_empty():
+		push_warning("[ScreenshotTour] No slideable cell near the summit; --slide skipped")
+		return
+	var best: Object = cells[0]
+	for cell in cells:
+		if cell.slope_angle > best.slope_angle:
+			best = cell
+	var spot: Vector3 = best.position
+	spot.y = terrain.get_height_at(spot) + 0.5
+	player.global_position = spot
+	var downhill: Vector3 = best.slope_direction
+	if downhill.length_squared() > 0.01:
+		player.look_at(player.global_position + downhill, Vector3.UP)
+	print("[ScreenshotTour] Slide spot %s: slope %.1f deg, surface %s" % [
+		spot, best.slope_angle, _enums.SurfaceType.keys()[best.surface_type]])
+
+	# Settle on the slope, snap the camera behind the climber, then go
+	await _wait_frames(30)
+	var pivot: Node = _get_camera_pivot()
+	if pivot != null and pivot.has_method("snap_behind_player"):
+		pivot.snap_behind_player()
+	await _wait_frames(10)
+	Input.action_press("slide_initiate")
+	await physics_frame
+	await physics_frame
+	Input.action_release("slide_initiate")
+
+	await _wait_frames(90)
+	print("[ScreenshotTour] Slide: speed %.1f m/s at %s" % [player.velocity.length(), player.global_position])
+	_save_shot("slide_01.png")
+	await _wait_frames(150)
+	print("[ScreenshotTour] Slide: speed %.1f m/s at %s" % [player.velocity.length(), player.global_position])
+	_save_shot("slide_02.png")
 
 
 func _get_player() -> Node3D:

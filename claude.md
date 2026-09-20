@@ -6,8 +6,9 @@ Long-Home is an atmospheric, narrative-driven mountaineering descent simulation 
 
 **Philosophy:** "The game is about consequence, not conquest. You don't win by reaching the summit. You win by returning intact, having made good decisions."
 
-**Status:** v0.1.0-alpha | 118 GDScript files | boots to the menu and plays end to end
-(summit → base camp → resolution → post-game) with procedural terrain, sky and a climber
+**Status:** v0.1.0-alpha | 119 GDScript files | boots to the menu and plays end to end
+(summit → base camp → resolution → post-game) with procedural terrain, sky, clouds, weather
+particles and a climber
 
 ## Tech Stack
 
@@ -55,13 +56,13 @@ src/
 ├── core/               # Singletons, data classes (EventBus, ServiceLocator, RunContext)
 │   └── data/           # Core data structures (RunContext, BodyState, GearState, etc.)
 ├── entities/
-│   └── player/         # Player controller and components (9 files)
-├── systems/            # Game systems (77 files)
+│   └── player/         # Player controller, components, surface particles (10 files)
+├── systems/            # Game systems (79 files)
 │   ├── descent_goal.gd # Base camp marker + run completion (win condition)
 │   ├── terrain/        # Procedural mountains, meshes/collision, analysis (10 files)
 │   ├── sliding/        # Slide physics (5 files)
 │   ├── rope/           # Rope and rappelling (7 files)
-│   ├── environment/    # Weather, time, temperature, sky/sun/fog visuals (6 files)
+│   ├── environment/    # Weather, time, temperature, sky/clouds/ranges/fog/precipitation visuals (8 files)
 │   ├── body/           # Fatigue, cold, injuries (4 files)
 │   ├── drone/          # Drone camera system (5 files)
 │   ├── camera_director/# AI Camera Director (5 files)
@@ -133,6 +134,9 @@ godot --headless --audio-driver Dummy --path . -s res://tests/smoke_walk.gd   # 
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_slide.gd  # Space on a slideable slope
 xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-driver opengl3 \
   --audio-driver Dummy -s res://tests/ui_tour.gd -- --out=/tmp/tour    # every screen, with PNGs
+xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-driver opengl3 \
+  --audio-driver Dummy -s res://tests/screenshot_tour.gd -- --out=/tmp/shots --hide-ui \
+  --weather=STORM --wind=GALE --settle=400 --slide   # descent renders; also --time, --temperature
 python tests/test_gdscript_validation.py
 python tests/test_procedural_generation.py
 ```
@@ -146,6 +150,10 @@ Godot 4.2 gotchas that bit this project:
 - Test harnesses run with `-s` are compiled before the autoloads exist: reach
   `GameStateManager` etc. via `root.get_node("/root/GameStateManager")` and `load()` (see
   `tests/smoke_goal.gd`)
+- There is no runtime query for the rendering method in 4.2: use
+  `EnvironmentVisuals.detect_rendering_method()` (project setting + whether a RenderingDevice
+  exists) before touching glow, SSAO, volumetric fog, proximity fade or PSSM shadows, none of
+  which the Compatibility renderer has
 
 ## Coding Conventions
 
@@ -229,7 +237,9 @@ print("[SystemName] Debug message")
 | Descent flow, spawn, HUD/goal lifecycle | `src/scenes/main.gd` |
 | Win condition / base camp | `src/systems/descent_goal.gd`, `TerrainService.goal_position` |
 | Procedural mountain shape | `src/systems/terrain/procedural_mountain_generator.gd` |
-| Sky, sun, fog, snowfall | `src/systems/environment/environment_visuals.gd` |
+| Sky, sun, fog, post-processing, snow/rain/spindrift | `src/systems/environment/environment_visuals.gd` |
+| Cloud sheet, distant ranges | `src/systems/environment/cloud_layer.gd`, `horizon_range.gd` |
+| Slide spray, dust, impact bursts | `src/entities/player/surface_effects.gd` |
 | Descent HUD | `src/ui/hud/descent_hud.gd` |
 | Run data | `src/core/data/run_context.gd` |
 | UI screens | `src/ui/` |

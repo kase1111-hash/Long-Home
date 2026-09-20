@@ -155,7 +155,9 @@ func _update_lod_from_camera() -> void:
 func _create_default_material() -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.vertex_color_use_as_albedo = true
-	material.roughness = 0.95
+	# Slightly under fully matte: firm snow and rock have a faint sheen that
+	# the normal map below turns into sparkle at grazing sun angles
+	material.roughness = 0.9
 	material.metallic = 0.0
 	material.specular_mode = BaseMaterial3D.SPECULAR_SCHLICK_GGX
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
@@ -184,6 +186,28 @@ func _create_default_material() -> StandardMaterial3D:
 	var repeat := 1.0 / maxf(detail_texture_scale, 0.1)
 	material.uv1_scale = Vector3(repeat, repeat, repeat)
 	material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+
+	# Micro relief: a seamless noise normal map on the same triplanar
+	# projection, so wind-packed snow and broken rock catch a low sun
+	# instead of reading as a smooth sheet
+	var relief_noise := FastNoiseLite.new()
+	relief_noise.seed = 2203
+	relief_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	relief_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+	relief_noise.fractal_octaves = 3
+	relief_noise.frequency = 0.02
+
+	var normal_texture := NoiseTexture2D.new()
+	normal_texture.width = 256
+	normal_texture.height = 256
+	normal_texture.seamless = true
+	normal_texture.as_normal_map = true
+	normal_texture.bump_strength = 6.0
+	normal_texture.noise = relief_noise
+
+	material.normal_enabled = true
+	material.normal_texture = normal_texture
+	material.normal_scale = 0.35
 
 	return material
 
