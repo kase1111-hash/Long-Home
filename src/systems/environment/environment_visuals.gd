@@ -93,10 +93,13 @@ const SPINDRIFT_MAX_AMOUNT := 900
 const RAIN_TEMPERATURE := 1.5
 const SNOW_TEMPERATURE := -0.5
 
-## Wind speed (m/s) from which loose snow starts blowing along the ground,
-## and where spindrift reaches full strength
-const SPINDRIFT_WIND_MIN := 9.0
-const SPINDRIFT_WIND_FULL := 24.0
+## Wind speed (m/s, smoothed over a few seconds so gusts do not flicker it)
+## from which loose snow starts blowing along the ground, and where
+## spindrift reaches full strength. A moderate breeze (~10 m/s) leaves firm
+## snow alone; a strong wind (~18 m/s) lifts it, a gale fills the air
+const SPINDRIFT_WIND_MIN := 13.0
+const SPINDRIFT_WIND_FULL := 26.0
+const SPINDRIFT_WIND_SMOOTHING := 4.0
 
 ## Cloud sheet altitude above the highest terrain
 const CLOUD_ALTITUDE_ABOVE_SUMMIT := 420.0
@@ -222,8 +225,9 @@ var _cloud_coverage: float = 0.0
 ## Horizontal wind direction used to lead the snow emitter
 var _wind_dir: Vector3 = Vector3(1, 0, 0)
 
-## Wind speed (m/s) used for snow drift
+## Wind speed (m/s) used for snow drift, and its smoothed value for spindrift
 var _wind_speed: float = 3.0
+var _wind_speed_smooth: float = 3.0
 
 
 # =============================================================================
@@ -689,6 +693,10 @@ func _refresh(elapsed: float) -> void:
 
 	_wind_dir = _get_wind_direction()
 	_wind_speed = _get_wind_speed()
+	if _first_refresh:
+		_wind_speed_smooth = _wind_speed
+	else:
+		_wind_speed_smooth = lerpf(_wind_speed_smooth, _wind_speed, 1.0 - exp(-elapsed / SPINDRIFT_WIND_SMOOTHING))
 
 	_update_sun(sun_dir, sun_elevation, cloud, weather)
 	var palette := _update_sky_and_fog(sun_elevation, cloud, visibility, weather, elapsed)
@@ -1044,13 +1052,13 @@ func _drive_rainfall(intensity: float, visibility: float) -> void:
 ## lift: falling snow, or a snow or ice surface under the climber (never
 ## while it rains, and not over bare scree)
 func _drive_spindrift(visibility: float) -> void:
-	var strength := clampf((_wind_speed - SPINDRIFT_WIND_MIN) / (SPINDRIFT_WIND_FULL - SPINDRIFT_WIND_MIN), 0.0, 1.0)
+	var strength := clampf((_wind_speed_smooth - SPINDRIFT_WIND_MIN) / (SPINDRIFT_WIND_FULL - SPINDRIFT_WIND_MIN), 0.0, 1.0)
 	if strength <= 0.0 or _precipitation_form == PrecipitationForm.RAIN or not _has_loose_snow():
 		if spindrift.emitting:
 			spindrift.emitting = false
 		return
 
-	var velocity := _wind_dir * (_wind_speed * 0.85) + Vector3.DOWN * 0.4
+	var velocity := _wind_dir * (_wind_speed_smooth * 0.85) + Vector3.DOWN * 0.4
 	spindrift.direction = velocity.normalized()
 	spindrift.initial_velocity_min = velocity.length() * 0.7
 	spindrift.initial_velocity_max = velocity.length() * 1.15
@@ -1285,6 +1293,7 @@ func get_debug_info() -> Dictionary:
 		"rain_emitting": rainfall.emitting,
 		"rain_amount": _rain_amount,
 		"spindrift_emitting": spindrift.emitting,
+		"wind_speed_smooth": _wind_speed_smooth,
 		"cloud_coverage": _cloud_coverage,
 		"cloud_altitude": _cloud_altitude,
 		"volumetric_fog": environment.volumetric_fog_enabled,
