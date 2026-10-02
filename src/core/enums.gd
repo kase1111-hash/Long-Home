@@ -42,7 +42,16 @@ enum PlayerMovementState {
 	FALLING,
 	ARRESTED,
 	RESTING,
-	INCAPACITATED
+	INCAPACITATED,
+	SKIING         # On skis or a splitboard (always appended: saves store indices)
+}
+
+## What is on the climber's feet. Decides traction (see TractionModel)
+enum Footwear {
+	BOOTS,         # Mountaineering boots, crampons stowed
+	CRAMPONS,      # Crampons strapped on
+	SKIS,          # Touring skis
+	SNOWBOARD      # Splitboard in ride mode
 }
 
 enum PostureState {
@@ -167,7 +176,9 @@ enum GearType {
 	BIVY_GEAR,
 	LAYERS,
 	GLOVES,
-	GOGGLES
+	GOGGLES,
+	SKIS,          # Touring skis (appended: saves store indices)
+	SNOWBOARD      # Splitboard
 }
 
 enum GearCondition {
