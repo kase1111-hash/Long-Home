@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (route planning, guidebook, route scoring, full route)
+
+- **A guidebook for every mountain.** `RouteSurvey` finds the lines a guidebook would print and
+  measures each with `RouteMetrics`:
+  - the *Normal Route*: the easiest way off, the generator's guaranteed corridor
+  - a *Face Direct*: down the fall line, with the cliff bands abseiled
+  - a snow *Couloir* or *Snowfield*: the ski and glissade line, clear of the cliffs
+  - a *Rib* or *Spur*: off to one side
+  Lines come from A* over a 4 m terrain grid with a cost per style, and near-duplicates are
+  dropped. The printed guide has the normal and direct lines; the others are hut-book notes,
+  learnt once you have been on the mountain.
+- **Accurate grades and book times.**
+  - Every line gets an IFAS grade (F, PD, AD, D, TD, ED with -/+) from its steepest sustained
+    20 m, raised for long steep ground, abseils, exposure and steep ice, plus a commitment grade
+    (I-VI) from its length.
+  - The pitch-by-pitch topo gives altitudes, length, angle and character, the abseils and the
+    shortest rope that makes them.
+  - Book times come from the game's own movement model (Tobler pace, the downclimbing speed, the
+    rope set-up and abseil timings) at a sustainable pace, in game minutes.
+- **Planning screen.**
+  - A *Guidebook* tab: the route list (✓ for lines you have climbed), the route card, and
+    *Follow this line*.
+  - The lines are inked on the paper map only. Nothing about a route is ever labelled or marked
+    on the 3D mountain.
+  - The *Plan* tab grades and times your own line for your own pack. It adds a day plan (start,
+    back by, sunset, daylight to spare) and rope warnings.
+- **Navigation gear** (new *Navigation* category; the presets carry it):
+  - *guidebook*: the route card beside the map on the mountain
+  - *topo map*: without it, `M` has nothing to pull out
+  - *compass*: much less position uncertainty in cloud and at night
+  - *altimeter*: height to the metre. Without one, the HUD and the maps estimate it to the
+    nearest 50 m contour.
+- **Route scoring and the logbook.** `RouteScorer` scores the line you actually travelled, with
+  the guidebook's own yardstick: line points (grade and height under control) × outcome ×
+  style (incidents) × pace (against the book time of the same line, for your pack) × plan
+  (share of the path on the planned line) × on-sight × daylight.
+  - The run records how each stretch was covered (on foot, climbing, on the rope, gliding, out
+    of control), so falls, tumbling slides and teleports earn no difficulty.
+  - Only abseils actually made count.
+  - Each mountain keeps its best score, a separate best for full routes, the lines climbed and
+    the last 25 entries.
+  - The resolution screen shows the line, style and score, and the post-game screen the
+    breakdown.
+- **Full route, unlocked by The Long Way Down.** Every mountain gets a *full route* toggle.
+  - You start at base camp at 05:00, fresh, climb to the summit and come home.
+  - Planning has an ascent leg and a descent leg, and a turnaround time.
+  - The summit is a stone cairn with prayer flags, with no label or beacon. Standing on top turns
+    you round (`RunContext.reach_summit`, `EventBus.summit_reached`).
+  - Base camp ends the run only after the summit. Coming back without it is a retreat.
+  - The HUD reads "Climbed" and "Summit" on the way up. Both legs are scored.
+  - Developer shortcut: `--quick-start --full-route`.
+- **Tests**:
+  - `tests/test_route_scoring.gd` (195 checks): grade bands, the guidebook on all five
+    mountains, book times, scoring rules, the logbook, the unlock.
+  - `tests/smoke_full_route.gd`: plans both legs from the guidebook, base camp → summit → base
+    camp, a retreat, and no `Label3D` anywhere on the mountain.
+
+### Fixed
+
+- The mountain select detail panel never filled in: it looked up an auto-named container by
+  path. It now keeps a reference, and its text wraps to the panel's width.
+
 ### Added (mountaineering physics: footing, downclimbing, rappels, glissades, skis)
 
 - **One footing model.** `TractionModel` holds the effective friction of boots, crampons, a

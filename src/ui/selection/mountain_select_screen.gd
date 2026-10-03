@@ -53,6 +53,9 @@ var mountain_cards: Dictionary = {}  # id -> Control
 ## UI building flag
 var ui_built: bool = false
 
+## The detail panel's content box
+var _detail_content: VBoxContainer = null
+
 # =============================================================================
 # LIFECYCLE
 # =============================================================================
@@ -124,7 +127,7 @@ func _create_header(parent: Control) -> void:
 
 	var title := Label.new()
 	title.name = "Title"
-	title.text = "Select Descent"
+	title.text = "Select Mountain" if mountain_db != null and mountain_db.is_full_route_unlocked() else "Select Descent"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 48)
 	title.add_theme_color_override("font_color", UNLOCKED_COLOR)
@@ -295,9 +298,12 @@ func _create_detail_panel(parent: Control) -> void:
 
 	var scroll := ScrollContainer.new()
 	scroll.name = "DetailScroll"
+	# Wrap text to the panel's width instead of scrolling sideways
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	panel.add_child(scroll)
 
 	var margin := MarginContainer.new()
+	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	margin.add_theme_constant_override("margin_left", 20)
 	margin.add_theme_constant_override("margin_right", 20)
 	margin.add_theme_constant_override("margin_top", 20)
@@ -306,6 +312,7 @@ func _create_detail_panel(parent: Control) -> void:
 
 	var content := VBoxContainer.new()
 	content.name = "DetailContent"
+	_detail_content = content
 	content.add_theme_constant_override("separation", 16)
 	margin.add_child(content)
 
@@ -352,8 +359,10 @@ func _create_button_bar(parent: Control) -> void:
 # =============================================================================
 
 func _update_detail_panel(mountain_id: String) -> void:
-	var detail_content := get_node_or_null("MainContainer/Content/DetailPanel/DetailScroll/MarginContainer/DetailContent")
-	if not detail_content:
+	# Runtime-created containers get auto-generated names, so a NodePath
+	# lookup misses them: use the reference kept when the panel was built
+	var detail_content := _detail_content
+	if detail_content == null or not is_instance_valid(detail_content):
 		return
 
 	# Clear existing content
@@ -443,6 +452,31 @@ func _update_detail_panel(mountain_id: String) -> void:
 	if mountain.bivy_possible:
 		_add_gear_note(detail_content, "Bivy gear possible", false)
 
+	# Route mode: the full route (up and down) opens after the final mountain
+	var mode_sep := HSeparator.new()
+	detail_content.add_child(mode_sep)
+
+	var mode_title := Label.new()
+	mode_title.text = "Route"
+	mode_title.add_theme_font_size_override("font_size", 16)
+	mode_title.add_theme_color_override("font_color", UNLOCKED_COLOR)
+	detail_content.add_child(mode_title)
+
+	if mountain_db.is_full_route_unlocked():
+		var full_toggle := CheckButton.new()
+		full_toggle.name = "FullRouteToggle"
+		full_toggle.text = "Full route (up and down)"
+		full_toggle.button_pressed = mountain_db.get_route_mode() == GameEnums.RouteMode.FULL_ROUTE
+		full_toggle.toggled.connect(_on_full_route_toggled)
+		detail_content.add_child(full_toggle)
+	else:
+		var locked_note := Label.new()
+		locked_note.text = "Descent only. Come down The Long Way Down and the full routes open: up from base camp, then home."
+		locked_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		locked_note.add_theme_font_size_override("font_size", 12)
+		locked_note.add_theme_color_override("font_color", LOCKED_COLOR)
+		detail_content.add_child(locked_note)
+
 	# Progress section
 	if progress.attempts > 0:
 		var prog_sep := HSeparator.new()
@@ -460,6 +494,14 @@ func _update_detail_panel(mountain_id: String) -> void:
 
 		if progress.best_time > 0:
 			_add_stat_row(detail_content, "Best Time", RoutePlanner.format_time(progress.best_time))
+		if progress.best_score > 0:
+			_add_stat_row(detail_content, "Best Score", "%d pts" % progress.best_score)
+		if progress.best_full_score > 0:
+			_add_stat_row(detail_content, "Best Full Route", "%d pts" % progress.best_full_score)
+		if not progress.logbook.is_empty():
+			var last: Dictionary = progress.logbook[0]
+			var route_name: String = last.get("route", "")
+			_add_stat_row(detail_content, "Last Line", "%s, %s" % [route_name if not route_name.is_empty() else "own line", last.get("grade", "?")])
 
 
 func _add_stat_row(parent: Control, label_text: String, value_text: String) -> void:
@@ -557,6 +599,10 @@ func _on_card_hover(mountain_id: String, entered: bool) -> void:
 		style.border_color = Color(0.5, 0.5, 0.55, 0.7)
 	else:
 		style.border_color = Color(0.3, 0.3, 0.35, 0.5)
+
+
+func _on_full_route_toggled(enabled: bool) -> void:
+	mountain_db.set_route_mode(GameEnums.RouteMode.FULL_ROUTE if enabled else GameEnums.RouteMode.DESCENT)
 
 
 func _on_back_pressed() -> void:

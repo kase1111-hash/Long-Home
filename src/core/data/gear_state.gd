@@ -119,6 +119,10 @@ static func create_standard_loadout() -> GearState:
 	state.add_item(GearItem.new(GameEnums.GearType.LAYERS, 1.0, 2.0))
 	state.add_item(GearItem.new(GameEnums.GearType.GLOVES, 1.0, 0.2))
 	state.add_item(GearItem.new(GameEnums.GearType.GOGGLES, 1.0, 0.1))
+	state.add_item(GearItem.new(GameEnums.GearType.GUIDEBOOK, 1.0, 0.25))
+	state.add_item(GearItem.new(GameEnums.GearType.TOPO_MAP, 1.0, 0.1))
+	state.add_item(GearItem.new(GameEnums.GearType.COMPASS, 1.0, 0.05))
+	state.add_item(GearItem.new(GameEnums.GearType.ALTIMETER, 1.0, 0.05))
 
 	return state
 
@@ -131,6 +135,8 @@ static func create_light_loadout() -> GearState:
 	state.add_item(GearItem.new(GameEnums.GearType.ICE_AXE, 1.0, 0.4))
 	state.add_item(GearItem.new(GameEnums.GearType.LAYERS, 0.9, 1.5))
 	state.add_item(GearItem.new(GameEnums.GearType.GLOVES, 0.9, 0.15))
+	state.add_item(GearItem.new(GameEnums.GearType.TOPO_MAP, 1.0, 0.1))
+	state.add_item(GearItem.new(GameEnums.GearType.ALTIMETER, 1.0, 0.05))
 
 	return state
 
@@ -149,6 +155,9 @@ static func create_ski_loadout() -> GearState:
 	state.add_item(GearItem.new(GameEnums.GearType.GLOVES, 1.0, 0.2))
 	state.add_item(GearItem.new(GameEnums.GearType.GOGGLES, 1.0, 0.1))
 	state.items[GameEnums.GearType.ROPE].properties["length"] = 40.0  # Light 40 m rope: 20 m rappels
+	state.add_item(GearItem.new(GameEnums.GearType.TOPO_MAP, 1.0, 0.1))
+	state.add_item(GearItem.new(GameEnums.GearType.COMPASS, 1.0, 0.05))
+	state.add_item(GearItem.new(GameEnums.GearType.ALTIMETER, 1.0, 0.05))
 
 	return state
 
@@ -168,6 +177,10 @@ static func create_heavy_loadout() -> GearState:
 	state.add_item(GearItem.new(GameEnums.GearType.LAYERS, 1.0, 2.5))
 	state.add_item(GearItem.new(GameEnums.GearType.GLOVES, 1.0, 0.3))
 	state.add_item(GearItem.new(GameEnums.GearType.GOGGLES, 1.0, 0.15))
+	state.add_item(GearItem.new(GameEnums.GearType.GUIDEBOOK, 1.0, 0.25))
+	state.add_item(GearItem.new(GameEnums.GearType.TOPO_MAP, 1.0, 0.1))
+	state.add_item(GearItem.new(GameEnums.GearType.COMPASS, 1.0, 0.05))
+	state.add_item(GearItem.new(GameEnums.GearType.ALTIMETER, 1.0, 0.05))
 
 	return state
 

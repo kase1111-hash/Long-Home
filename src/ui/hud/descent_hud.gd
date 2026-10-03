@@ -117,6 +117,8 @@ var _feet_value: Label
 var _time_value: Label
 var _temp_caption: Label
 var _temp_value: Label
+var _descended_caption: Label
+var _base_camp_caption: Label
 
 var _bottom_stack: VBoxContainer
 var _message_label: Label
@@ -265,6 +267,8 @@ func _build_run_panel() -> void:
 	_elevation_value = _add_row("Elevation")
 	_descended_value = _add_row("Descended")
 	_base_camp_value = _add_row("Base camp")
+	_descended_caption = _rows.get_node("DescendedCaption") as Label
+	_base_camp_caption = _rows.get_node("BasecampCaption") as Label
 	_moving_value = _add_row("Moving")
 	_feet_value = _add_row("Feet")
 	_time_value = _add_row("Time")
@@ -410,9 +414,12 @@ func _refresh() -> void:
 	_resolve_services()
 	var run: RunContext = GameStateManager.current_run
 
+	var climbing := run != null and run.is_full_route() and run.phase == GameEnums.RunPhase.ASCENT
+	_descended_caption.text = "Climbed" if climbing else "Descended"
+	_base_camp_caption.text = "Summit" if climbing else "Base camp"
 	_elevation_value.text = _elevation_text(run)
-	_descended_value.text = _descended_text(run)
-	_base_camp_value.text = _base_camp_text()
+	_descended_value.text = _climbed_text(run) if climbing else _descended_text(run)
+	_base_camp_value.text = _summit_text() if climbing else _base_camp_text()
 	_moving_value.text = _moving_text()
 	_feet_value.text = _feet_text()
 	_time_value.text = _time_text(run)
@@ -436,12 +443,42 @@ func _player_ready() -> bool:
 	return is_instance_valid(_player) and _player.is_inside_tree()
 
 
+## Height read from the altimeter; without one, a reckoning from the map
+## (to the nearest contour, 50 m)
 func _elevation_text(run: RunContext) -> String:
+	var height := NAN
 	if _player_ready():
-		return _format_metres(_player.global_position.y)
-	if run != null:
-		return _format_metres(run.current_elevation)
-	return UNKNOWN
+		height = _player.global_position.y
+	elif run != null:
+		height = run.current_elevation
+	if is_nan(height):
+		return UNKNOWN
+	if run != null and run.gear_state != null and not run.gear_state.has_item(GameEnums.GearType.ALTIMETER):
+		return "≈ " + _format_metres(roundf(height / 50.0) * 50.0)
+	return _format_metres(height)
+
+
+## Full route, on the way up: share of the climb done
+func _climbed_text(run: RunContext) -> String:
+	if not is_instance_valid(_terrain) or run.start_elevation <= 0.0:
+		return UNKNOWN
+	var top := _terrain.start_position.y
+	var bottom := run.target_elevation
+	if top <= bottom:
+		return UNKNOWN
+	return "%d %%" % roundi(clampf((run.current_elevation - bottom) / (top - bottom), 0.0, 1.0) * 100.0)
+
+
+## Full route, on the way up: how far to the top (horizontal)
+func _summit_text() -> String:
+	if not _player_ready() or not is_instance_valid(_terrain):
+		return UNKNOWN
+	var top := _terrain.start_position
+	var here := _player.global_position
+	var distance := Vector2(here.x, here.z).distance_to(Vector2(top.x, top.z))
+	if distance <= SummitGoal.SUMMIT_RADIUS:
+		return "Here"
+	return _format_metres(distance)
 
 
 func _descended_text(run: RunContext) -> String:

@@ -178,7 +178,11 @@ enum GearType {
 	GLOVES,
 	GOGGLES,
 	SKIS,          # Touring skis (appended: saves store indices)
-	SNOWBOARD      # Splitboard
+	SNOWBOARD,     # Splitboard
+	GUIDEBOOK,     # Route descriptions and topos (navigation, appended)
+	TOPO_MAP,      # Paper map for the descent
+	COMPASS,       # Orienting the map, holding a bearing in cloud
+	ALTIMETER      # Knowing your height (the guidebook's topos are in metres)
 }
 
 enum GearCondition {
@@ -296,6 +300,20 @@ enum KnowledgeLevel {
 	FAMILIAR,      # Completed once
 	EXPERIENCED,   # Multiple completions
 	MASTERED       # Consistent clean returns
+}
+
+# =============================================================================
+# ROUTE MODES
+# =============================================================================
+
+enum RouteMode {
+	DESCENT,       # Start on the summit, get home
+	FULL_ROUTE     # Start at base camp: climb to the summit, then get home
+}
+
+enum RunPhase {
+	ASCENT,        # Full route: on the way up
+	DESCENT        # On the way down
 }
 
 # =============================================================================

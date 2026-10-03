@@ -84,8 +84,20 @@ var slope_overlay_texture: ImageTexture
 var hazard_overlay_texture: ImageTexture
 var route_overlay_texture: ImageTexture
 
-## Placed waypoints (world coordinates)
+## Placed waypoints of the leg being edited (world coordinates)
 var waypoints: Array[Vector2] = []
+
+## Full route: waypoints for each leg (the active leg's array is `waypoints`)
+var full_route: bool = false
+var active_leg: GameEnums.RunPhase = GameEnums.RunPhase.DESCENT
+var _ascent_waypoints: Array[Vector2] = []
+var _descent_waypoints: Array[Vector2] = []
+
+## Guidebook lines pencilled on the map: {"points": PackedVector3Array, "color": Color}
+var guide_lines: Array[Dictionary] = []
+## Index of the guidebook line being read (drawn bold), -1 = none
+var highlighted_guide: int = -1
+var guide_overlay_texture: ImageTexture
 
 ## Summit position (world)
 var summit_position: Vector2 = Vector2.ZERO
@@ -109,6 +121,7 @@ var topo_generator: TopoMapGenerator
 
 func _ready() -> void:
 	topo_generator = TopoMapGenerator.new()
+	waypoints = _descent_waypoints
 
 	ServiceLocator.get_service_async("TerrainService", func(t):
 		terrain_service = t
@@ -123,8 +136,12 @@ func _ready() -> void:
 
 
 func _on_terrain_loaded(_mountain_id: String) -> void:
-	# Waypoints were placed on the previous mountain's map
-	waypoints.clear()
+	# Waypoints and guide lines belong to the previous mountain's map
+	_ascent_waypoints.clear()
+	_descent_waypoints.clear()
+	waypoints = _descent_waypoints if active_leg == GameEnums.RunPhase.DESCENT else _ascent_waypoints
+	guide_lines.clear()
+	highlighted_guide = -1
 	_generate_map()
 
 
@@ -166,6 +183,7 @@ func _generate_map() -> void:
 	_generate_hazard_overlay()
 
 	# Initial route overlay (empty)
+	_update_guide_overlay()
 	_update_route_overlay()
 
 	queue_redraw()
@@ -285,11 +303,16 @@ func _update_route_overlay() -> void:
 	var image := Image.create(map_resolution.x, map_resolution.y, false, Image.FORMAT_RGBA8)
 	image.fill(Color(0, 0, 0, 0))
 
+	# Full route: the other leg in pencil, faint
+	if full_route:
+		var other := GameEnums.RunPhase.ASCENT if active_leg == GameEnums.RunPhase.DESCENT else GameEnums.RunPhase.DESCENT
+		var other_points := get_planned_route(other)
+		var faint := Color(route_color.r, route_color.g, route_color.b, 0.3)
+		for i in range(other_points.size() - 1):
+			topo_generator.draw_line(image, _world_to_image(other_points[i]), _world_to_image(other_points[i + 1]), faint, 2)
+
 	# Draw route through waypoints
-	var route_points: Array[Vector2] = []
-	route_points.append(summit_position)
-	route_points.append_array(waypoints)
-	route_points.append(base_position)
+	var route_points := get_planned_route()
 
 	if route_points.size() >= 2:
 		for i in range(route_points.size() - 1):
@@ -297,10 +320,11 @@ func _update_route_overlay() -> void:
 			var p2 := _world_to_image(route_points[i + 1])
 			topo_generator.draw_line(image, p1, p2, route_color, 3)
 
-	# Draw waypoints
+	# Draw waypoints (a line copied from the guidebook has many: small dots)
+	var marker_size := 8 if waypoints.size() <= 12 else 4
 	for i in range(waypoints.size()):
 		var img_pos := _world_to_image(waypoints[i])
-		_draw_waypoint(image, img_pos, waypoint_color, i + 1)
+		_draw_waypoint(image, img_pos, waypoint_color, i + 1, marker_size)
 
 	# Draw summit marker
 	var summit_img := _world_to_image(summit_position)
@@ -314,9 +338,50 @@ func _update_route_overlay() -> void:
 	queue_redraw()
 
 
-func _draw_waypoint(image: Image, pos: Vector2i, color: Color, number: int) -> void:
+## Guidebook lines in map ink, dashed; the line being read is solid and bold
+func _update_guide_overlay() -> void:
+	if guide_lines.is_empty():
+		guide_overlay_texture = null
+		queue_redraw()
+		return
+	var image := Image.create(map_resolution.x, map_resolution.y, false, Image.FORMAT_RGBA8)
+	image.fill(Color(0, 0, 0, 0))
+	for i in range(guide_lines.size()):
+		if i == highlighted_guide:
+			continue
+		var faded: Color = guide_lines[i].get("color", Color.BLACK)
+		faded.a = 0.55
+		_draw_polyline_image(image, guide_lines[i].get("points", PackedVector3Array()), faded, 2, true)
+	if highlighted_guide >= 0 and highlighted_guide < guide_lines.size():
+		var bold: Color = guide_lines[highlighted_guide].get("color", Color.BLACK)
+		_draw_polyline_image(image, guide_lines[highlighted_guide].get("points", PackedVector3Array()), bold, 4, false)
+	guide_overlay_texture = ImageTexture.create_from_image(image)
+	queue_redraw()
+
+
+func _draw_polyline_image(image: Image, points: PackedVector3Array, color: Color, width: int, dashed: bool) -> void:
+	var carry := 0.0
+	for i in range(points.size() - 1):
+		var a := Vector2(_world_to_image(Vector2(points[i].x, points[i].z)))
+		var b := Vector2(_world_to_image(Vector2(points[i + 1].x, points[i + 1].z)))
+		if not dashed:
+			topo_generator.draw_line(image, Vector2i(a), Vector2i(b), color, width)
+			continue
+		# 9 px dash, 6 px gap, continuing across segments
+		var length := a.distance_to(b)
+		var t := 0.0
+		while t < length:
+			var phase := fmod(carry + t, 15.0)
+			var run := (9.0 - phase) if phase < 9.0 else (15.0 - phase)
+			var end_t := minf(length, t + run)
+			if phase < 9.0:
+				topo_generator.draw_line(image, Vector2i(a.lerp(b, t / length)), Vector2i(a.lerp(b, end_t / length)), color, width)
+			t = end_t + 0.001
+		carry = fmod(carry + length, 15.0)
+
+
+func _draw_waypoint(image: Image, pos: Vector2i, color: Color, _number: int, size: int = 8) -> void:
 	# Draw circle
-	var size := 8
 	for dx in range(-size, size + 1):
 		for dy in range(-size, size + 1):
 			if dx * dx + dy * dy <= size * size:
@@ -368,6 +433,10 @@ func _draw() -> void:
 	# Draw hazard overlay
 	if hazard_overlay_texture:
 		draw_texture_rect(hazard_overlay_texture, display_rect, false)
+
+	# Guidebook lines (under your own pencilled line)
+	if guide_overlay_texture:
+		draw_texture_rect(guide_overlay_texture, display_rect, false)
 
 	# Draw route overlay
 	if route_overlay_texture:
@@ -464,18 +533,75 @@ func clear_waypoints() -> void:
 	_update_route_overlay()
 
 
-func get_planned_route() -> Array[Vector2]:
+## Clear both legs (a fresh plan)
+func clear_all_waypoints() -> void:
+	_ascent_waypoints.clear()
+	_descent_waypoints.clear()
+	_update_route_overlay()
+
+
+## Full route planning: two legs, one edited at a time
+func set_full_route(enabled: bool) -> void:
+	full_route = enabled
+	if not enabled:
+		set_active_leg(GameEnums.RunPhase.DESCENT)
+	else:
+		_update_route_overlay()
+
+
+func set_active_leg(leg: GameEnums.RunPhase) -> void:
+	active_leg = leg
+	waypoints = _ascent_waypoints if leg == GameEnums.RunPhase.ASCENT else _descent_waypoints
+	_update_route_overlay()
+
+
+## Replace a leg's waypoints (copying a guidebook line onto the plan)
+func set_waypoints(points: PackedVector3Array, leg: int = -1) -> void:
+	var target := _leg_waypoints(leg)
+	target.clear()
+	for p in points:
+		target.append(Vector2(p.x, p.z))
+	_update_route_overlay()
+
+
+## Guidebook lines to pencil on the map (summit to base), and which to bold
+func set_guide_lines(lines: Array[Dictionary], highlighted: int = -1) -> void:
+	guide_lines = lines
+	highlighted_guide = highlighted
+	_update_guide_overlay()
+
+
+func set_highlighted_guide(index: int) -> void:
+	highlighted_guide = index
+	_update_guide_overlay()
+
+
+func _leg_waypoints(leg: int) -> Array[Vector2]:
+	if leg < 0:
+		return waypoints
+	return _ascent_waypoints if leg == GameEnums.RunPhase.ASCENT else _descent_waypoints
+
+
+## The planned line for a leg (default: the leg being edited). Ascent runs
+## base camp to summit, descent summit to base camp.
+func get_planned_route(leg: int = -1) -> Array[Vector2]:
+	var resolved := active_leg if leg < 0 else leg
 	var route: Array[Vector2] = []
-	route.append(summit_position)
-	route.append_array(waypoints)
-	route.append(base_position)
+	if resolved == GameEnums.RunPhase.ASCENT:
+		route.append(base_position)
+		route.append_array(_ascent_waypoints)
+		route.append(summit_position)
+	else:
+		route.append(summit_position)
+		route.append_array(_descent_waypoints)
+		route.append(base_position)
 	return route
 
 
-func get_planned_route_3d() -> PackedVector3Array:
+func get_planned_route_3d(leg: int = -1) -> PackedVector3Array:
 	var route := PackedVector3Array()
 
-	for pos_2d in get_planned_route():
+	for pos_2d in get_planned_route(leg):
 		var height := 0.0
 		if terrain_service:
 			height = terrain_service.get_height_at(Vector3(pos_2d.x, 0, pos_2d.y))

@@ -1,6 +1,6 @@
 class_name DescentGoal
 extends Node3D
-## Base camp: the end of the descent.
+## Base camp: the end of the descent (and, on a full route, the start).
 ##
 ## Built from primitives only (no imported assets): a tent, a flag pole, a
 ## warm light and a tall translucent beam so the goal can be picked out from
@@ -28,6 +28,10 @@ const FALL_MARGIN := 100.0
 ## Inset from the terrain edge when falling back to a bounds corner
 const BOUNDS_INSET := 0.08
 
+## Full route: how far beyond the camp the climber must have gone before
+## walking back in counts as a retreat (metres)
+const LEAVE_MARGIN := 25.0
+
 ## Palette
 const TENT_COLOR := Color(0.92, 0.28, 0.1)
 const TENT_DOOR_COLOR := Color(0.98, 0.55, 0.2)
@@ -52,6 +56,9 @@ var has_fired: bool = false
 
 ## Explicit player reference (main sets this; ServiceLocator is the fallback)
 var player_ref: Node3D = null
+
+## Full route: the climber has set off from camp (so coming back is a retreat)
+var has_left_camp: bool = false
 
 var _terrain: TerrainService = null
 var _light: OmniLight3D = null
@@ -88,6 +95,17 @@ func _physics_process(_delta: float) -> void:
 		has_fired = true
 		print("[DescentGoal] Player below the terrain floor (%.1f m)" % pos.y)
 		GameStateManager.complete_run(GameEnums.ResolutionType.FATALITY, "Fell from the mountain")
+		return
+
+	var run := GameStateManager.current_run
+	if run != null and run.is_full_route() and not run.summit_reached:
+		# A full route starts here: camp only ends the run as a retreat,
+		# once the climber has set off and come back without the summit
+		var distance := get_distance_to_goal(pos)
+		if distance > goal_radius + LEAVE_MARGIN:
+			has_left_camp = true
+		elif has_left_camp and distance < goal_radius:
+			_arrive_retreat()
 		return
 
 	if get_distance_to_goal(pos) < goal_radius:
@@ -175,6 +193,18 @@ func _arrive() -> void:
 
 	print("[DescentGoal] Player reached base camp (%s)" % GameEnums.ResolutionType.keys()[outcome])
 	GameStateManager.complete_run(outcome, "Reached base camp")
+
+
+## Back in camp without the summit: home safe, the summit will wait
+func _arrive_retreat() -> void:
+	has_fired = true
+	var run := GameStateManager.current_run
+	EventBus.diegetic_message.emit("Back at base camp. The summit will wait.", 4.0)
+	var outcome := GameEnums.ResolutionType.CLEAN_RETURN
+	if run != null and run.body_state != null and not run.body_state.injuries.is_empty():
+		outcome = GameEnums.ResolutionType.INJURED_RETURN
+	print("[DescentGoal] Retreated to base camp before the summit")
+	GameStateManager.complete_run(outcome, "Retreated before the summit")
 
 
 func _find_player() -> Node3D:

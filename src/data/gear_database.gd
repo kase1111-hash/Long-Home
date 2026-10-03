@@ -59,11 +59,13 @@ const CATEGORY_TECHNICAL := "Technical"
 const CATEGORY_CLOTHING := "Clothing"
 const CATEGORY_SURVIVAL := "Survival"
 const CATEGORY_DESCENT := "Ski & Board"
+const CATEGORY_NAVIGATION := "Navigation"
 
 const CATEGORY_ORDER := [
 	CATEGORY_PROTECTION,
 	CATEGORY_TECHNICAL,
 	CATEGORY_DESCENT,
+	CATEGORY_NAVIGATION,
 	CATEGORY_CLOTHING,
 	CATEGORY_SURVIVAL
 ]
@@ -200,6 +202,44 @@ func _load_gear_data() -> void:
 		CATEGORY_DESCENT,
 		"A splitboard in ride mode. Floats in powder, holds less on ice, and you walk the flats.",
 		3.5,
+		false
+	))
+
+	# Navigation category: planning happens on paper, at the hut; these carry
+	# it onto the mountain (nothing is ever marked on the mountain itself)
+	_add_item(GearItemInfo.new(
+		GameEnums.GearType.GUIDEBOOK,
+		"Guidebook",
+		CATEGORY_NAVIGATION,
+		"Route descriptions and pitch-by-pitch topos, graded and timed. Carried, its topos can be read on the map (M) during the descent.",
+		0.25,
+		false
+	))
+
+	_add_item(GearItemInfo.new(
+		GameEnums.GearType.TOPO_MAP,
+		"Topo Map",
+		CATEGORY_NAVIGATION,
+		"The paper map with your planned line pencilled on. Without it there is nothing to pull out (M) on the mountain.",
+		0.1,
+		false
+	))
+
+	_add_item(GearItemInfo.new(
+		GameEnums.GearType.COMPASS,
+		"Compass",
+		CATEGORY_NAVIGATION,
+		"Orients the map and holds a bearing in cloud: your position on the map is far less uncertain in poor visibility.",
+		0.05,
+		false
+	))
+
+	_add_item(GearItemInfo.new(
+		GameEnums.GearType.ALTIMETER,
+		"Altimeter",
+		CATEGORY_NAVIGATION,
+		"Your height to the metre. The guidebook's topos are given in metres; without it you estimate to the nearest contour.",
+		0.05,
 		false
 	))
 

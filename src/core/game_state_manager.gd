@@ -90,6 +90,38 @@ func _connect_signals() -> void:
 	# Connect to relevant EventBus signals
 	EventBus.fatal_event_completed.connect(_on_fatal_event_completed)
 	EventBus.player_position_updated.connect(_on_player_position_updated)
+	EventBus.player_movement_changed.connect(_on_player_movement_changed)
+	EventBus.slide_started.connect(_on_slide_started)
+	EventBus.slide_control_changed.connect(_on_slide_control_changed)
+
+
+# =============================================================================
+# TRAVEL MODE (how each stretch of the path was covered, for scoring)
+# =============================================================================
+
+var _movement_state: int = GameEnums.PlayerMovementState.STANDING
+var _slide_control: int = GameEnums.SlideControlLevel.CONTROLLED
+
+
+func _on_player_movement_changed(_old_state: GameEnums.PlayerMovementState, new_state: GameEnums.PlayerMovementState) -> void:
+	_movement_state = new_state
+	_update_travel_mode()
+
+
+func _on_slide_started(_entry_speed: float, _slope_angle: float) -> void:
+	# Each slide starts under control until its control level says otherwise
+	_slide_control = GameEnums.SlideControlLevel.CONTROLLED
+	_update_travel_mode()
+
+
+func _on_slide_control_changed(_old_level: GameEnums.SlideControlLevel, new_level: GameEnums.SlideControlLevel) -> void:
+	_slide_control = new_level
+	_update_travel_mode()
+
+
+func _update_travel_mode() -> void:
+	if current_run != null:
+		current_run.travel_mode = RouteMetrics.travel_mode_for(_movement_state, _slide_control)
 
 
 # =============================================================================
@@ -197,6 +229,8 @@ func start_run(mountain_id: String, conditions: StartConditions) -> RunContext:
 
 	current_run = RunContext.create_new_run(mountain_id, conditions)
 	current_run.start_elevation = 0.0  # Will be set by terrain system after spawn
+	_movement_state = GameEnums.PlayerMovementState.STANDING
+	_slide_control = GameEnums.SlideControlLevel.CONTROLLED
 
 	EventBus.run_started.emit(current_run)
 

@@ -57,8 +57,11 @@ src/
 │   └── data/           # Core data structures (RunContext, BodyState, GearState, etc.)
 ├── entities/
 │   └── player/         # Player controller, components, surface particles (10 files)
-├── systems/            # Game systems (79 files)
-│   ├── descent_goal.gd # Base camp marker + run completion (win condition)
+├── systems/            # Game systems
+│   ├── descent_goal.gd # Base camp marker + run completion (win condition; retreats on a full route)
+│   ├── summit_goal.gd  # Summit cairn + full-route summit check
+│   ├── planning/       # RouteSurvey (guidebook lines), RouteMetrics (pitches, book times),
+│   │                   # AlpineGrade (F..ED, I..VI), RouteScorer (logbook scoring)
 │   ├── terrain/        # Procedural mountains, meshes/collision, analysis (10 files)
 │   ├── sliding/        # Slide physics (5 files)
 │   ├── rope/           # Rope and rappelling (7 files)
@@ -77,12 +80,12 @@ src/
 ├── data/               # Gear and mountain databases (2 files)
 └── scenes/             # Scene management (1 file)
 tests/                  # Godot-native checks (check_scripts, smoke_goal, ui_tour,
-                        # screenshot_tour) + Python regex validators
+                        # screenshot_tour, test_route_scoring, smoke_full_route) + Python validators
 ```
 
 ## Key Systems
 
-### 16 Major Systems
+### 17 Major Systems
 
 1. **Terrain** - Chunked loading, 11 surface types, 6 terrain zones by slope angle
 2. **Sliding** - Slope-plane glissade physics, braking, physical self-arrest; control spectrum (CONTROLLED → MARGINAL → UNSTABLE → LOST)
@@ -99,7 +102,8 @@ tests/                  # Godot-native checks (check_scripts, smoke_goal, ui_tou
 13. **Save/Progression** - Player profiles, run history, achievements
 14. **Streaming** - Recording, replay, OBS integration
 15. **Gear Database** - Equipment definitions
-16. **Mountain Database** - Mountain metadata
+16. **Mountain Database** - Mountain metadata, progress, logbook, full-route unlock
+17. **Planning & Scoring** - Guidebook lines per mountain, alpine grades, book times, logbook scoring, full route
 
 ### State Machines
 
@@ -126,6 +130,19 @@ changes (F crampons, T skis) → `PostureSystem` (grip margin → stability, sli
 fall detection). ROPING is kinematic: `RappelController` places the climber on the face.
 DOWNCLIMBING and ARRESTED cling (no gravity, vertical follows the terrain).
 
+### Planning and scoring (who owns what)
+
+`RouteMetrics.measure(line, terrain, options)` is the one yardstick: it resamples a line every
+2 m, classifies pitches (walk < 30°, steep 30-35°, downclimb 35-50°, rope ground), times them
+with the movement model (Tobler, `TractionModel.downclimb_speed`, rope set-up/abseil timings,
+85% pace, x`GameEnums.TIME_SCALE`) and grades them (`AlpineGrade`). `RouteSurvey.survey(terrain)`
+builds the guidebook (cached per terrain load). `RunContext.path_modes` records how each path
+sample was travelled (`GameStateManager` maps movement state + slide control to a travel mode);
+`RouteScorer.score_run` measures the travelled path with those modes (out-of-control ground and
+jumps earn nothing), and `Main._score_run` files it in `MountainDatabase` before `record_run`
+(on-sight is judged on the knowledge the run started with). Nothing route-related is ever placed
+in the 3D world; `tests/smoke_full_route.gd` asserts there is no `Label3D` on the mountain.
+
 ## Common Commands
 
 ```bash
@@ -135,7 +152,7 @@ godot --editor project.godot
 # Run game directly
 godot --path .
 
-# Skip the menus (developer shortcut)
+# Skip the menus (developer shortcut; add --full-route for the up-and-down mode)
 godot --path . -- --quick-start --mountain=north_face
 
 # Tests (run these before every commit; all need a Godot 4.2.x binary)
@@ -147,6 +164,8 @@ godot --headless --audio-driver Dummy --path . -s res://tests/smoke_slide.gd    
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_mechanics.gd  # downclimb, crampons, landings
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_rappel.gd -- --mountain=north_face  # rope
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_ski.gd        # skis (add -- --board)
+godot --headless --audio-driver Dummy --path . -s res://tests/test_route_scoring.gd  # grades, guidebook, scoring
+godot --headless --audio-driver Dummy --path . -s res://tests/smoke_full_route.gd    # full route + retreat
 xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-driver opengl3 \
   --audio-driver Dummy -s res://tests/ui_tour.gd -- --out=/tmp/tour    # every screen, with PNGs
 xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-driver opengl3 \

@@ -20,6 +20,12 @@ signal database_loaded()
 # DATA STRUCTURES
 # =============================================================================
 
+## Logbook entries kept per mountain
+const LOGBOOK_SIZE := 25
+
+## Beating this mountain unlocks the full route (up and down) everywhere
+const FINAL_MOUNTAIN := "long_way_down"
+
 class MountainData:
 	## Unique identifier
 	var id: String
@@ -114,6 +120,27 @@ class MountainProgress:
 	var discovered_routes: Array[String] = []
 	## Hazards discovered
 	var discovered_hazards: Array[String] = []
+	## Best route score, descent only and full route (0 = none yet)
+	var best_score: int = 0
+	var best_full_score: int = 0
+	## Logbook: the most recent scored runs (RouteScorer.RouteScore.to_dict())
+	var logbook: Array[Dictionary] = []
+
+	## Record a scored run; returns true when it is a new best for its mode
+	func record_score(entry: Dictionary) -> bool:
+		logbook.push_front(entry)
+		while logbook.size() > MountainDatabase.LOGBOOK_SIZE:
+			logbook.pop_back()
+		var total: int = entry.get("total", 0)
+		var is_full: bool = int(entry.get("mode", GameEnums.RouteMode.DESCENT)) == GameEnums.RouteMode.FULL_ROUTE
+		if is_full:
+			if total > best_full_score:
+				best_full_score = total
+				return true
+		elif total > best_score:
+			best_score = total
+			return true
+		return false
 
 	func update_from_run(outcome: GameEnums.ResolutionType, time: float) -> void:
 		attempts += 1
@@ -148,7 +175,10 @@ class MountainProgress:
 			"best_time": best_time,
 			"knowledge": knowledge,
 			"routes": discovered_routes,
-			"hazards": discovered_hazards
+			"hazards": discovered_hazards,
+			"best_score": best_score,
+			"best_full_score": best_full_score,
+			"logbook": logbook
 		}
 
 	static func from_dict(data: Dictionary) -> MountainProgress:
@@ -160,6 +190,11 @@ class MountainProgress:
 		progress.knowledge = data.get("knowledge", GameEnums.KnowledgeLevel.UNKNOWN)
 		progress.discovered_routes.assign(data.get("routes", []))
 		progress.discovered_hazards.assign(data.get("hazards", []))
+		progress.best_score = int(data.get("best_score", 0))
+		progress.best_full_score = int(data.get("best_full_score", 0))
+		for entry in data.get("logbook", []):
+			if entry is Dictionary:
+				progress.logbook.append(entry)
 		return progress
 
 
@@ -178,6 +213,12 @@ var selected_mountain: String = ""
 
 ## Is database loaded
 var is_loaded: bool = false
+
+## Route mode for the next run (descent only, or the full route once unlocked)
+var selected_route_mode: GameEnums.RouteMode = GameEnums.RouteMode.DESCENT
+
+## Developer/test override: full route available without beating the game
+var full_route_override: bool = false
 
 
 # =============================================================================
@@ -501,6 +542,53 @@ func select_mountain(mountain_id: String, ignore_lock: bool = false) -> bool:
 
 func get_selected_mountain() -> MountainData:
 	return mountains.get(selected_mountain)
+
+
+# =============================================================================
+# FULL ROUTE, SCORES, ROUTES CLIMBED
+# =============================================================================
+
+## The full route (base camp to summit and back) unlocks once the final
+## mountain has been come down alive
+func is_full_route_unlocked() -> bool:
+	return full_route_override or _has_completed(FINAL_MOUNTAIN)
+
+
+## Choose the route mode for the next run (full route only once unlocked)
+func set_route_mode(mode: GameEnums.RouteMode) -> bool:
+	if mode == GameEnums.RouteMode.FULL_ROUTE and not is_full_route_unlocked():
+		selected_route_mode = GameEnums.RouteMode.DESCENT
+		return false
+	selected_route_mode = mode
+	return true
+
+
+func get_route_mode() -> GameEnums.RouteMode:
+	if selected_route_mode == GameEnums.RouteMode.FULL_ROUTE and not is_full_route_unlocked():
+		return GameEnums.RouteMode.DESCENT
+	return selected_route_mode
+
+
+## File a scored run in the mountain's logbook; true when it is a new best
+func record_score(mountain_id: String, entry: Dictionary) -> bool:
+	var p := get_progress(mountain_id)
+	var is_best := p.record_score(entry)
+	save_progress()
+	return is_best
+
+
+## Mark guidebook lines as climbed (ids from RouteSurvey)
+func record_route_climbed(mountain_id: String, route_id: String) -> void:
+	if route_id.is_empty():
+		return
+	var p := get_progress(mountain_id)
+	if not route_id in p.discovered_routes:
+		p.discovered_routes.append(route_id)
+		save_progress()
+
+
+func has_climbed_route(mountain_id: String, route_id: String) -> bool:
+	return route_id in get_progress(mountain_id).discovered_routes
 
 
 func get_mountains_by_difficulty(difficulty: int) -> Array[MountainData]:
