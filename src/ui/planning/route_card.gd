@@ -81,8 +81,8 @@ static func gear_line(metrics: RouteMetrics.Result, ascending: bool = false) -> 
 	var needs: Array[String] = []
 	if metrics.crampons_advised:
 		needs.append("crampons")
-	if metrics.sustained_slope >= 30.0:
-		needs.append("axe")
+	if metrics.sustained_slope >= 30.0 or metrics.glacier_metres > 0.0:
+		needs.append("axe" if metrics.glacier_metres <= 0.0 else "axe to probe")
 	if metrics.rope_required and not ascending:
 		needs.append("%d m rope" % roundi(metrics.min_rope_length))
 	if needs.is_empty():

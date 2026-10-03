@@ -430,6 +430,12 @@ func _update_detail_panel(mountain_id: String) -> void:
 	_add_stat_row(detail_content, "Weather", "%.0f%% volatile" % (mountain.weather_volatility * 100))
 	_add_stat_row(detail_content, "Wind", "%.0f%% exposed" % (mountain.wind_exposure * 100))
 	_add_stat_row(detail_content, "Temperature", "%.0f°C typical" % mountain.typical_temperature)
+	var glacier_text := "None"
+	if mountain.glacier_extent > 0.6:
+		glacier_text = "Large, crevassed"
+	elif mountain.glacier_extent > 0.0:
+		glacier_text = "Small, crevassed"
+	_add_stat_row(detail_content, "Glacier", glacier_text)
 
 	# Gear requirements
 	var gear_sep := HSeparator.new()

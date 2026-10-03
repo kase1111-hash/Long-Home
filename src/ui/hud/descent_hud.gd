@@ -41,7 +41,7 @@ const HINTS_TOGGLE_FADE_TIME := 0.2
 const MESSAGE_FADE_IN := 0.3
 const MESSAGE_FADE_OUT := 0.6
 
-const HINTS_TEXT := "WASD move  ·  Mouse look  ·  Space glissade / arrest  ·  S brake  ·  R rope  ·  F crampons  ·  T skis  ·  Q/E lean  ·  M map  ·  C self-check  ·  Esc pause  ·  H hints"
+const HINTS_TEXT := "WASD move  ·  Mouse look  ·  Space glissade / arrest  ·  S brake  ·  R rope  ·  F crampons  ·  T skis  ·  G probe  ·  Q/E lean  ·  M map  ·  C self-check  ·  Esc pause  ·  H hints"
 
 ## Contextual control reminders, shown in place of the general hints while
 ## the climber is doing something with its own controls
@@ -49,6 +49,7 @@ const HINTS_SLIDING := "S dig in heels and spike  ·  A/D lean  ·  W lie back  
 const HINTS_ROPE := "Push down the face to let rope run  ·  + Space to let it run fast  ·  Let go to brake  ·  Up to climb  ·  R unclip on a ledge, or build the next anchor"
 const HINTS_ROPE_BUILD := "Building the anchor  ·  R strip it and back off"
 const HINTS_SKIING := "A/D turn  ·  S skid to slow or stop  ·  W tuck (pole on the flat)  ·  T step out  ·  Space self-arrest after a fall"
+const HINTS_CREVASSE := "Push against a wall to climb out (axe in hand, crampons on: F)  ·  Keep pushing to keep climbing"
 
 ## Layout (design resolution is 1920x1080, viewport stretch)
 const SCREEN_MARGIN := 24.0
@@ -511,6 +512,10 @@ func _moving_text() -> String:
 	if not is_instance_valid(_player):
 		return state_name
 
+	var crevasses := ServiceLocator.get_service("CrevasseSystem") as CrevasseSystem
+	if crevasses != null and crevasses.get_activity_text() != "":
+		return crevasses.get_activity_text()
+
 	match state:
 		GameEnums.PlayerMovementState.SKIING:
 			if _player.footwear == GameEnums.Footwear.SNOWBOARD:
@@ -549,7 +554,10 @@ func _update_context_hints() -> void:
 	if _hints_label == null:
 		return
 	var text := HINTS_TEXT
-	if is_instance_valid(_player):
+	var crevasses := ServiceLocator.get_service("CrevasseSystem") as CrevasseSystem
+	if crevasses != null and crevasses.is_in_crevasse():
+		text = HINTS_CREVASSE
+	elif is_instance_valid(_player):
 		match _player.current_state:
 			GameEnums.PlayerMovementState.SLIDING:
 				text = HINTS_SLIDING

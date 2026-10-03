@@ -526,7 +526,7 @@ func _rock_ground_factor(surface: int) -> float:
 ## agrees: not too steep, not ice for a tree, not a cliff
 func _cell_allows(p: Vector2, kind: int) -> bool:
 	var cell := terrain_service.get_cell_at(Vector3(p.x, 0.0, p.y))
-	if cell == null or cell.requires_rope:
+	if cell == null or cell.requires_rope or cell.is_glacier:
 		return false
 	if kind == Kind.BOULDER or kind == Kind.ROCK:
 		return cell.slope_angle <= MAX_BOULDER_SLOPE and _rock_ground_factor(cell.surface_type) > 0.0

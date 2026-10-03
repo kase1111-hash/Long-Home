@@ -13,6 +13,12 @@ extends RefCounted
 ## flat across), and the profile is built so the corridor grade never exceeds
 ## MAX_CORRIDOR_GRADE. Cliff bands are crossed through ramps carved into the band.
 ## Both the summit and base camp are flattened plateaus.
+##
+## Glacier (mountains with glacier_extent > 0): a tongue of ice in the flank
+## beside the corridor, outside its blend. Its surface is smooth (no noise),
+## its profile the face's with the cliff bands turned into icefalls, lateral
+## and terminal moraines line it, and its crevasses (GlacierField) are cut
+## into the surface: open slots carved deep, snow bridges as a faint sag.
 
 # =============================================================================
 # CONSTANTS
@@ -42,6 +48,15 @@ const RUNOUT_GRADE := 0.2126
 const BAND_STEP_WIDTH := 4.0
 ## Half-width of the profile grade smoothing (metres)
 const GRADE_BLUR_RADIUS := 3
+
+## Glacier: edge transition width, gap kept from the corridor centre line
+## (beyond its blend), half-length of an icefall over a cliff band,
+## moraine ridge height, and the sag over a snow bridge (metres)
+const GLACIER_EDGE := 10.0
+const GLACIER_CORRIDOR_GAP := 26.0
+const ICEFALL_HALF := 22.0
+const MORAINE_HEIGHT := 3.5
+const BRIDGE_SAG := 0.45
 
 
 # =============================================================================
@@ -78,6 +93,8 @@ class Result:
 	var seed: int = 0
 	## Number of cliff bands laid across the face
 	var cliff_band_count: int = 0
+	## The glacier and its crevasses (null when the mountain has none)
+	var glacier: GlacierField = null
 
 	func sample(x: int, z: int) -> float:
 		return heights[z * grid_size + x]
@@ -125,6 +142,17 @@ var _profile_corridor: PackedFloat32Array = PackedFloat32Array()
 var _ramp_zone: PackedFloat32Array = PackedFloat32Array()
 var _profile_scale: float = 1.0
 var _bands: Array[CliffBand] = []
+
+## Glacier layout in axis coordinates (see _setup_glacier)
+var _glacier: GlacierField = null
+var _g_side: float = 1.0
+var _g_top: float = 0.0
+var _g_snout: float = 0.0
+var _g_offset: float = 0.0
+var _g_width_top: float = 0.0
+var _g_width_snout: float = 0.0
+var _g_ela: float = 0.0
+var _profile_glacier: PackedFloat32Array = PackedFloat32Array()
 
 var _summit_elevation: float = 3400.0
 var _lateral_grade: float = 0.194
@@ -177,6 +205,11 @@ func generate(
 	_setup_bands(cliff_exposure)
 	_build_profiles(result.requested_drop)
 
+	var glacier_extent := 0.0
+	if mountain != null:
+		glacier_extent = clampf(mountain.glacier_extent, 0.0, 1.0)
+	_setup_glacier(glacier_extent, result.seed)
+
 	result.start_xz = _summit_xz
 	result.goal_xz = _base_xz
 	result.corridor = _build_corridor_polyline()
@@ -186,6 +219,9 @@ func generate(
 	result.drop = _summit_elevation - result.base_elevation
 
 	_fill_heights(result)
+	if _glacier != null:
+		_finish_glacier(result)
+	result.glacier = _glacier
 
 	return result
 
@@ -424,6 +460,238 @@ func _profile_at(table: PackedFloat32Array, s: float) -> float:
 
 
 # =============================================================================
+# GLACIER
+# =============================================================================
+
+## Lay out the glacier for this mountain (none below a trace of extent)
+func _setup_glacier(extent: float, seed_value: int) -> void:
+	_glacier = null
+	if extent <= 0.01:
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value + 4241
+	var length := _axis_length
+	_g_top = length * lerpf(0.5, 0.16, extent)
+	_g_snout = length * lerpf(0.82, 0.95, extent)
+	_g_width_top = lerpf(32.0, 72.0, extent)
+	_g_width_snout = lerpf(16.0, 30.0, extent)
+	_g_offset = _g_width_top + GLACIER_CORRIDOR_GAP
+	# Away from the corridor's main bow, so the ice stays well inside the world
+	_g_side = -signf(_a1) if absf(_a1) > 0.001 else 1.0
+	_g_ela = lerpf(_g_top, _g_snout, 0.45)
+	_build_glacier_profile()
+
+	_glacier = GlacierField.new()
+	_glacier.flow_direction = _dir
+	_plan_crevasses(rng)
+
+
+## The face profile with each cliff band spread into an icefall, smoothed:
+## ice flows over the rock steps instead of breaking off them
+func _build_glacier_profile() -> void:
+	var n := _profile_face.size()
+	var raw := PackedFloat32Array()
+	raw.resize(n)
+	for i in range(n):
+		var s := float(i)
+		var value := _profile_face[i]
+		for band in _bands:
+			value += band.height * band.coverage * smoothstep(-ICEFALL_HALF, ICEFALL_HALF, s - band.s)
+		raw[i] = value
+	_profile_glacier = _box_blur(raw, 8)
+
+
+func _glacier_centre_v(s: float) -> float:
+	return _offset(s) + _g_side * _g_offset
+
+
+## Half width of the ice at s: a rounded cirque at the head, a tongue at the snout
+func _glacier_half_width(s: float) -> float:
+	if s < _g_top - 6.0 or s > _g_snout:
+		return 0.0
+	var t := clampf((s - _g_top) / maxf(_g_snout - _g_top, 1.0), 0.0, 1.0)
+	var w := lerpf(_g_width_top, _g_width_snout, smoothstep(0.0, 1.0, t))
+	w *= sqrt(clampf((s - _g_top + 6.0) / 22.0, 0.0, 1.0))
+	w *= sqrt(clampf((_g_snout - s) / 28.0, 0.0, 1.0))
+	return w
+
+
+## Coverage of the ice at (s, v)
+func _glacier_weight(s: float, v: float) -> float:
+	var w := _glacier_half_width(s)
+	if w <= 0.5:
+		return 0.0
+	var lateral := absf(v - _glacier_centre_v(s))
+	return 1.0 - smoothstep(w - GLACIER_EDGE, w + 2.0, lateral)
+
+
+## Rubble ridges: lateral moraines along the edges, a terminal moraine round the snout
+func _moraine_height(s: float, v: float) -> float:
+	var height := 0.0
+	var centre := _glacier_centre_v(clampf(s, _g_top, _g_snout))
+	var tongue_start := _g_snout - _g_width_snout
+	if s >= _g_top + 10.0 and s <= tongue_start:
+		var w := _glacier_half_width(s)
+		var lateral := absf(v - centre)
+		var x := (lateral - (w + 5.0)) / 4.0
+		height = MORAINE_HEIGHT * exp(-x * x)
+	elif s > tongue_start and s < _g_snout + 20.0:
+		var radial := Vector2(s - tongue_start, v - centre).length()
+		var x := (radial - (_g_width_snout + 5.0)) / 4.0
+		height = MORAINE_HEIGHT * exp(-x * x)
+	return height
+
+
+## Crevasse layout: the bergschrund at the head, transverse rows where the ice
+## steepens (dense in the icefalls), chevrons at the margins. Above the
+## equilibrium line most are bridged by snow; below it most are open.
+func _plan_crevasses(rng: RandomNumberGenerator) -> void:
+	var specs: Array[Dictionary] = []
+	var head := _g_top + 4.0
+
+	# Bergschrund: the ice pulls away from the face at the head
+	var head_width := _glacier_half_width(head + 6.0)
+	if head_width > 10.0:
+		var half := head_width * rng.randf_range(0.6, 0.85)
+		var bend := half * 0.12
+		specs.append(_crevasse_spec(GlacierField.CrevasseKind.BERGSCHRUND,
+			[Vector2(head + 6.0 + bend, -half), Vector2(head + 6.0, 0.0), Vector2(head + 6.0 + bend, half)],
+			rng.randf_range(2.0, 3.4), rng.randf_range(10.0, 15.0), rng.randf() < 0.6, rng.randf_range(0.3, 0.8)))
+
+	# Transverse rows
+	var s := head + 16.0
+	while s < _g_snout - 14.0:
+		var w := _glacier_half_width(s)
+		var icefall := 0.0
+		for band in _bands:
+			icefall = maxf(icefall, 1.0 - clampf(absf(s - band.s) / (ICEFALL_HALF + 6.0), 0.0, 1.0))
+		if w > 9.0 and rng.randf() < 0.22 + 0.7 * icefall:
+			var pieces := rng.randi_range(1, 2 if icefall < 0.5 else 3)
+			for _k in range(pieces):
+				var span := minf(w * rng.randf_range(0.5, 1.1) / float(pieces), 2.0 * w - 8.0)
+				if span < 6.0:
+					continue
+				var centre := rng.randf_range(-w + span * 0.5 + 3.0, w - span * 0.5 - 3.0)
+				var bend := span * 0.08
+				var above := s < _g_ela
+				specs.append(_crevasse_spec(GlacierField.CrevasseKind.TRANSVERSE,
+					[Vector2(s + bend, centre - span * 0.5), Vector2(s, centre), Vector2(s + bend, centre + span * 0.5)],
+					lerpf(1.2, 3.4, rng.randf()) * (1.0 + 0.3 * icefall), rng.randf_range(7.0, 13.0),
+					rng.randf() < (0.8 if above else 0.15), pow(rng.randf(), 0.8)))
+			s += rng.randf_range(7.0, 12.0) * (1.0 - 0.4 * icefall)
+		else:
+			s += rng.randf_range(6.0, 10.0)
+
+	# Chevrons: from the edges, angled inward and up-glacier
+	for side_sign in [-1.0, 1.0]:
+		var sm := head + 20.0
+		while sm < _g_snout - 16.0:
+			var w := _glacier_half_width(sm)
+			if w > 12.0 and rng.randf() < 0.55:
+				var length := rng.randf_range(8.0, 15.0)
+				var v0: float = side_sign * (w - 3.0)
+				var v1: float = side_sign * (w - 3.0 - length * 0.7)
+				specs.append(_crevasse_spec(GlacierField.CrevasseKind.MARGINAL,
+					[Vector2(sm, v0), Vector2(sm - length * 0.7, v1)],
+					rng.randf_range(0.9, 1.8), rng.randf_range(5.0, 9.0),
+					rng.randf() < (0.7 if sm < _g_ela else 0.2), pow(rng.randf(), 0.8)))
+			sm += rng.randf_range(12.0, 22.0)
+
+	# Into world space, dropping any that crowd one already placed
+	var placed: Array[GlacierField.Crevasse] = []
+	for spec in specs:
+		var crevasse := GlacierField.Crevasse.new()
+		crevasse.kind = spec["kind"]
+		crevasse.width = spec["width"]
+		crevasse.depth = spec["depth"]
+		crevasse.bridged = spec["bridged"]
+		crevasse.bridge_strength = clampf(spec["strength"], 0.05, 1.0)
+		for sv in spec["points"]:
+			crevasse.points.append(_axis_to_world(sv.x, _glacier_centre_v(sv.x) + sv.y))
+		var crowded := false
+		for other in placed:
+			for p in crevasse.points:
+				if other.distance_to(p) < (other.width + crevasse.width) * 0.5 + 3.0:
+					crowded = true
+		if crowded:
+			continue
+		crevasse.id = placed.size()
+		placed.append(crevasse)
+	_glacier.crevasses = placed
+	_glacier.build_index()
+
+
+func _crevasse_spec(kind: int, points: Array, width: float, depth: float, bridged: bool, strength: float) -> Dictionary:
+	return {"kind": kind, "points": points, "width": width, "depth": depth, "bridged": bridged, "strength": strength}
+
+
+func _axis_to_world(s: float, v: float) -> Vector2:
+	return _summit_xz + _dir * s + _perp * v
+
+
+## How far a crevasse lowers the surface at a world point: the full depth
+## inside an open slot (tapering at the ends), a faint sag over a bridge
+func _crevasse_cut(p: Vector2) -> float:
+	var cut := 0.0
+	for crevasse in _glacier.crevasses_near(p, 4.0):
+		var where := crevasse.locate(p)
+		var seg := int(where.z)
+		var along := 0.0
+		for i in range(seg):
+			along += crevasse.points[i].distance_to(crevasse.points[i + 1])
+		along += crevasse.points[seg].distance_to(crevasse.points[seg + 1]) * where.y
+		var from_end := minf(along, crevasse.length() - along)
+		var taper := smoothstep(0.0, 2.5, from_end)
+		# At least the nearest row of terrain samples (2 m apart) goes the full
+		# depth, so a narrow slot is never lost between them
+		var half := maxf(crevasse.width * 0.5, 1.1)
+		if crevasse.bridged:
+			cut = maxf(cut, BRIDGE_SAG * (1.0 - smoothstep(half, half + 2.5, where.x)) * taper)
+		else:
+			cut = maxf(cut, crevasse.depth * (1.0 - smoothstep(half - 0.3, half + 1.0, where.x)) * taper)
+	return cut
+
+
+## After the heights: lips, elevations and the centre line for the field
+func _finish_glacier(result: Result) -> void:
+	_glacier.grid_size = result.grid_size
+	_glacier.grid_min = result.world_min
+	_glacier.cell_size = result.cell_size
+	for crevasse in _glacier.crevasses:
+		crevasse.lip_heights.clear()
+		for i in range(crevasse.points.size()):
+			var p := crevasse.points[i]
+			var along_dir := (crevasse.points[mini(i + 1, crevasse.points.size() - 1)] - crevasse.points[maxi(i - 1, 0)]).normalized()
+			var across := Vector2(-along_dir.y, along_dir.x)
+			var reach := crevasse.width * 0.5 + 2.5
+			var lip := minf(_height_at(result, p + across * reach), _height_at(result, p - across * reach))
+			if crevasse.bridged:
+				lip = maxf(lip, _height_at(result, p) + BRIDGE_SAG)
+			crevasse.lip_heights.append(lip)
+	var s := _g_top
+	while s <= _g_snout:
+		_glacier.centreline.append(_axis_to_world(s, _glacier_centre_v(s)))
+		_glacier.half_widths.append(_glacier_half_width(s))
+		s += 4.0
+	_glacier.head_elevation = _height_at(result, _axis_to_world(_g_top + 8.0, _glacier_centre_v(_g_top + 8.0)))
+	_glacier.snout_elevation = _height_at(result, _axis_to_world(_g_snout - 6.0, _glacier_centre_v(_g_snout - 6.0)))
+	_glacier.ela_elevation = _height_at(result, _axis_to_world(_g_ela, _glacier_centre_v(_g_ela)))
+
+
+## Bilinear height from the result grid at a world point
+func _height_at(result: Result, p: Vector2) -> float:
+	var fx := clampf((p.x - result.world_min.x) / result.cell_size, 0.0, float(result.grid_size - 1))
+	var fz := clampf((p.y - result.world_min.y) / result.cell_size, 0.0, float(result.grid_size - 1))
+	var x0 := mini(int(fx), result.grid_size - 2)
+	var z0 := mini(int(fz), result.grid_size - 2)
+	var tx := fx - float(x0)
+	var tz := fz - float(z0)
+	var top := lerpf(result.sample(x0, z0), result.sample(x0 + 1, z0), tx)
+	var bottom := lerpf(result.sample(x0, z0 + 1), result.sample(x0 + 1, z0 + 1), tx)
+	return lerpf(top, bottom, tz)
+
+
+# =============================================================================
 # HEIGHTFIELD
 # =============================================================================
 
@@ -446,6 +714,15 @@ func _fill_heights(result: Result) -> void:
 	var band_count := _bands.size()
 	var plateau_outer := PLATEAU_RADIUS + PLATEAU_BLEND
 	var near_limit := NOISE_ENVELOPE_END + BLEND_WIDTH + BAND_BLEND_EXTRA + 10.0
+
+	var has_glacier := _glacier != null
+	var glacier_s_min := _g_top - 8.0
+	var glacier_s_max := _g_snout + 22.0
+	if has_glacier:
+		_glacier.weights.resize(grid * grid)
+		_glacier.weights.fill(0.0)
+		_glacier.moraine.resize(grid * grid)
+		_glacier.moraine.fill(0.0)
 
 	for gz in range(grid):
 		var wz := result.world_min.y + float(gz) * cell
@@ -489,6 +766,19 @@ func _fill_heights(result: Result) -> void:
 					var warped := rel + 12.0 * _band_noise.get_noise_2d(wx + band.noise_offset, wz)
 					face -= step_h * smoothstep(-BAND_STEP_WIDTH * 0.5, BAND_STEP_WIDTH * 0.5, warped)
 
+			# --- glacier: smooth ice over the face, moraines along its edges
+			var g := 0.0
+			if has_glacier and s > glacier_s_min and s < glacier_s_max:
+				var moraine_h := _moraine_height(s, v)
+				if moraine_h > 0.01:
+					face += moraine_h
+					_glacier.moraine[row + gx] = moraine_h
+				g = _glacier_weight(s, v)
+				if g > 0.0:
+					var ice := summit - scale * _profile_at(_profile_glacier, s) - lateral - 1.0
+					face = lerpf(face, ice, g)
+					_glacier.weights[row + gx] = g
+
 			# --- corridor surface: analytic profile, flat across
 			var corridor_h := summit - scale * _profile_at(_profile_corridor, st)
 
@@ -506,7 +796,11 @@ func _fill_heights(result: Result) -> void:
 				var n := _fbm.get_noise_2d(wx, wz) * _fbm_amplitude
 				n -= (_ridge.get_noise_2d(s * 0.35, v) * 0.5 + 0.5) * _ridge_amplitude
 				n += _fine.get_noise_2d(wx, wz) * _fine_amplitude
-				h += n * env
+				# Ice is smooth: only a faint texture survives on the glacier
+				h += n * env * (1.0 - g)
+			if g > 0.0:
+				h += _fine.get_noise_2d(wx * 2.0, wz * 2.0) * 0.25 * g
+				h -= _crevasse_cut(Vector2(wx, wz))
 
 			# --- plateaus
 			var dsx := wx - sx

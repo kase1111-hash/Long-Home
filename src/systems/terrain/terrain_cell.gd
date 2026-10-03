@@ -64,6 +64,9 @@ var is_cliff: bool = false
 ## Is this cell a potential exit zone for sliding
 var is_exit_zone: bool = false
 
+## On a glacier (ice or snow over ice, crevasses possible)
+var is_glacier: bool = false
+
 ## Exit zone quality (0-1, how good of a stopping point)
 var exit_zone_quality: float = 0.0
 

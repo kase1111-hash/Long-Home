@@ -75,6 +75,12 @@ var generator: TerrainGenerator
 ## Trees and boulders (child node, rebuilt after every load)
 var scatter: TerrainScatter
 
+## The glacier and its crevasses (procedural terrain only; null when none)
+var glacier: GlacierField = null
+
+## How far round an opened crevasse the cliff distances are refreshed (metres)
+const CLIFF_UPDATE_RADIUS := 45.0
+
 ## Current mountain manifest (loaded from DEM files)
 var current_manifest: Dictionary = {}
 
@@ -144,6 +150,7 @@ func load_terrain(mountain_id: String) -> bool:
 	current_manifest.clear()
 	corridor.clear()
 	procedural_result = null
+	glacier = null
 	_chunk_origin = Vector2.ZERO
 	_cached_cell = null
 	_cached_position = Vector3.INF
@@ -516,6 +523,7 @@ func _generate_procedural_terrain(mountain_id: String) -> void:
 	start_position = Vector3(procedural_result.start_xz.x, 0.0, procedural_result.start_xz.y)
 	goal_position = Vector3(procedural_result.goal_xz.x, 0.0, procedural_result.goal_xz.y)
 	goal_radius = 15.0
+	glacier = procedural_result.glacier
 
 
 # =============================================================================
@@ -568,14 +576,159 @@ func _finalize_world(dem_mountain_id: String = "") -> void:
 
 
 func _classify_chunk_surfaces(chunk: TerrainChunk) -> void:
-	var classifier := surface_classifier
 	for x in range(chunk.resolution):
 		var column: Array = chunk.cells[x]
 		for z in range(chunk.resolution):
-			var cell: TerrainCell = column[z]
-			cell.surface_type = classifier.classify_surface(cell)
-			cell.surface_firmness = classifier.get_firmness(cell.surface_type)
-			cell.friction = classifier.get_friction(cell.surface_type)
+			_classify_cell(column[z])
+
+
+func _classify_cell(cell: TerrainCell) -> void:
+	var classifier := surface_classifier
+	cell.surface_type = classifier.classify_surface(cell)
+	if glacier != null:
+		_apply_glacier_surface(cell)
+	cell.surface_firmness = classifier.get_firmness(cell.surface_type)
+	cell.friction = classifier.get_friction(cell.surface_type)
+
+
+## New cliff cells (a crevasse just opened) bring the nearest cliff closer for
+## the cells around them; cells further than radius keep what they had
+func _update_cliff_distances_near(chunk_set: Dictionary, center: Vector2, radius: float, new_cliffs: Array[Vector3]) -> void:
+	for coords in chunk_set:
+		if not chunks.has(coords):
+			continue
+		var chunk: TerrainChunk = chunks[coords]
+		for x in range(chunk.resolution):
+			var column: Array = chunk.cells[x]
+			for z in range(chunk.resolution):
+				var cell: TerrainCell = column[z]
+				var flat := Vector2(cell.position.x, cell.position.z)
+				if flat.distance_to(center) > radius:
+					continue
+				var best := cell.distance_to_cliff
+				var best_position := Vector3.INF
+				for cliff in new_cliffs:
+					var d := flat.distance_to(Vector2(cliff.x, cliff.z))
+					if d < best:
+						best = d
+						best_position = cliff
+				if best_position != Vector3.INF:
+					chunk.set_cliff_reference(cell, best_position, true)
+
+
+## Ice where the glacier is bare (below the equilibrium line, in crevasse
+## walls, in the icefalls), snow over the ice above it, rubble on the moraines
+func _apply_glacier_surface(cell: TerrainCell) -> void:
+	var p := Vector2(cell.position.x, cell.position.z)
+	cell.is_glacier = glacier.weight_at(p) >= 0.5
+	if not cell.is_glacier:
+		if glacier.moraine_at(p) > 1.2 and cell.slope_angle < 45.0:
+			cell.surface_type = GameEnums.SurfaceType.SCREE
+		return
+	var crevasse := glacier.crevasse_at(p, 1.2)
+	if crevasse != null and not crevasse.is_bridged_at(p):
+		# A slot: blue ice walls; a fallen bridge leaves soft debris at the bottom
+		var debris := crevasse.bridged and cell.slope_angle < 35.0
+		cell.surface_type = GameEnums.SurfaceType.SNOW_SOFT if debris else GameEnums.SurfaceType.ICE
+	elif cell.elevation < glacier.ela_elevation or cell.slope_angle > 40.0:
+		cell.surface_type = GameEnums.SurfaceType.ICE
+	elif not TractionModel.is_snow(cell.surface_type):
+		cell.surface_type = GameEnums.SurfaceType.SNOW_FIRM
+
+
+## Where a snow bridge gives way: carve the fallen section of the crevasse
+## down to the debris it leaves (floor_depth below the surface), then redo
+## the analysis, surfaces, meshes and colliders of the chunks it touched
+func carve_crevasse_section(crevasse: GlacierField.Crevasse, center: Vector2, floor_depth: float) -> void:
+	var started := Time.get_ticks_msec()
+	var previous := crevasse.collapsed.duplicate()
+	crevasse.collapsed.append(center)
+	var half_length := GlacierField.SECTION_HALF_LENGTH
+	var half_width := maxf(crevasse.width * 0.5, 1.1)
+	var along_dir := crevasse.direction_at(center)
+	var radius := half_length + half_width + 4.0
+	var mesh_set := {}
+	var analyse_set := {}
+	for key in chunks:
+		var coords: Vector2i = key
+		var chunk: TerrainChunk = chunks[coords]
+		var lo := Vector2(chunk.world_origin.x, chunk.world_origin.z)
+		var hi := lo + Vector2.ONE * chunk.chunk_size
+		if center.x + radius < lo.x or center.x - radius > hi.x or center.y + radius < lo.y or center.y - radius > hi.y:
+			continue
+		var changed := false
+		for z in range(chunk.resolution):
+			for x in range(chunk.resolution):
+				var p := lo + Vector2(x, z) * chunk.cell_size
+				if p.distance_to(center) > radius:
+					continue
+				# Already open from an earlier fall
+				var already := false
+				for c in previous:
+					if c.distance_to(p) < half_length:
+						already = true
+				if already:
+					continue
+				var across := crevasse.distance_to(p)
+				var along := absf((p - center).dot(along_dir))
+				var cut := floor_depth * (1.0 - smoothstep(half_width - 0.3, half_width + 1.0, across))
+				cut *= 1.0 - smoothstep(half_length - 0.5, half_length + 1.5, along)
+				if cut < 0.01:
+					continue
+				var index := z * chunk.resolution + x
+				chunk.heightmap[index] -= cut
+				var cell: TerrainCell = chunk.cells[x][z]
+				cell.elevation = chunk.heightmap[index]
+				cell.position.y = cell.elevation
+				changed = true
+				# The neighbours' meshes use this chunk's first row and column
+				if x == 0:
+					mesh_set[coords + Vector2i(-1, 0)] = true
+				if z == 0:
+					mesh_set[coords + Vector2i(0, -1)] = true
+				if x == 0 and z == 0:
+					mesh_set[coords + Vector2i(-1, -1)] = true
+		if changed:
+			mesh_set[coords] = true
+			for dz in range(-1, 2):
+				for dx in range(-1, 2):
+					analyse_set[coords + Vector2i(dx, dz)] = true
+
+	# Slopes for the chunks around the cut; surfaces and cliff distances only
+	# change near it (new cliffs appear only inside the opened section)
+	for coords in analyse_set:
+		if chunks.has(coords):
+			chunks[coords].analyze(false)
+	var near := radius + 3.0
+	var new_cliffs: Array[Vector3] = []
+	for coords in analyse_set:
+		if not chunks.has(coords):
+			continue
+		var chunk: TerrainChunk = chunks[coords]
+		for x in range(chunk.resolution):
+			var column: Array = chunk.cells[x]
+			for z in range(chunk.resolution):
+				var cell: TerrainCell = column[z]
+				if Vector2(cell.position.x, cell.position.z).distance_to(center) > near:
+					continue
+				_classify_cell(cell)
+				if cell.is_cliff:
+					new_cliffs.append(cell.position)
+	if not new_cliffs.is_empty():
+		_update_cliff_distances_near(analyse_set, center, CLIFF_UPDATE_RADIUS, new_cliffs)
+	for coords in analyse_set:
+		if chunks.has(coords):
+			chunks[coords].finalize_analysis()
+	if generator != null:
+		for coords in mesh_set:
+			if chunks.has(coords):
+				generator.rebuild_chunk(coords)
+	_cached_cell = null
+	_cached_position = Vector3.INF
+	print("[TerrainService] Crevasse %d opened at %s (%d chunks rebuilt in %d ms)" % [
+		crevasse.id, str(center), mesh_set.size(), Time.get_ticks_msec() - started
+	])
+	terrain_updated.emit()
 
 
 ## Chamfer distance transform over the whole chunk grid so cliff distances and

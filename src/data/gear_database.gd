@@ -438,6 +438,13 @@ func check_requirements(
 		if mountain.cliff_exposure > 0.6:
 			result["warnings"].append("Expect to carry the skis over rock bands")
 
+	# Glacier travel: probing and climbing out of a crevasse need the axe
+	if mountain.glacier_extent > 0.0:
+		if not loadout.has_item(GameEnums.GearType.ICE_AXE):
+			result["warnings"].append("Glacier on this mountain: without an axe you cannot probe or climb out of a crevasse")
+		elif not loadout.has_item(GameEnums.GearType.CRAMPONS):
+			result["warnings"].append("Glacier on this mountain: crampons for its bare ice and its crevasse walls")
+
 	# Technical sections warnings
 	if mountain.technical_sections > 2:
 		if not loadout.has_item(GameEnums.GearType.HELMET):

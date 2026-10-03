@@ -55,6 +55,8 @@ class MountainData:
 	var has_mixed_terrain: bool
 	var cliff_exposure: float  # 0-1
 	var slide_risk: float  # 0-1
+	## Size of the glacier on the flank (0 = none, 1 = a big valley glacier)
+	var glacier_extent: float = 0.0
 
 	## Weather patterns
 	var weather_volatility: float  # 0-1, how quickly weather changes
@@ -259,6 +261,7 @@ func _create_builtin_mountains() -> void:
 	knife_edge.primary_terrain = GameEnums.SurfaceType.SNOW_FIRM
 	knife_edge.has_mixed_terrain = false
 	knife_edge.cliff_exposure = 0.2
+	knife_edge.glacier_extent = 0.0
 	knife_edge.slide_risk = 0.3
 	knife_edge.weather_volatility = 0.2
 	knife_edge.typical_temperature = -5.0
@@ -286,6 +289,7 @@ func _create_builtin_mountains() -> void:
 	north_face.primary_terrain = GameEnums.SurfaceType.SNOW_FIRM
 	north_face.has_mixed_terrain = true
 	north_face.cliff_exposure = 0.4
+	north_face.glacier_extent = 0.45
 	north_face.slide_risk = 0.5
 	north_face.weather_volatility = 0.4
 	north_face.typical_temperature = -10.0
@@ -314,6 +318,7 @@ func _create_builtin_mountains() -> void:
 	couloir.primary_terrain = GameEnums.SurfaceType.ICE
 	couloir.has_mixed_terrain = true
 	couloir.cliff_exposure = 0.6
+	couloir.glacier_extent = 0.3
 	couloir.slide_risk = 0.7
 	couloir.weather_volatility = 0.5
 	couloir.typical_temperature = -15.0
@@ -342,6 +347,7 @@ func _create_builtin_mountains() -> void:
 	storm_peak.primary_terrain = GameEnums.SurfaceType.MIXED
 	storm_peak.has_mixed_terrain = true
 	storm_peak.cliff_exposure = 0.7
+	storm_peak.glacier_extent = 0.65
 	storm_peak.slide_risk = 0.6
 	storm_peak.weather_volatility = 0.9
 	storm_peak.typical_temperature = -20.0
@@ -370,6 +376,7 @@ func _create_builtin_mountains() -> void:
 	long_way.primary_terrain = GameEnums.SurfaceType.MIXED
 	long_way.has_mixed_terrain = true
 	long_way.cliff_exposure = 0.9
+	long_way.glacier_extent = 0.9
 	long_way.slide_risk = 0.8
 	long_way.weather_volatility = 0.7
 	long_way.typical_temperature = -25.0

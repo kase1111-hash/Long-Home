@@ -42,6 +42,10 @@ var exit_zone_color: Color = Color(0.2, 0.7, 0.3, 0.6)
 var woodland_color: Color = Color(0.7, 0.82, 0.58, 1.0)
 var boulder_color: Color = Color(0.36, 0.31, 0.26, 1.0)
 
+## Glacier (pale blue, under the contours) and its open crevasses (blue strokes)
+var glacier_color: Color = Color(0.8, 0.88, 0.96, 1.0)
+var crevasse_color: Color = Color(0.25, 0.45, 0.72, 1.0)
+
 ## Height grid value where no chunk is loaded
 const MISSING_HEIGHT := -1.0e30
 
@@ -85,6 +89,9 @@ class TopoMapData:
 	## Trees and big boulders from TerrainScatter (world xz)
 	var tree_points: PackedVector2Array = PackedVector2Array()
 	var boulder_points: PackedVector2Array = PackedVector2Array()
+	## Glacier coverage samples and open crevasse lines (world xz)
+	var glacier_points: PackedVector2Array = PackedVector2Array()
+	var crevasse_lines: Array[PackedVector2Array] = []
 
 
 ## Height samples of the whole loaded world on one regular grid (row-major,
@@ -121,6 +128,23 @@ func get_terrain_map(terrain_service: TerrainService) -> TopoMapData:
 	if terrain_service.scatter != null:
 		_cached_map.tree_points = terrain_service.scatter.get_tree_points()
 		_cached_map.boulder_points = terrain_service.scatter.get_boulder_points()
+	# The glacier and the crevasses the survey saw open (bridged ones hide)
+	var glacier := terrain_service.glacier
+	if glacier != null:
+		var bmin := terrain_service.terrain_bounds_min
+		var bmax := terrain_service.terrain_bounds_max
+		var step := 4.0
+		var gz := bmin.z
+		while gz <= bmax.z:
+			var gx := bmin.x
+			while gx <= bmax.x:
+				if glacier.weight_at(Vector2(gx, gz)) >= 0.5:
+					_cached_map.glacier_points.append(Vector2(gx, gz))
+				gx += step
+			gz += step
+		for crevasse in glacier.crevasses:
+			if not crevasse.bridged:
+				_cached_map.crevasse_lines.append(crevasse.points)
 	_cached_images.clear()
 	_cache_key = key
 	return _cached_map
@@ -130,7 +154,7 @@ func get_terrain_map(terrain_service: TerrainService) -> TopoMapData:
 ## alongside the map data, so displays sharing a size render once)
 func get_terrain_image(terrain_service: TerrainService, resolution: Vector2i) -> Image:
 	var map_data := get_terrain_map(terrain_service)
-	var style_key := hash([resolution, major_contour_color, minor_contour_color, cliff_color, exit_zone_color, woodland_color, boulder_color])
+	var style_key := hash([resolution, major_contour_color, minor_contour_color, cliff_color, exit_zone_color, woodland_color, boulder_color, glacier_color, crevasse_color])
 	var cached: Image = _cached_images.get(style_key, null)
 	if cached != null:
 		return cached
@@ -445,6 +469,11 @@ func render_to_image(map_data: TopoMapData, resolution: Vector2i) -> Image:
 		return image
 	var scale := Vector2(resolution.x / extent.x, resolution.y / extent.y)
 
+	# Glacier tint, under everything
+	var ice_disc := maxi(1, roundi(2.6 * scale.x))
+	for point in map_data.glacier_points:
+		draw_marker(image, _world_to_image(point, map_data.bounds_min, scale), glacier_color, ice_disc)
+
 	# Woodland tint first, under everything (each tree a crown-sized disc)
 	var crown := maxi(1, roundi(2.5 * scale.x))
 	for tree in map_data.tree_points:
@@ -476,6 +505,11 @@ func render_to_image(map_data: TopoMapData, resolution: Vector2i) -> Image:
 	for exit_pos in map_data.exit_zones:
 		var img_pos := _world_to_image(exit_pos, map_data.bounds_min, scale)
 		draw_marker(image, img_pos, exit_zone_color, 4)
+
+	# Open crevasses, as the survey saw them
+	for line in map_data.crevasse_lines:
+		for i in range(line.size() - 1):
+			draw_line(image, _world_to_image(line[i], map_data.bounds_min, scale), _world_to_image(line[i + 1], map_data.bounds_min, scale), crevasse_color, 2)
 
 	# Boulder stipple
 	var stone := maxi(1, roundi(0.7 * scale.x))

@@ -221,6 +221,43 @@ analysed terrain cells:
   sway with the wind. An authored mesh in `res://assets/scatter/` named `<kind>_<variant>` or
   `<kind>` replaces the built one, fitted to the object's size from its bounding box.
 
+### Glaciers and Crevasses (implemented)
+
+Every peak but The Knife Edge carries a glacier in the flank beside the normal route, sized by
+the mountain (`glacier_extent`: Couloir 0.3, North Face 0.45, Storm Peak 0.65, Long Way Down 0.9;
+about 235-400 m long, 15-41 crevasses). It is generated with the terrain and is the same every
+time for a given peak.
+
+| Feature | What it is | How it plays |
+|---------|------------|--------------|
+| Ice surface | A smooth tongue flowing down the fall line; the rock steps become icefalls | Bare ICE below the equilibrium line (45% of the way from head to snout), snow above; ICE anywhere steeper than 40° |
+| Lateral moraines | Rubble ridges up to ~3.5 m along the edges | Scree underfoot; no trees on the ice |
+| Transverse crevasses | Rows across the glacier, dense in the icefalls | Open slots cut into the terrain, or hidden under a snow bridge |
+| Marginal crevasses | Chevrons angled up-glacier from the edges | As above |
+| Bergschrund | The wide gap (2-3.4 m) at the head where the ice leaves the face | Open, or more often bridged over |
+
+- **Bridges.** A hidden crevasse shows only a faint sag (0.45 m). Each bridge has a strength
+  (0-1). Standing on it has a collapse hazard per second of
+  `0.012 x exp(5.5 x (1 - strength))`: a thin bridge goes in about a second under a walker, and
+  a thick one nearly always holds. Afternoon warmth doubles it and cold eases it. Skis (x0.35)
+  and lying in a glissade (x0.5) spread the load.
+- **The fall.** A collapse carves a 7 m stretch of the crevasse open, down to the debris below
+  (4-8.5 m), and the climber falls in under real physics. The landing is soft debris, but an
+  injury is likely. It is a `crevasse_fall` incident and costs style.
+- **Climbing out.** With an axe in hand and crampons on, pushing against a wall front-points out
+  at about 0.22 m/s (real time), at a fatigue cost per metre. Past 85% fatigue the climber can
+  skate back down (`crevasse_slip`). Without axe and crampons there is no way up, and after
+  150 s the run ends in a rescue ("Trapped in a crevasse").
+- **Probing (G).** It needs an axe or ski poles and takes 1.2 s. The shaft reaches 3 m ahead
+  and says whether the snow is hollow, and it leaves a dark probe hole. That and the sag are
+  all the mountain gives away: nothing is labelled.
+- **Planning.** The topo map shades the glacier pale blue and draws the open crevasses (not the
+  hidden ones). The guidebook adds 0.5-1.0 to a line's grade when it crosses more than 40 m of
+  glacier, walks it at 85% pace in the book time, and notes "crosses the glacier (probe ahead)".
+  The route card asks for an axe to probe. The normal route keeps at least 18 m off the
+  crevasses, and the survey charges every line extra for an icefall (glacier steeper than 30°),
+  so the guidebook goes round them.
+
 ---
 
 ## 4. Sliding Mechanics
