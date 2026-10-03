@@ -50,6 +50,9 @@ signal self_check_started()
 ## Emitted when player finishes checking themselves
 signal self_check_completed(body_state: BodyState)
 
+## Emitted when what is on the climber's feet changes (crampons, skis, board)
+signal footwear_changed(old_footwear: GameEnums.Footwear, new_footwear: GameEnums.Footwear)
+
 # =============================================================================
 # SLIDING SIGNALS
 # =============================================================================

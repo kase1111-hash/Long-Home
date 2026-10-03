@@ -121,8 +121,8 @@ const BODY_STATIC_EXTRA := 0.12
 
 ## Heels dug in while glissading
 const HEEL_BRAKE := {
-	GameEnums.SurfaceType.SNOW_FIRM: 0.25,
-	GameEnums.SurfaceType.SNOW_PACKED: 0.22,
+	GameEnums.SurfaceType.SNOW_FIRM: 0.30,
+	GameEnums.SurfaceType.SNOW_PACKED: 0.27,
 	GameEnums.SurfaceType.SNOW_SOFT: 0.35,
 	GameEnums.SurfaceType.SNOW_POWDER: 0.30,
 	GameEnums.SurfaceType.ICE: 0.03,
@@ -134,8 +134,8 @@ const HEEL_BRAKE := {
 
 ## Axe spike dragged as a rudder and brake while glissading
 const SPIKE_BRAKE := {
-	GameEnums.SurfaceType.SNOW_FIRM: 0.25,
-	GameEnums.SurfaceType.SNOW_PACKED: 0.22,
+	GameEnums.SurfaceType.SNOW_FIRM: 0.30,
+	GameEnums.SurfaceType.SNOW_PACKED: 0.27,
 	GameEnums.SurfaceType.SNOW_SOFT: 0.30,
 	GameEnums.SurfaceType.SNOW_POWDER: 0.22,
 	GameEnums.SurfaceType.ICE: 0.04,
@@ -382,11 +382,11 @@ static func tobler_factor(grade: float, cross_grade: float, surface: GameEnums.S
 			# Plunge-stepping down soft snow is the fast way down
 			match surface:
 				GameEnums.SurfaceType.SNOW_SOFT:
-					k = 1.0
+					k = 0.7
 				GameEnums.SurfaceType.SNOW_POWDER:
-					k = 1.1
+					k = 0.8
 				_:
-					k = 1.6
+					k = 1.1
 		factor = exp(-k * excess)
 	factor *= 1.0 - 0.45 * clampf(absf(cross_grade), 0.0, 1.0)
 	return clampf(factor, 0.15, 1.2)
@@ -502,6 +502,22 @@ static func ski_sink_drag(surface: GameEnums.SurfaceType, is_board: bool) -> flo
 	if is_board:
 		drag *= 0.7  # A board floats better in deep snow
 	return drag
+
+# =============================================================================
+# SLOPE PLANE
+# =============================================================================
+
+## Put a CharacterBody3D velocity back on the slope plane. On the floor,
+## move_and_slide drops the vertical part of the velocity, so a slide down a
+## slope comes back horizontal and a plain projection would shrink it every
+## tick. Lifting the horizontal part onto the plane keeps what the slide set
+## (and whatever a collision took off it).
+static func onto_slope_plane(velocity: Vector3, normal: Vector3) -> Vector3:
+	if normal.y < 0.05:
+		return velocity - normal * velocity.dot(normal)
+	var horizontal := Vector3(velocity.x, 0.0, velocity.z)
+	var lift := -horizontal.dot(normal) / normal.y
+	return horizontal + Vector3(0.0, lift, 0.0)
 
 # =============================================================================
 # FALLS

@@ -16,7 +16,7 @@ extends SceneTree
 ## so autoloads and project classes are reached dynamically (see smoke_goal.gd).
 
 const SPEED_UP := 4.0
-const MAX_SIM_SECONDS := 600.0
+const MAX_SIM_SECONDS := 900.0
 const STALL_SECONDS := 20.0
 const WAYPOINT_RADIUS := 6.0
 const REPORT_EVERY := 15.0

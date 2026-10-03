@@ -2,6 +2,15 @@ class_name PlayerMovement
 extends Node
 ## Handles player movement physics and terrain interaction
 ## Works with PlayerController to move the player based on state
+##
+## Walking pace follows Tobler's hiking function (TractionModel.tobler_factor):
+## a steep descent is slower than the flat and a steep climb much slower.
+## Downclimbing clings to the face: the climber moves in deliberate placements
+## along the surface (reach, weight, step) and gravity does not pull them off;
+## whether the footing holds is PostureSystem's business.
+##
+## The climber model faces -Z (goggles forward, pack behind), so a yaw that
+## faces direction d is atan2(-d.x, -d.z).
 
 # =============================================================================
 # CONFIGURATION
@@ -17,16 +26,16 @@ var walk_deceleration: float = 20.0
 var turn_speed: float = 5.0
 
 ## Slope angle that starts affecting movement
-var slope_effect_start: float = 15.0
+var slope_effect_start: float = 3.0
 
 ## Maximum slope for walking (beyond this requires downclimb)
-var max_walk_slope: float = 35.0
+var max_walk_slope: float = PlayerController.DOWNCLIMB_ENTER_SLOPE
 
-## Uphill movement penalty multiplier
-var uphill_penalty: float = 0.4
+## Surface distance of one downclimbing move (a placement and a step)
+var downclimb_move_length: float = 0.45
 
-## Downhill movement bonus multiplier
-var downhill_bonus: float = 1.3
+## Fatigue per metre of height lost or gained while downclimbing
+var downclimb_fatigue_per_metre: float = 0.003
 
 # =============================================================================
 # STATE
@@ -53,6 +62,12 @@ var distance_accumulator: float = 0.0
 ## Distance before fatigue tick
 var fatigue_distance: float = 10.0
 
+## Phase of the downclimbing placement cycle (radians)
+var climb_phase: float = 0.0
+
+## Height at the last downclimbing fatigue tick
+var _climb_reference_height: float = NAN
+
 
 # =============================================================================
 # INITIALIZATION
@@ -60,6 +75,16 @@ var fatigue_distance: float = 10.0
 
 func _init(controller: PlayerController) -> void:
 	player = controller
+
+
+## Forget per-run movement state
+func reset() -> void:
+	target_velocity = Vector3.ZERO
+	move_direction = Vector3.ZERO
+	distance_accumulator = 0.0
+	slope_factor = 1.0
+	climb_phase = 0.0
+	_climb_reference_height = NAN
 
 
 # =============================================================================
@@ -77,15 +102,24 @@ func update(delta: float) -> void:
 		GameEnums.PlayerMovementState.TRAVERSING:
 			_update_traversing(delta)
 		GameEnums.PlayerMovementState.SLIDING:
-			# Sliding is handled by SlideSystem
-			pass
+			var slides := player.get_slide_system()
+			if slides != null:
+				slides.physics_step(delta)
+		GameEnums.PlayerMovementState.SKIING:
+			var ski := player.get_node_or_null("SkiPhysics")
+			if ski != null:
+				ski.physics_step(delta)
 		GameEnums.PlayerMovementState.ROPING:
-			# Roping is handled by RopeSystem
+			# The rope system moves the climber
 			pass
 		GameEnums.PlayerMovementState.FALLING:
 			_update_falling(delta)
+		GameEnums.PlayerMovementState.ARRESTED:
+			_hold_on_face(delta)
 		GameEnums.PlayerMovementState.RESTING:
 			_update_resting(delta)
+		GameEnums.PlayerMovementState.INCAPACITATED:
+			_apply_deceleration(delta)
 
 
 # =============================================================================
@@ -93,19 +127,8 @@ func update(delta: float) -> void:
 # =============================================================================
 
 func _update_standing(delta: float) -> void:
-	var input := player.input_handler.move_input
-
-	# Check for movement input
-	if input.length() > 0.1:
-		player.change_state(GameEnums.PlayerMovementState.WALKING)
-		return
-
-	# Apply deceleration
+	# State changes are the state machine's job; just come to rest
 	_apply_deceleration(delta)
-
-	# Stability recovery when standing still
-	if player.stability < 1.0:
-		player.set_stability(player.stability + delta * 0.3)
 
 
 # =============================================================================
@@ -114,20 +137,9 @@ func _update_standing(delta: float) -> void:
 
 func _update_walking(delta: float) -> void:
 	var input := player.input_handler.move_input
-
-	# Check for no input - return to standing
 	if input.length() < 0.1:
-		player.change_state(GameEnums.PlayerMovementState.STANDING)
+		_apply_deceleration(delta)
 		return
-
-	# Check if terrain requires different state
-	if player.current_cell:
-		var slope := player.current_cell.slope_angle
-
-		# Need to downclimb on steep terrain
-		if slope > max_walk_slope and not player.current_cell.is_slideable:
-			player.change_state(GameEnums.PlayerMovementState.DOWNCLIMBING)
-			return
 
 	# Calculate move direction in world space
 	move_direction = _get_world_move_direction(input)
@@ -147,11 +159,6 @@ func _update_walking(delta: float) -> void:
 
 	# Track distance for fatigue
 	_track_distance(delta)
-
-	# Check for slide opportunity
-	if player.input_handler.is_action_just_pressed("slide_initiate"):
-		if player.can_initiate_slide():
-			player.change_state(GameEnums.PlayerMovementState.SLIDING)
 
 
 func _get_world_move_direction(input: Vector2) -> Vector3:
@@ -180,33 +187,27 @@ func _get_world_move_direction(input: Vector2) -> Vector3:
 	return direction
 
 
+## Walking pace on this slope in this direction: Tobler's hiking function on
+## the grade along the path, slowed further by the side slope across it
 func _calculate_slope_factor() -> void:
 	slope_factor = 1.0
+	is_uphill = false
 
-	if player.current_cell == null:
+	var cell := player.current_cell
+	if cell == null or cell.slope_angle < slope_effect_start:
 		return
 
-	var slope := player.current_cell.slope_angle
-	if slope < slope_effect_start:
+	var heading := Vector3(move_direction.x, 0.0, move_direction.z)
+	if heading.length_squared() < 0.0001:
 		return
+	heading = heading.normalized()
 
-	# Determine if moving uphill or downhill
-	var slope_dir := player.current_cell.slope_direction
-	var move_dot := move_direction.dot(slope_dir)
+	var steepness := tan(deg_to_rad(cell.slope_angle))
+	var along := heading.dot(cell.slope_direction)  # +1 straight downhill
+	var across := sqrt(maxf(0.0, 1.0 - along * along))
+	is_uphill = along < -0.3
 
-	is_uphill = move_dot < -0.3
-
-	if is_uphill:
-		# Moving uphill - penalty
-		var uphill_factor := absf(move_dot)
-		var slope_penalty := (slope - slope_effect_start) / (max_walk_slope - slope_effect_start)
-		slope_factor = 1.0 - (slope_penalty * uphill_penalty * uphill_factor)
-	else:
-		# Moving downhill - slight bonus but more risk
-		var downhill_factor := move_dot
-		slope_factor = 1.0 + (downhill_factor * 0.2)
-
-	slope_factor = clampf(slope_factor, 0.3, downhill_bonus)
+	slope_factor = TractionModel.tobler_factor(-steepness * along, steepness * across, cell.surface_type)
 
 
 func _apply_acceleration(delta: float) -> void:
@@ -238,17 +239,20 @@ func _apply_deceleration(delta: float) -> void:
 		player.velocity.z += decel_dir.z * decel
 
 
+## Yaw that turns the climber model (which faces -Z) toward a direction
+static func yaw_facing(direction: Vector3) -> float:
+	return atan2(-direction.x, -direction.z)
+
+
 func _rotate_to_direction(delta: float) -> void:
 	if move_direction.length() < 0.1:
 		return
+	_turn_toward(yaw_facing(move_direction), turn_speed, delta)
 
-	var target_rotation := atan2(move_direction.x, move_direction.z)
-	var current_rotation := player.rotation.y
 
-	var diff := wrapf(target_rotation - current_rotation, -PI, PI)
-	var rotation_amount := signf(diff) * minf(absf(diff), turn_speed * delta)
-
-	player.rotation.y += rotation_amount
+func _turn_toward(target_yaw: float, rate: float, delta: float) -> void:
+	var diff := wrapf(target_yaw - player.rotation.y, -PI, PI)
+	player.rotation.y += signf(diff) * minf(absf(diff), rate * delta)
 
 
 func _track_distance(delta: float) -> void:
@@ -272,48 +276,117 @@ func _track_distance(delta: float) -> void:
 # DOWNCLIMBING STATE
 # =============================================================================
 
+## Facing in, the climber moves one placement at a time: the speed pulses
+## with each reach and step, steep or icy faces are slower, climbing back up
+## slower still. The body follows the surface; it does not slide off it.
 func _update_downclimbing(delta: float) -> void:
+	var cell := player.current_cell
 	var input := player.input_handler.move_input
-
-	# Downclimbing is slower and more deliberate
-	if input.length() < 0.1:
-		_apply_deceleration(delta)
+	if cell == null or input.length() < 0.1:
+		_hold_on_face(delta)
+		_orient_on_face(Vector3.ZERO, delta)
 		return
 
-	# Check if we can return to walking
-	if player.current_cell and player.current_cell.slope_angle < max_walk_slope:
-		player.change_state(GameEnums.PlayerMovementState.WALKING)
-		return
-
-	# Move slowly in input direction
 	move_direction = _get_world_move_direction(input)
-	var target_speed := player.downclimb_speed
+	var heading := Vector3(move_direction.x, 0.0, move_direction.z)
+	if heading.length_squared() < 0.0001:
+		_hold_on_face(delta)
+		return
+	heading = heading.normalized()
 
-	# Apply body state modifier
+	var along := heading.dot(cell.slope_direction)  # +1 straight down the fall line
+	var speed := TractionModel.downclimb_speed(cell.slope_angle, cell.surface_type, player.get_traction_footwear())
 	if player.body_state:
-		target_speed *= player.body_state.get_movement_modifier()
+		speed *= player.body_state.get_movement_modifier()
+	if TractionModel.is_rock(cell.surface_type) or cell.surface_type == GameEnums.SurfaceType.MIXED:
+		# Holds are worked with the fingers
+		speed *= lerpf(0.5, 1.0, player.get_hand_dexterity())
+	if along < -0.3:
+		speed *= 0.6  # Climbing back up
+	elif absf(along) < 0.5:
+		speed *= 0.8  # Traversing the face
 
-	target_velocity = move_direction * target_speed
-	_apply_acceleration(delta)
+	# One placement at a time: reach, weight, step
+	climb_phase = fmod(climb_phase + speed * delta / downclimb_move_length * PI, TAU)
+	var pulse := sin(climb_phase)
+	var surface_speed := speed * (0.3 + 0.7 * pulse * pulse)
 
-	# Face the slope (looking at terrain)
-	if player.current_cell:
-		var face_dir := -player.current_cell.slope_direction
-		if face_dir.length() > 0.1:
-			var target_rot := atan2(face_dir.x, face_dir.z)
-			player.rotation.y = lerpf(player.rotation.y, target_rot, delta * 2.0)
+	# Along the surface: the path drops tan(slope) * along per horizontal metre
+	var path_grade := tan(deg_to_rad(cell.slope_angle)) * along
+	var horizontal_speed := surface_speed / sqrt(1.0 + path_grade * path_grade)
 
-	# Higher fatigue rate when downclimbing
-	distance_accumulator += player.smooth_velocity.length() * delta
-	if distance_accumulator >= fatigue_distance * 0.5:
-		distance_accumulator = 0.0
-		player.add_fatigue(0.02)
+	# Follow the surface height and only ease toward contact: asking for more
+	# drop than the slope gives would press the body into the face, and the
+	# physics would slide the excess downhill (a free ride down the face)
+	var here := player.global_position
+	var next := here + heading * horizontal_speed * delta
+	var follow := 0.0
+	if player.terrain_service != null:
+		follow = (player.terrain_service.get_height_at(next) - player.terrain_service.get_height_at(here)) / delta
+	player.velocity.x = heading.x * horizontal_speed
+	player.velocity.z = heading.z * horizontal_speed
+	player.velocity.y = follow + _settle_speed(cell.slope_angle)
 
-	# Stability affected by downclimbing
-	var stability_drain := 0.1 * delta
-	if player.current_cell:
-		stability_drain *= player.current_cell.slope_angle / 45.0
-	player.set_stability(player.stability - stability_drain)
+	_orient_on_face(heading, delta)
+	_track_climb_fatigue()
+
+
+## Stay put on the face: no drift, settle onto the surface
+func _hold_on_face(_delta: float) -> void:
+	player.velocity.x = 0.0
+	player.velocity.z = 0.0
+	var slope := player.current_cell.slope_angle if player.current_cell else 0.0
+	player.velocity.y = _settle_speed(slope)
+
+
+## Gentle vertical correction toward resting contact with the face
+func _settle_speed(slope: float) -> float:
+	var gap := _contact_height(player.global_position, slope) - player.global_position.y
+	return clampf(gap * 4.0, -0.6, 0.6)
+
+
+## Where the capsule rests on a slope: its round bottom touches the surface
+## uphill of the centre, so the feet sit a little above the terrain below
+func _contact_height(at: Vector3, slope: float) -> float:
+	if player.terrain_service == null:
+		return at.y
+	var radius := 0.3
+	if player.collision_shape != null and player.collision_shape.shape is CapsuleShape3D:
+		radius = (player.collision_shape.shape as CapsuleShape3D).radius
+	var cos_slope := cos(deg_to_rad(clampf(slope, 0.0, 80.0)))
+	return player.terrain_service.get_height_at(at) + radius * (1.0 / cos_slope - 1.0)
+
+
+## Face out on easy ground, side-on on moderate faces, into the slope when it
+## steepens (the way a climber turns as the angle grows)
+func _orient_on_face(heading: Vector3, delta: float) -> void:
+	var cell := player.current_cell
+	if cell == null or cell.slope_direction.length_squared() < 0.01:
+		return
+	var downhill := cell.slope_direction
+	var target := Vector3.ZERO
+	if cell.slope_angle >= 45.0:
+		target = -downhill  # Face in
+	else:
+		# Side-on: whichever side is nearer the way we are going (or facing)
+		var side := downhill.cross(Vector3.UP).normalized()
+		var reference := heading if heading.length_squared() > 0.01 else player.get_facing_direction()
+		target = side if side.dot(reference) >= 0.0 else -side
+	_turn_toward(yaw_facing(target), turn_speed * 0.5, delta)
+
+
+func _track_climb_fatigue() -> void:
+	var height := player.global_position.y
+	if is_nan(_climb_reference_height):
+		_climb_reference_height = height
+		return
+	var change := height - _climb_reference_height
+	if absf(change) < 1.0:
+		return
+	# Climbing back up is twice the work of going down
+	var rate := downclimb_fatigue_per_metre * (2.0 if change > 0.0 else 1.0)
+	player.add_fatigue(rate * absf(change))
+	_climb_reference_height = height
 
 
 # =============================================================================
@@ -348,64 +421,15 @@ func _update_traversing(delta: float) -> void:
 # =============================================================================
 
 func _update_falling(delta: float) -> void:
-	# Limited air control
+	# A falling body can barely change where it goes; the landing is
+	# resolved by PlayerController when it touches down
 	var input := player.input_handler.move_input
 
 	if input.length() > 0.1:
-		var air_control := 2.0
+		var air_control := 1.0
 		move_direction = _get_world_move_direction(input)
 		player.velocity.x += move_direction.x * air_control * delta
 		player.velocity.z += move_direction.z * air_control * delta
-
-	# Check for landing
-	if player.is_grounded:
-		_handle_landing()
-
-
-func _handle_landing() -> void:
-	var fall_speed := absf(player.smooth_velocity.y)
-
-	if fall_speed < 5.0:
-		# Soft landing
-		player.change_state(GameEnums.PlayerMovementState.STANDING)
-	elif fall_speed < 10.0:
-		# Hard landing - stability loss
-		player.set_stability(player.stability - 0.3)
-		player.change_state(GameEnums.PlayerMovementState.STANDING)
-
-		EventBus.record_incident("hard_landing", {
-			"fall_speed": fall_speed
-		})
-	else:
-		# Injury landing
-		var injury_severity := (fall_speed - 10.0) / 20.0
-		_apply_fall_injury(injury_severity)
-		player.change_state(GameEnums.PlayerMovementState.INCAPACITATED)
-
-
-func _apply_fall_injury(severity: float) -> void:
-	if player.body_state == null:
-		return
-
-	# Determine injury type and location
-	var injury_type := GameEnums.InjuryType.SPRAIN
-	if severity > 0.5:
-		injury_type = GameEnums.InjuryType.FRACTURE
-
-	# Usually leg injuries from falls
-	var location := GameEnums.BodyPart.LEFT_LEG
-	if randf() > 0.5:
-		location = GameEnums.BodyPart.RIGHT_LEG
-
-	var injury := Injury.new(injury_type, severity, location, 0.0)
-	player.body_state.add_injury(injury)
-
-	EventBus.injury_occurred.emit(injury)
-	EventBus.record_incident("fall_injury", {
-		"severity": severity,
-		"type": GameEnums.InjuryType.keys()[injury_type],
-		"location": GameEnums.BodyPart.keys()[location]
-	})
 
 
 # =============================================================================
@@ -419,14 +443,6 @@ func _update_resting(delta: float) -> void:
 	# Recover fatigue slowly
 	if player.body_state:
 		player.body_state.recover_fatigue(delta * 0.05)
-
-	# Stability recovery
-	player.set_stability(minf(1.0, player.stability + delta * 0.5))
-
-	# Check for input to exit rest
-	var input := player.input_handler.move_input
-	if input.length() > 0.3:
-		player.change_state(GameEnums.PlayerMovementState.STANDING)
 
 
 # =============================================================================

@@ -4,31 +4,31 @@ extends Node
 ## Provides indirect control - influence, not command
 ##
 ## Key inputs:
-## - Lean (left/right): Affects trajectory
-## - Edge engagement: Affects friction/control
-## - Arrest attempt: Try to stop
+## - Lean (A/D or Q/E): push the slide sideways across its line
+## - Brake (S, held): dig the heels in and drag the axe spike; builds up over
+##   half a second and is worth a lot on soft snow, little on firm snow and
+##   nothing on ice. With crampons on, the points can catch and flip you.
+## - Tuck (W, held): lift the heels and lie back, a little faster
+## - Self-arrest (Space): roll onto the axe and drive the pick in
 
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
 
-## Maximum lean force
-var max_lean_force: float = 3.0
+## Sideways acceleration from a full lean on good snow (m/s^2)
+var max_lean_force: float = 2.5
 
-## Lean effectiveness at different speeds (reduces with speed)
-var lean_speed_falloff: float = 0.05
+## Lean effectiveness lost per m/s of speed
+var lean_speed_falloff: float = 0.03
 
-## Edge engagement friction bonus
-var edge_friction_max: float = 0.1
+## Control bonus from a set brake
+var edge_control_max: float = 0.1
 
-## Edge engagement control bonus
-var edge_control_max: float = 0.15
+## How quickly the brake builds (per second)
+var edge_buildup_rate: float = 2.5
 
-## How quickly edge engagement builds
-var edge_buildup_rate: float = 2.0
-
-## How quickly edge engagement decays
-var edge_decay_rate: float = 3.0
+## How quickly the brake releases (per second)
+var edge_decay_rate: float = 4.0
 
 ## Commitment time - hesitation penalty window
 var commitment_window: float = 0.3
@@ -46,11 +46,14 @@ var slide_system: SlideSystem
 ## Current lean input (-1 to 1)
 var lean_input: float = 0.0
 
-## Current edge engagement (0 to 1)
+## Current brake engagement (0 to 1): heels and spike in the snow
 var edge_engagement: float = 0.0
 
-## Is player actively engaging edges
+## Is player actively braking
 var is_engaging_edges: bool = false
+
+## Is player tucked (heels up, lying back)
+var tucked: bool = false
 
 ## Time since last committed input
 var time_since_commitment: float = 0.0
@@ -105,12 +108,11 @@ func _read_input() -> void:
 
 	lean_input = clampf(lean_input, -1.0, 1.0)
 
-	# Edge engagement from backward input (digging in)
+	# Brake: heels and spike dug in
 	is_engaging_edges = Input.is_action_pressed("move_back")
 
-	# Forward input reduces friction (tuck)
-	if Input.is_action_pressed("move_forward"):
-		edge_engagement = maxf(0, edge_engagement - 0.5)
+	# Tuck: heels up, lie back
+	tucked = Input.is_action_pressed("move_forward") and not is_engaging_edges
 
 	# Track if player has any input (commitment)
 	input_direction = Vector2(lean_input, 0)
@@ -126,10 +128,8 @@ func _read_input() -> void:
 
 func _update_edge_engagement(delta: float) -> void:
 	if is_engaging_edges:
-		# Build up edge engagement
 		edge_engagement = minf(1.0, edge_engagement + edge_buildup_rate * delta)
 	else:
-		# Decay edge engagement
 		edge_engagement = maxf(0.0, edge_engagement - edge_decay_rate * delta)
 
 
@@ -146,17 +146,17 @@ func _update_hesitation(delta: float) -> void:
 
 
 func _check_arrest_input() -> void:
-	# Check for self-arrest attempt (usually a quick action)
-	if Input.is_action_just_pressed("slide_initiate"):  # Same key, context-dependent
-		# At high speed, this becomes arrest attempt
-		if slide_system.current_state.speed > 5.0:
-			slide_system.attempt_self_arrest()
+	# Space during a slide is always an arrest (it started the glissade too;
+	# SlideSystem ignores the press that began the slide)
+	if Input.is_action_just_pressed("slide_initiate"):
+		slide_system.attempt_self_arrest()
 
 
 func _reset_state() -> void:
 	lean_input = 0.0
 	edge_engagement = 0.0
 	is_engaging_edges = false
+	tucked = false
 	time_since_commitment = 0.0
 	hesitation_accumulated = 0.0
 	is_committed = false
@@ -167,35 +167,40 @@ func _reset_state() -> void:
 # FORCE CALCULATIONS
 # =============================================================================
 
-## Get the influence force from player input
-func get_influence_force(delta: float) -> Vector3:
-	if not slide_system.is_sliding:
+## Get the influence force (acceleration) from player input
+func get_influence_force(_delta: float) -> Vector3:
+	if not slide_system.is_sliding or slide_system.arrest_engaged:
 		return Vector3.ZERO
 
-	var force := Vector3.ZERO
 	var state := slide_system.current_state
+	if absf(lean_input) < 0.1 or state.velocity.length() < 0.5:
+		return Vector3.ZERO
 
-	# Calculate lean effectiveness (reduces with speed)
-	var lean_effectiveness := 1.0 - (state.speed * lean_speed_falloff)
-	lean_effectiveness = maxf(lean_effectiveness, 0.2)
+	# Leaning works through the snow: little on ice, nothing while tumbling
+	var grip := clampf(TractionModel.brake_friction(state.surface_type, false) / 0.25, 0.15, 1.2)
+	var effectiveness := maxf(1.0 - state.speed * lean_speed_falloff, 0.3)
+	effectiveness *= state.control * grip
 
-	# Apply control level modifier
-	lean_effectiveness *= state.control
-
-	# Calculate lean force perpendicular to velocity
-	if absf(lean_input) > 0.1 and state.velocity.length() > 0.5:
-		var velocity_dir := state.velocity.normalized()
-		var right := velocity_dir.cross(Vector3.UP).normalized()
-
-		var lean_force := right * lean_input * max_lean_force * lean_effectiveness
-		force += lean_force
-
-	return force
+	var velocity_dir := state.velocity.normalized()
+	var right := velocity_dir.cross(Vector3.UP)
+	if right.length_squared() < 0.0001:
+		return Vector3.ZERO
+	return right.normalized() * lean_input * max_lean_force * effectiveness
 
 
-## Get friction bonus from edge engagement
+## How hard the brake is set (0-1)
+func get_brake_level() -> float:
+	return edge_engagement
+
+
+## Heels up and lying back
+func is_tucked() -> bool:
+	return tucked
+
+
+## Kept for older callers: friction is now TractionModel.brake_friction * level
 func get_edge_friction_bonus() -> float:
-	return edge_engagement * edge_friction_max
+	return edge_engagement
 
 
 ## Get control bonus from edge engagement
@@ -233,6 +238,7 @@ func get_input_state() -> Dictionary:
 		"lean": lean_input,
 		"edge_engagement": edge_engagement,
 		"is_engaging": is_engaging_edges,
+		"tucked": tucked,
 		"is_committed": is_committed,
 		"hesitation": hesitation_accumulated
 	}

@@ -165,10 +165,13 @@ func _process_buffered_input(delta: float) -> void:
 func _update_hesitation(delta: float) -> void:
 	# Hesitation is input that never turns into movement: pushing against
 	# terrain or dithering at an edge while the body could move. Simply
-	# holding a direction while walking is commitment, not hesitation.
-	var horizontal_speed := Vector2(player.velocity.x, player.velocity.z).length()
+	# holding a direction while walking is commitment, not hesitation, and a
+	# downclimber pausing between placements is not hesitating either.
+	var on_foot := player.current_state == GameEnums.PlayerMovementState.WALKING \
+		or player.current_state == GameEnums.PlayerMovementState.STANDING
+	var speed := player.smooth_velocity.length()
 	var could_move := player.get_current_speed() > 0.5
-	if raw_move_input.length() > 0.1 and horizontal_speed < 0.3 and could_move:
+	if on_foot and raw_move_input.length() > 0.1 and speed < 0.3 and could_move and not player.is_busy_with_gear():
 		hesitation_time += delta
 
 		# Hesitation penalty affects stability (bounded so it never spirals)
@@ -186,7 +189,9 @@ func _update_actions() -> void:
 		"slide_initiate",
 		"rope_deploy",
 		"check_self",
-		"open_map"
+		"open_map",
+		"crampons_toggle",
+		"skis_toggle"
 	]
 
 	for action in action_names:

@@ -1,20 +1,24 @@
 extends SceneTree
-## Headless smoke test for the sliding mechanic: teleports the climber onto
-## the nearest slideable snow slope, presses Space, and lets the slide run.
-## Rides the slide for 15 s, then self-arrests with Space like a player would.
-## Passes when the slide starts, ends (clean stop, arrest, tumble, catch...)
-## and the game keeps running without script errors; a fatal event during
-## the slide is reported but is a legitimate outcome, not a failure.
+## Headless smoke test for glissading and self-arrest, played like a player:
+## take the crampons off (F), sit down on a 30-35 deg firm snow slope (Space),
+## let it run, dig the heels and spike in (hold S), then roll onto the axe
+## (Space) and check the arrest holds.
+##
+## Passes when the free glide accelerates, braking clearly cuts that
+## acceleration, and the arrest stops the climber within a few body lengths
+## and stands them back up. A fatal event or a fall is reported as a failure.
 ##
 ##   godot --headless --audio-driver Dummy --path . -s res://tests/smoke_slide.gd
 ##
-## Implementation note: a "-s" script is compiled before the autoloads exist,
-## so autoloads and project classes are reached dynamically (see smoke_goal.gd).
+## The RNG is seeded so the run is repeatable. A "-s" script is compiled
+## before the autoloads exist, so autoloads and project classes are reached
+## dynamically (see smoke_goal.gd).
 
 const MOUNTAIN := "knife_edge"
-const SEARCH_RADIUS := 120.0
-const SLIDE_MAX_SECONDS := 60.0
-const ARREST_AFTER_SECONDS := 15.0
+const SEARCH_RADIUS := 160.0
+const GLIDE_SECONDS := 2.0
+const BRAKE_SECONDS := 3.0
+const ARREST_LIMIT_SECONDS := 6.0
 
 var _state_manager: Node = null
 var _enums: Node = null
@@ -33,6 +37,7 @@ func _init() -> void:
 
 
 func _run() -> void:
+	seed(424242)
 	_state_manager = root.get_node_or_null("/root/GameStateManager")
 	_enums = root.get_node_or_null("/root/GameEnums")
 	_locator = root.get_node_or_null("/root/ServiceLocator")
@@ -75,72 +80,108 @@ func _run() -> void:
 
 	var player: Node3D = _locator.get_service("PlayerController") as Node3D
 	var terrain: Object = _locator.get_service("TerrainService")
-	if player == null or not is_instance_valid(terrain):
-		_finish("no player or terrain")
+	var slides: Object = _locator.get_service("SlideSystem")
+	if player == null or not is_instance_valid(terrain) or not is_instance_valid(slides):
+		_finish("no player, terrain or slide system")
 		return
 
-	# Find a slideable cell with open snow below it (not next to a cliff)
+	# Never glissade in crampons: take them off on the summit first
+	await _tap("crampons_toggle")
+	await _seconds(player.gear_action_duration + 0.5)
+	_expect(player.footwear == int(_enums.Footwear["BOOTS"]), "crampons off before glissading")
+
+	# Find a firm snow slope with a long clear run below it
+	var firm: int = _enums.SurfaceType["SNOW_FIRM"]
 	var cells: Array = terrain.find_cells(player.global_position, SEARCH_RADIUS,
-		func(cell: Object) -> bool: return cell.is_slideable and cell.distance_to_cliff > 40.0)
-	_expect(not cells.is_empty(), "found a slideable cell within %.0f m of the summit (%d)" % [SEARCH_RADIUS, cells.size()])
-	if cells.is_empty():
+		func(cell: Object) -> bool:
+			return cell.slope_angle >= 31.0 and cell.slope_angle <= 35.0 \
+				and int(cell.surface_type) == firm and cell.distance_to_cliff > 80.0)
+	var best: Object = null
+	for cell in cells:
+		var clear := true
+		for step in range(1, 6):
+			var below: Vector3 = cell.position + cell.slope_direction * (step * 5.0)
+			if terrain.get_slope_at(below) < 26.0:
+				clear = false
+				break
+		if clear:
+			best = cell
+			break
+	_expect(best != null, "found a 31-35 deg firm snow slope with a clear run (%d candidates)" % cells.size())
+	if best == null:
 		_finish("")
 		return
-	var best: Object = cells[0]
-	for cell in cells:
-		if cell.slope_angle > best.slope_angle:
-			best = cell
 	var spot: Vector3 = best.position
-	spot.y = terrain.get_height_at(spot) + 0.5
-	print("[smoke_slide] slide spot %s: slope %.1f deg, surface %s, cliff %.0f m away" % [
+	spot.y = terrain.get_height_at(spot) + 0.3
+	print("[smoke_slide] slide spot %s: slope %.1f deg, %s, cliff %.0f m away" % [
 		spot, best.slope_angle, _enums.SurfaceType.keys()[best.surface_type], best.distance_to_cliff])
 	player.global_position = spot
-	await _wait(30)
-	_expect(player.is_on_floor(), "climber stands on the slope before sliding")
+	player.velocity = Vector3.ZERO
+	await _seconds(0.5)
 
-	# Face downhill and go
+	# Face downhill and sit down
 	var downhill: Vector3 = best.slope_direction
 	if downhill.length_squared() > 0.01:
 		player.look_at(player.global_position + downhill, Vector3.UP)
-	Input.action_press("slide_initiate")
-	await physics_frame
-	await physics_frame
-	Input.action_release("slide_initiate")
+	await _tap("slide_initiate")
+	await _seconds(0.2)
+	_expect(_slide_started, "Space on the slope starts a glissade")
+	if not _slide_started:
+		_finish("")
+		return
 
+	# Free glide
+	var v0: float = player.velocity.length()
+	await _seconds(GLIDE_SECONDS)
+	var v1: float = player.velocity.length()
+	var free_gain := (v1 - v0) / GLIDE_SECONDS
+
+	# Brake: heels and spike
+	Input.action_press("move_back")
+	await _seconds(BRAKE_SECONDS)
+	var v2: float = player.velocity.length()
+	Input.action_release("move_back")
+	var brake_gain := (v2 - v1) / BRAKE_SECONDS
+	print("[smoke_slide] free glide %.1f -> %.1f m/s (%.2f m/s^2), braking %.1f -> %.1f m/s (%.2f m/s^2)" % [
+		v0, v1, free_gain, v1, v2, brake_gain])
+	_expect(free_gain > 1.0, "an unbraked glissade on firm snow accelerates (%.2f m/s^2)" % free_gain)
+	_expect(brake_gain < free_gain - 1.0, "heels and spike take most of the acceleration out")
+	_expect(_slide_ended == false, "the glissade is still running when the brake comes off")
+
+	# Self-arrest
+	var arrest_start: Vector3 = player.global_position
+	var arrest_speed: float = player.velocity.length()
+	await _tap("slide_initiate")
 	var waited := 0.0
-	var next_report := 5.0
-	var arrested := false
-	while waited < SLIDE_MAX_SECONDS and not _slide_ended and not _fatal:
+	while waited < ARREST_LIMIT_SECONDS and not _slide_ended and not _fatal:
 		await physics_frame
 		waited += 1.0 / 60.0
-		if waited > 4.0 and not _slide_started:
-			break
-		if waited >= next_report:
-			next_report += 5.0
-			print("[smoke_slide] t=%2.0fs speed %.1f m/s, slope %.0f deg, at %s" % [
-				waited, player.velocity.length(), terrain.get_slope_at(player.global_position), player.global_position])
-		# A player rides the slide for a while, then digs the axe in
-		if waited >= ARREST_AFTER_SECONDS and not arrested:
-			arrested = true
-			print("[smoke_slide] self-arrest (Space) at %.0f s" % waited)
-			Input.action_press("slide_initiate")
-			await physics_frame
-			await physics_frame
-			Input.action_release("slide_initiate")
-	_expect(_slide_started, "slide started (Space on a slideable slope)")
-	if _slide_started:
-		var outcome_names: Array = _enums.SlideOutcome.keys()
-		if _fatal:
-			print("[smoke_slide] slide ended in a fatal event after %.1f s (legitimate outcome)" % waited)
-		else:
-			_expect(_slide_ended, "slide ended within %.0f s" % SLIDE_MAX_SECONDS)
-			if _slide_ended:
-				print("[smoke_slide] slide outcome: %s after %.1f s" % [outcome_names[_slide_outcome], waited])
-	await _wait(60)
-	_expect(_state_manager.current_state == int(states["DESCENT"]) or _fatal or _state_manager.current_state == int(states["RESOLUTION"]),
-		"game still in a valid state afterwards (state %d)" % _state_manager.current_state)
+	var arrest_distance: float = player.global_position.distance_to(arrest_start)
+	var outcome_names: Array = _enums.SlideOutcome.keys()
+	print("[smoke_slide] arrest from %.1f m/s: %s after %.1f s and %.1f m" % [
+		arrest_speed, outcome_names[_slide_outcome] if _slide_ended else "still sliding", waited, arrest_distance])
+	_expect(not _fatal, "no fatal event")
+	_expect(_slide_ended and "ARRESTED" in _states, "the axe arrest holds")
+	_expect(arrest_distance < 20.0, "the arrest stops the slide within %.0f m" % arrest_distance)
+
+	await _seconds(2.0)
+	var on_feet := [int(_enums.PlayerMovementState["STANDING"]), int(_enums.PlayerMovementState["DOWNCLIMBING"])]
+	_expect(int(player.current_state) in on_feet, "back on your feet after the arrest (state %s)" % _states.back())
+	_expect(_state_manager.current_state == int(states["DESCENT"]), "the run carries on")
 	print("[smoke_slide] movement states: %s" % str(_states))
 	_finish("")
+
+
+func _tap(action: String) -> void:
+	Input.action_press(action)
+	await physics_frame
+	await physics_frame
+	Input.action_release(action)
+
+
+func _seconds(seconds: float) -> void:
+	for i in range(int(ceil(seconds * 60.0))):
+		await physics_frame
 
 
 func _wait(frames: int) -> void:
