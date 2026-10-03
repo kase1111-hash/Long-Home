@@ -106,9 +106,8 @@ func update(delta: float) -> void:
 			if slides != null:
 				slides.physics_step(delta)
 		GameEnums.PlayerMovementState.SKIING:
-			var ski := player.get_node_or_null("SkiPhysics")
-			if ski != null:
-				ski.physics_step(delta)
+			if player.ski != null:
+				player.ski.physics_step(delta)
 		GameEnums.PlayerMovementState.ROPING:
 			# The rope system moves the climber
 			pass

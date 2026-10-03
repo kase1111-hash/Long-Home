@@ -7,6 +7,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (mountaineering physics: footing, downclimbing, rappels, glissades, skis)
+
+- **One footing model.** `TractionModel` holds the effective friction of boots, crampons, a
+  sliding body, heels and spike, an axe arrest, and ski bases and edges on every surface. A stance
+  needs `tan(slope)` of grip plus a little per m/s, so each kind of footing's slope limit comes
+  out of the numbers instead of hard-coded zones. Boots skate on ice past about 7°; crampons ball
+  up in warm slush and scrape on rock. `tests/test_physics_model.gd` pins 45 real-world rules.
+- **Walking** follows Tobler's hiking function: steep descents are slower than the flat and
+  side slopes slow you. Soft snow and powder make you posthole (plunge-stepping down soft snow
+  is the quick way down), and crampons are slower on rock.
+- **Slips from the grip margin.** `PostureSystem` turns the margin into balance and into a
+  Poisson slip rate. Slips escalate into a slide (where a body cannot rest), a fall (off faces
+  steeper than 60°) or a heavy fall on the spot. A plunged axe, or the other holds while
+  downclimbing, catches many of them.
+- **Downclimbing** clings to the face: no gravity slide-off, and the climber moves one
+  placement at a time, about 0.3-0.5 m/s on snow, slower on steep rock and ice. They turn
+  side-on, then face in, as the angle grows. The axe and the hands (glove dexterity, cold
+  fingers) add grip; rock steeper than about 52° needs the rope.
+- **Crampons on and off** (`F`) and **skis or a splitboard on and off** (`T`) are timed jobs:
+  slower on steep ground and with cold hands, cancelled by being swept off your feet. You top
+  out with crampons on.
+- **Rappelling, end to end** (`R`). The climber finds an anchor within reach, builds it,
+  weight-tests it and threads a doubled rope (30-45 s), then rappels under brake-hand control:
+  push down the face, add Space to let it run fast, let go to brake. They can prusik back up,
+  walk across the face within the rope's swing, unclip on a ledge, or re-anchor at the knots.
+  The rope is pulled down afterwards and can snag for good. Anchors (horns, boulders, cracks,
+  screws, V-threads, pickets, bollards) are stable per location. Their hidden quality drives
+  the weight test and a per-second failure hazard under load, and jams are per metre of rope
+  run.
+- **Glissading and self-arrest.** Slides integrate on the slope plane in step with
+  `move_and_slide`. Heels and spike (`S`) brake hard on soft snow and little on ice, crampons
+  can catch and flip you, and rock and scree hit back. Slips, ski crashes and tumbles start
+  *uncontrolled* slides. Self-arrest (`Space`) is a roll onto the axe followed by real arrest
+  friction, and the pick can be torn out (and the axe lost) at speed.
+- **Skiing and snowboarding.** New `SKIS` and `SNOWBOARD` gear ("Ski & Board" category, a "Ski
+  Descent" preset) and a `SKIING` movement state run by `SkiPhysics`:
+  - the edges carry momentum round a carve until the turn asks more than the snow and legs can
+    hold, then skid and scrub speed
+  - `S` is a hockey stop and sideslip, `W` tucks or poles on the flat
+  - crashes come from speed, hard skids, ice and fatigue, and on steep ground they become a
+    slide; skis grind to a halt and take damage on rock
+- **Landings** are judged from the impact speed, cushioned by the surface: a hop is nothing,
+  about 3 m is a hard landing, about 6 m breaks something. A disabling injury ends the run with a
+  rescue instead of leaving the climber stuck in `INCAPACITATED` forever.
+- **Visible gear and poses**:
+  - skis or board under the boots, or strapped to the pack
+  - crampon plates, and the ice axe in hand
+  - sitting back in a glissade, face down on the axe in an arrest, into the face while
+    downclimbing, sitting back in the harness on rappel, crouched over skis
+- **HUD**: a "Feet" row (with gear-change progress), rope and ski activity in "Moving", and
+  contextual control hints while glissading, skiing or on the rope.
+- **Tests**:
+  - `tests/smoke_mechanics.gd`: downclimb, crampons, landings
+  - `tests/smoke_rappel.gd`: build, strip, rappel, pull
+  - `tests/smoke_ski.gd`: skis and `--board`
+  - `tests/smoke_slide.gd` rewritten: free glide, brake, arrest
+  - `tests/screenshot_tour.gd` gains `--gear`
+
+### Fixed
+
+- The terrain collider scaled its `HeightMapShape3D` non-uniformly by (cell, 1, cell), which
+  the physics engine does not support. Fast bodies hit the underside of the ground and stopped
+  dead; the shape is now scaled uniformly with pre-divided heights.
+- The climber walked backwards: the model faces -Z but the movement turned +Z toward the
+  direction of travel.
+- Landing damage never applied, because the state machine stood the climber up before the
+  landing was checked.
+- The rope system was never connected to the player: pressing `R` on steep ground left the
+  climber in `ROPING` forever.
+- Rappel jams and anchor failures were rolled per frame, so nearly every rappel jammed or
+  failed. Abandoning a rope also left it marked as deployed, which blocked every later
+  deployment.
+- Rock anchors were only generated on the `ROCK` surface, which the classifier never produces.
+- The glissade brake added a fixed 0.1 m/s² against 5+ m/s² of gravity, so it did nothing.
+  Slides also added a second gravity term, ignored collisions, and had ground friction applied
+  on top by the player controller.
+
 ### Added (graphics: lighting, atmosphere and particles)
 
 - **Clouds and distant ranges.** `CloudLayer` is a wind-driven procedural cloud sheet above

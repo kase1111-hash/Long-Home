@@ -204,14 +204,16 @@ const SKI_EDGE := {
 	GameEnums.SurfaceType.MIXED: 0.50,
 }
 
-## Friction of a deliberate skid (hockey stop, sideslip, snowplough)
+## Resistance of a deliberate skid (hockey stop, sideslip, snowplough). A set
+## edge plows a groove instead of sliding, so on snow this tops a carving
+## edge's hold; on ice it has nothing to bite
 const SKI_BRAKE := {
-	GameEnums.SurfaceType.SNOW_FIRM: 0.55,
-	GameEnums.SurfaceType.SNOW_PACKED: 0.55,
-	GameEnums.SurfaceType.SNOW_SOFT: 0.70,
-	GameEnums.SurfaceType.SNOW_POWDER: 0.60,
-	GameEnums.SurfaceType.ICE: 0.15,
-	GameEnums.SurfaceType.MIXED: 0.45,
+	GameEnums.SurfaceType.SNOW_FIRM: 1.05,
+	GameEnums.SurfaceType.SNOW_PACKED: 1.05,
+	GameEnums.SurfaceType.SNOW_SOFT: 1.10,
+	GameEnums.SurfaceType.SNOW_POWDER: 0.90,
+	GameEnums.SurfaceType.ICE: 0.25,
+	GameEnums.SurfaceType.MIXED: 0.70,
 }
 
 ## Deep-snow drag on skis (1/s per m/s of speed): powder floats but slows
@@ -494,7 +496,7 @@ static func ski_edge_grip(surface: GameEnums.SurfaceType, is_board: bool) -> flo
 
 
 static func ski_brake_grip(surface: GameEnums.SurfaceType) -> float:
-	return _lookup(SKI_BRAKE, surface, 0.6)
+	return _lookup(SKI_BRAKE, surface, 0.7)
 
 
 static func ski_sink_drag(surface: GameEnums.SurfaceType, is_board: bool) -> float:

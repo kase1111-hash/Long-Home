@@ -60,8 +60,10 @@ As a first-person mountain survival experience, Long-Home combines realistic ter
 | System | Status | Description |
 |--------|--------|-------------|
 | **Terrain & World** | Complete | Procedural 640 m mountains per peak (DEM loading optional), rendered meshes + collision, slope analysis, 11 surface types, 6 terrain zones |
-| **Sliding Mechanics** | Complete | High-skill descent with control spectrum; snow spray or dust trails the climber, impacts throw bursts |
-| **Rope System** | Complete | Deployment, anchors, rappelling with time/safety trade-offs |
+| **Footing & Movement** | Complete | One traction model for boots, crampons, axe and hands: Tobler walking pace, grip-margin slips, slow face-in downclimbing, timed crampon changes, landing impacts |
+| **Sliding Mechanics** | Complete | Slope-plane glissade physics with braking, crampon catches and rock impacts; physical self-arrest; snow spray or dust trails the climber |
+| **Rope System** | Complete | Anchor building and testing, doubled-rope rappels under brake-hand control, re-anchoring, rope pulls that can snag |
+| **Skiing & Snowboarding** | Complete | Touring skis or a splitboard: carving, skidding, hockey stops, crashes into slides, rock damage |
 | **Time & Environment** | Complete | Day/night cycles with a sun-lit procedural sky, wind-driven cloud sheet and distant ranges, 9 weather states with fog, snow, rain and spindrift, temperature; glow/SSAO/cascaded shadows on Forward+ |
 | **Body Condition** | Complete | Fatigue, cold exposure, injuries (diegetic feedback) |
 | **Risk Detection** | Complete | Terrain analysis, fall prediction, diegetic risk cues |
@@ -129,11 +131,23 @@ godot --headless --path . -s res://tests/check_scripts.gd
 # Boot headless, walk into a descent, reach base camp, land on the resolution screen
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_goal.gd
 
-# Actually walk the climber down the corridor to base camp at 4x speed (~2 min wall clock)
+# Actually walk the climber down the corridor to base camp at 4x speed (~3 min wall clock)
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_walk.gd -- --mountain=knife_edge
 
-# Drop onto the nearest slideable slope, press Space, and let the slide play out
+# The mountain physics model: footing, downclimbing, walking pace, glissade, arrest, skis
+godot --headless --path . -s res://tests/test_physics_model.gd
+
+# Crampons off, glissade a firm slope, brake with S, self-arrest with Space
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_slide.gd
+
+# Downclimb a steep snow face, take crampons off and on (F), land 1/3/6 m drops
+godot --headless --audio-driver Dummy --path . -s res://tests/smoke_mechanics.gd
+
+# Build an anchor at a cliff band (R), strip it, build again, rappel down, pull the rope
+godot --headless --audio-driver Dummy --path . -s res://tests/smoke_rappel.gd -- --mountain=north_face
+
+# Step into skis (T), run the fall line, skid to a stop, step out (add --board for the splitboard)
+godot --headless --audio-driver Dummy --path . -s res://tests/smoke_ski.gd
 
 # Walk every screen with the real buttons and save a screenshot of each (needs a display;
 # xvfb-run works on a headless Linux box)
@@ -141,7 +155,8 @@ mkdir -p /tmp/tour && xvfb-run -a -s "-screen 0 1280x720x24" \
   godot --path . --rendering-driver opengl3 --audio-driver Dummy \
   -s res://tests/ui_tour.gd -- --out=/tmp/tour
 
-# Render the descent itself to PNGs (supports --weather=STORM, --time=18.5, --hide-ui)
+# Render the descent itself to PNGs (supports --weather=STORM, --time=18.5, --hide-ui,
+# --slide, and --gear for skiing, a downclimb, a glissade and a rappel)
 mkdir -p /tmp/shots && xvfb-run -a -s "-screen 0 1280x720x24" \
   godot --path . --rendering-driver opengl3 --audio-driver Dummy \
   -s res://tests/screenshot_tour.gd -- --out=/tmp/shots --quick-start
@@ -168,21 +183,66 @@ python tests/test_procedural_generation.py
 | Move Right | `D` |
 | Look | Mouse (captured during the descent) |
 
+Movement is camera-relative everywhere: walking, downclimbing (push toward the slope you want to
+descend), on the rope (push down the face to let rope run) and on skis (`A`/`D` turn the skis).
+
 ### Actions
 
 | Action | Key |
 |--------|-----|
-| Initiate Slide | `Space` |
-| Deploy Rope | `R` |
+| Glissade (sit down on a 20-42° snow or scree slope) / self-arrest while sliding | `Space` |
+| Brake a glissade (heels and axe spike) | hold `S` |
+| Lean a glissade | `A` / `D` or `Q` / `E` |
+| Rope: build an anchor and rappel, then unclip on a ledge or build the next anchor; strip the anchor while building | `R` |
+| Let the rope run fast while rappelling | hold `Space` |
+| Strap crampons on / take them off (timed) | `F` |
+| Step into skis or a splitboard / step out (timed, on snow, ≤ 38°) | `T` |
+| On skis: turn, skid to slow or stop, tuck or pole | `A`/`D`, `S`, `W` |
 | Check Self (Body Status) | `C` |
 | Open Map | `M` |
-| Lean Left (during slide) | `Q` |
-| Lean Right (during slide) | `E` |
 | Pause / resume | `Esc` |
 | Toggle control hints | `H` |
 
 The HUD is deliberately small: elevation, how far you have descended, distance to base camp,
-what you are doing, the time and the temperature. Everything else is read from the mountain.
+what you are doing, what is on your feet, the time and the temperature. While you glissade, ski
+or work the rope, the hint line swaps to the controls of that activity. Everything else is read
+from the mountain.
+
+### How the mountain behaves
+
+Every way down runs on one footing model (`src/entities/player/traction_model.gd`): the grip of
+what is on your feet against `tan(slope)` plus a little for every step's braking.
+
+- **Walking** follows Tobler's hiking function: steep descents are slower than the flat, side
+  slopes slow you, soft snow and powder make you posthole, crampons scrape over rock. Boots hold
+  firm snow to about 35°, but on ice they skate past about 7°. Crampons bite on ice and hard
+  snow, but they ball up in warm slush.
+- **Slips** happen on thin grip margins. Most are a stagger. On snow, ice, scree or broken rock
+  steeper than a body can rest on, a slip becomes a slide; off a face, it becomes a fall. A
+  plunged axe shaft, or the other holds while downclimbing, catches many of them.
+- **Downclimbing** starts above 35°. The climber turns side-on, then faces in, and moves one
+  placement at a time: about 0.3-0.5 m/s on snow with crampons and axe, slower on steep rock and
+  ice. Hand holds (glove dexterity, cold fingers) and the axe add grip. Rock steeper than about
+  52° needs the rope.
+- **Rappelling** is a timed job before it is a descent. Find an anchor (a horn, a boulder, a
+  crack for a nut, screws or a V-thread in ice, a buried picket or a cut bollard in snow), build
+  it, weight-test it (it can fail the test) and thread a doubled rope (half its length reaches
+  down). That takes 30-45 s, longer tired, cold-handed or in wind. You go down at about 1 m/s,
+  faster with Space (more anchor load, snags and wear), and brake when you let go. You come off
+  on easier ground, and the rope can snag when you pull it down.
+- **Glissading** integrates gravity, friction, drag and your lean on the slope plane. Soft snow
+  is controllable, hard snow runs away, and nothing brakes on ice. Glissading with crampons on
+  can catch a point and flip you. **Self-arrest** is a roll onto the axe and then real arrest
+  friction: it stops you in a few metres on firm snow, fails on ice, and can tear the axe out
+  of your hands at speed.
+- **Skiing and snowboarding** carve and skid. The edges carry your momentum round until the turn
+  asks more than the snow and your legs can hold. Past that the skis skid, and the skid scrubs
+  speed. A hockey stop works on snow but not on ice. Straight-lining a 35° slope tops out at
+  about 40 m/s, so you control speed by turning. Crashes come from speed, hard skids, ice and
+  tired legs. A crash on a steep slope becomes a slide, and skis grind to a halt on rock.
+- **Falls** are judged on landing from the impact speed, cushioned by the surface. A hop is
+  nothing, about 3 m is a hard landing, about 6 m breaks something, and a disabling injury ends
+  the run with a rescue.
 
 ---
 

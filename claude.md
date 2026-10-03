@@ -85,8 +85,8 @@ tests/                  # Godot-native checks (check_scripts, smoke_goal, ui_tou
 ### 16 Major Systems
 
 1. **Terrain** - Chunked loading, 11 surface types, 6 terrain zones by slope angle
-2. **Sliding** - Control spectrum (CONTROLLED → MARGINAL → UNSTABLE → LOST)
-3. **Rope** - Deployment, anchors, rappelling physics
+2. **Sliding** - Slope-plane glissade physics, braking, physical self-arrest; control spectrum (CONTROLLED → MARGINAL → UNSTABLE → LOST)
+3. **Rope** - Anchor building/testing, doubled-rope rappels under brake-hand control, re-anchoring, rope pulls
 4. **Environment** - Day/night, 9 weather states, temperature with wind chill
 5. **Body Condition** - Fatigue, cold exposure, location-specific injuries
 6. **Drone** - Third-person camera, battery system
@@ -111,9 +111,20 @@ TUTORIAL → DESCENT → RESOLUTION → POST_GAME (PAUSED as overlay)
 Player Movement States:
 STANDING ↔ WALKING ↔ DOWNCLIMBING ↔ TRAVERSING
     ↓
-SLIDING ↔ ARRESTED ↔ FALLING → INCAPACITATED
+SLIDING ↔ ARRESTED ↔ FALLING → INCAPACITATED (→ rescue after 5 s)
+SKIING (while skis/board are on; crashes → SLIDING)
 (ROPING and RESTING as parallel states)
 ```
+
+### Mountain physics (who owns the motion)
+
+All footing, sliding and ski numbers live in `TractionModel` (static, pinned by
+`tests/test_physics_model.gd`). `PlayerController._physics_process` runs: input → gear
+changes (F crampons, T skis) → `PostureSystem` (grip margin → stability, slips) → state machine
+→ `PlayerMovement.update` (which steps `SlideSystem.physics_step` while SLIDING and
+`SkiPhysics.physics_step` while SKIING) → `_apply_physics` (move_and_slide, landing impacts,
+fall detection). ROPING is kinematic: `RappelController` places the climber on the face.
+DOWNCLIMBING and ARRESTED cling (no gravity, vertical follows the terrain).
 
 ## Common Commands
 
@@ -131,7 +142,11 @@ godot --path . -- --quick-start --mountain=north_face
 godot --headless --path . -s res://tests/check_scripts.gd        # every script compiles
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_goal.gd   # menu -> descent -> base camp
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_walk.gd   # walks the corridor for real (~2 min)
-godot --headless --audio-driver Dummy --path . -s res://tests/smoke_slide.gd  # Space on a slideable slope
+godot --headless --path . -s res://tests/test_physics_model.gd                # traction/slide/ski numbers
+godot --headless --audio-driver Dummy --path . -s res://tests/smoke_slide.gd      # glissade, brake, arrest
+godot --headless --audio-driver Dummy --path . -s res://tests/smoke_mechanics.gd  # downclimb, crampons, landings
+godot --headless --audio-driver Dummy --path . -s res://tests/smoke_rappel.gd -- --mountain=north_face  # rope
+godot --headless --audio-driver Dummy --path . -s res://tests/smoke_ski.gd        # skis (add -- --board)
 xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-driver opengl3 \
   --audio-driver Dummy -s res://tests/ui_tour.gd -- --out=/tmp/tour    # every screen, with PNGs
 xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-driver opengl3 \
@@ -150,6 +165,16 @@ Godot 4.2 gotchas that bit this project:
 - Test harnesses run with `-s` are compiled before the autoloads exist: reach
   `GameStateManager` etc. via `root.get_node("/root/GameStateManager")` and `load()` (see
   `tests/smoke_goal.gd`)
+- On the floor, `move_and_slide()` drops the vertical part of the velocity. A slide or skis that
+  keep their speed in `player.velocity` must lift it back onto the slope plane each tick
+  (`TractionModel.onto_slope_plane`), or a plain projection bleeds ~20% of the speed per frame
+- Collision shapes must be scaled uniformly: the terrain `HeightMapShape3D` scaled (2, 1, 2)
+  flipped contact normals and stopped fast bodies dead (heights are now pre-divided instead)
+- A child's `_ready()` cannot `add_child` to its parent (the parent is still adding children);
+  use `call_deferred` (see the gear meshes in `player_animation_controller.gd`)
+- Kinematic vertical moves on steep floors: asking for more drop than the slope gives presses
+  the body into the face and the physics slides the excess downhill (follow the terrain height
+  change instead, as `PlayerMovement._update_downclimbing` does)
 - There is no runtime query for the rendering method in 4.2: use
   `EnvironmentVisuals.detect_rendering_method()` (project setting + whether a RenderingDevice
   exists) before touching glow, SSAO, volumetric fog, proximity fade or PSSM shadows, none of
@@ -227,10 +252,13 @@ print("[SystemName] Debug message")
 | Task | Key Files |
 |------|-----------|
 | Player mechanics | `src/entities/player/player_controller.gd`, `player_movement.gd`, `player_state_machine.gd` |
+| Footing, slips, friction numbers | `src/entities/player/traction_model.gd`, `posture_system.gd` |
+| Skis and splitboard | `src/entities/player/ski_physics.gd` (gear in `gear_database.gd`, `gear_state.gd`) |
+| Rope, anchors, rappels | `src/systems/rope/rope_service.gd`, `rappel_controller.gd`, `anchor_detector.gd` |
 | Adding events | `src/core/event_bus.gd` |
 | New service | `src/core/service_locator.gd` |
 | Terrain queries | `src/systems/terrain/terrain_service.gd` |
-| Sliding physics | `src/systems/sliding/slide_system.gd` |
+| Sliding physics, self-arrest | `src/systems/sliding/slide_system.gd`, `slide_controller.gd` |
 | Camera director | `src/systems/camera_director/camera_director.gd` |
 | Fatal events | `src/systems/fatal_event/fatal_event_manager.gd` |
 | Game states | `src/core/game_state_manager.gd` |

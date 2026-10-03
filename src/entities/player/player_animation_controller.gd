@@ -104,6 +104,14 @@ var shake_offset: Vector3 = Vector3.ZERO
 ## Base color for state indication (the jacket)
 var base_color: Color = JACKET_COLOR
 
+## Gear models (procedural placeholders, like the climber itself)
+var _skis: Node3D
+var _board: Node3D
+var _pack_skis: Node3D
+var _pack_board: Node3D
+var _crampons: Node3D
+var _ice_axe: Node3D
+
 # =============================================================================
 # ANIMATION STATE DATA
 # =============================================================================
@@ -188,6 +196,12 @@ var animation_data := {
 		"breathing_speed": 0.2,
 		"color": Color(0.55, 0.28, 0.18),
 	},
+	&"skiing": {
+		"base_speed": 1.2,
+		"sway_amount": 0.03,
+		"breathing_speed": 1.1,
+		"color": Color(0.90, 0.33, 0.10),
+	},
 }
 
 # =============================================================================
@@ -207,6 +221,7 @@ func _ready() -> void:
 	if player_mesh:
 		body_mesh = player_mesh.get_node_or_null("Body") as MeshInstance3D
 	_ensure_jacket_material()
+	_build_gear_meshes()
 
 	_connect_signals()
 	print("[AnimationController] Initialized")
@@ -245,6 +260,7 @@ func _physics_process(delta: float) -> void:
 
 	# Apply procedural animations
 	_apply_procedural_animation(delta)
+	_update_gear_meshes()
 
 	# Check footsteps
 	_update_footsteps(delta)
@@ -289,6 +305,8 @@ func _movement_state_to_animation(state: GameEnums.PlayerMovementState) -> Strin
 			return &"resting"
 		GameEnums.PlayerMovementState.INCAPACITATED:
 			return &"incapacitated"
+		GameEnums.PlayerMovementState.SKIING:
+			return &"skiing"
 		_:
 			return &"idle"
 
@@ -422,25 +440,197 @@ func _apply_procedural_animation(delta: float) -> void:
 	# Shake decay
 	shake_offset = shake_offset.move_toward(Vector3.ZERO, delta * 5.0)
 
+	# The body's attitude for what it is doing (sitting back in a glissade,
+	# leaning into the face, crouched over skis...)
+	var pose := _get_pose()
+	var pose_offset: Vector3 = pose["offset"]
+	var pose_rotation: Vector3 = pose["rotation"]
+
 	# Apply combined offset
-	var total_offset := breath_offset + lean_offset + posture_offset + shake_offset
+	var total_offset := breath_offset + lean_offset + posture_offset + shake_offset + pose_offset
 	player_mesh.position = Vector3(0, 0.9, 0) + total_offset
 
 	# Rotation based on movement and lean
-	var target_rotation := Vector3.ZERO
+	var target_rotation := pose_rotation
 
 	# Lean rotation
-	target_rotation.z = -lean_blend * 0.15
+	target_rotation.z += -lean_blend * 0.15
 
 	# Stability wobble
 	if posture_blend > 0.3:
-		target_rotation.x = sin(state_time * 3.0) * posture_blend * 0.1
+		target_rotation.x += sin(state_time * 3.0) * posture_blend * 0.1
 		target_rotation.z += cos(state_time * 2.5) * posture_blend * 0.08
 
-	player_mesh.rotation = player_mesh.rotation.lerp(target_rotation, delta * 8.0)
+	if pose.get("snap", false):
+		player_mesh.rotation = target_rotation
+	else:
+		player_mesh.rotation = player_mesh.rotation.lerp(target_rotation, delta * 8.0)
 
 	# Update body mesh color (if placeholder)
 	_update_placeholder_color(data)
+
+
+## Attitude of the body for the current activity: offset from the hip
+## pivot and rotation (x pitches back for positive values; the climber faces -Z)
+func _get_pose() -> Dictionary:
+	var offset := Vector3.ZERO
+	var rotation := Vector3.ZERO
+	var snap := false
+	match player.current_state:
+		GameEnums.PlayerMovementState.SKIING:
+			var ski := player.ski
+			var tucked := ski != null and ski.tucked
+			offset.y = -0.22 if tucked else -0.12
+			rotation.x = -0.45 if tucked else -0.18
+			var steer := player.input_handler.move_input.x if player.input_handler else 0.0
+			rotation.z = -steer * 0.35
+			if player.footwear == GameEnums.Footwear.SNOWBOARD:
+				rotation.y = deg_to_rad(70.0)
+		GameEnums.PlayerMovementState.SLIDING:
+			var slides := player.get_slide_system()
+			if slides != null and slides.arrest_engaged:
+				# Face down on the axe, pick in by the shoulder
+				offset.y = -0.6
+				rotation.x = -1.35
+			elif slides != null and slides.is_uncontrolled and slides.tumble_time < SlideSystem.TUMBLE_DURATION:
+				offset.y = -0.45
+				rotation.x = fmod(state_time * 9.0, TAU)
+				snap = true
+			else:
+				# Sitting glissade, leaning back on the spike
+				offset.y = -0.55
+				rotation.x = 0.9
+		GameEnums.PlayerMovementState.ARRESTED:
+			offset.y = -0.6
+			rotation.x = -1.35
+		GameEnums.PlayerMovementState.DOWNCLIMBING:
+			# Into the face, weight over the feet
+			offset.y = -0.06
+			rotation.x = -0.3
+		GameEnums.PlayerMovementState.ROPING:
+			var rope := ServiceLocator.get_service("RopeService") as RopeService
+			if rope != null and rope.phase == RopeService.RopePhase.RAPPELLING:
+				# Sitting back in the harness, feet on the wall
+				offset = Vector3(0.0, -0.12, 0.12)
+				rotation.x = 0.5
+			else:
+				offset.y = -0.3  # Kneeling at the anchor
+				rotation.x = -0.25
+		GameEnums.PlayerMovementState.FALLING:
+			rotation.x = fmod(state_time * 6.0, TAU)
+			rotation.z = sin(state_time * 4.0) * 0.6
+			snap = true
+		GameEnums.PlayerMovementState.RESTING:
+			offset.y = -0.35
+			rotation.x = 0.2
+		GameEnums.PlayerMovementState.INCAPACITATED:
+			offset.y = -0.75
+			rotation.x = 1.4
+	if player.is_busy_with_gear():
+		# Bent over the straps and bindings
+		offset.y -= 0.25
+		rotation.x -= 0.5
+	return {"offset": offset, "rotation": rotation, "snap": snap}
+
+
+# =============================================================================
+# GEAR MODELS
+# =============================================================================
+
+func _build_gear_meshes() -> void:
+	var ski_material := _flat_material(Color(0.12, 0.32, 0.72), 0.4)
+	var board_material := _flat_material(Color(0.86, 0.72, 0.12), 0.45)
+	var metal := _flat_material(Color(0.62, 0.64, 0.68), 0.3, 0.8)
+	var shaft := _flat_material(Color(0.18, 0.18, 0.2), 0.5)
+
+	# On the feet: children of the body so they follow its heading and lie
+	# on the slope (aligned each tick). Deferred: the body is still adding
+	# its own children while this _ready runs
+	_skis = Node3D.new()
+	_skis.name = "Skis"
+	for side in [-0.12, 0.12]:
+		_add_box(_skis, Vector3(0.09, 0.025, 1.75), Vector3(side, 0.02, -0.08), ski_material)
+	player.add_child.call_deferred(_skis)
+
+	_board = Node3D.new()
+	_board.name = "Snowboard"
+	_add_box(_board, Vector3(0.28, 0.03, 1.55), Vector3(0.0, 0.02, 0.0), board_material)
+	player.add_child.call_deferred(_board)
+
+	if player_mesh == null:
+		return
+
+	# Carried: strapped to the pack in an A-frame
+	_pack_skis = Node3D.new()
+	_pack_skis.name = "PackSkis"
+	player_mesh.add_child(_pack_skis)
+	for side in [-0.13, 0.13]:
+		_add_box(_pack_skis, Vector3(0.08, 1.6, 0.025), Vector3(side, 0.45, 0.4), ski_material)
+
+	_pack_board = Node3D.new()
+	_pack_board.name = "PackBoard"
+	player_mesh.add_child(_pack_board)
+	_add_box(_pack_board, Vector3(0.26, 1.45, 0.03), Vector3(0.0, 0.45, 0.4), board_material)
+
+	_crampons = Node3D.new()
+	_crampons.name = "Crampons"
+	player_mesh.add_child(_crampons)
+	for side in [-0.11, 0.11]:
+		_add_box(_crampons, Vector3(0.17, 0.025, 0.3), Vector3(side, -0.915, -0.03), metal)
+
+	# Held by the head in the cane position, spike to the ground
+	_ice_axe = Node3D.new()
+	_ice_axe.name = "IceAxe"
+	player_mesh.add_child(_ice_axe)
+	_add_box(_ice_axe, Vector3(0.03, 0.62, 0.03), Vector3(0.36, -0.38, -0.06), shaft)
+	_add_box(_ice_axe, Vector3(0.04, 0.04, 0.28), Vector3(0.36, -0.06, -0.06), metal)
+
+	_update_gear_meshes()
+
+
+func _flat_material(color: Color, roughness: float, metallic: float = 0.0) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = color
+	material.roughness = roughness
+	material.metallic = metallic
+	return material
+
+
+func _add_box(parent: Node3D, size: Vector3, at: Vector3, material: Material) -> void:
+	var box := BoxMesh.new()
+	box.size = size
+	box.material = material
+	var instance := MeshInstance3D.new()
+	instance.mesh = box
+	instance.position = at
+	parent.add_child(instance)
+
+
+func _update_gear_meshes() -> void:
+	if _skis == null:
+		return
+	var footwear := player.footwear
+	var gear := player.gear_state
+	_skis.visible = footwear == GameEnums.Footwear.SKIS
+	_board.visible = footwear == GameEnums.Footwear.SNOWBOARD
+	if _pack_skis != null:
+		_pack_skis.visible = gear != null and gear.has_item(GameEnums.GearType.SKIS) and footwear != GameEnums.Footwear.SKIS
+		_pack_board.visible = gear != null and gear.has_item(GameEnums.GearType.SNOWBOARD) and footwear != GameEnums.Footwear.SNOWBOARD
+		_crampons.visible = footwear == GameEnums.Footwear.CRAMPONS
+		# On skis the axe rides on the pack
+		_ice_axe.visible = player.has_ice_axe() and not player.is_on_skis()
+
+	# Lay the boards flat on the slope under the boots
+	if _skis.visible or _board.visible:
+		var up := Vector3.UP
+		if player.is_on_floor():
+			up = player.get_floor_normal()
+		elif player.current_cell != null:
+			up = player.current_cell.normal
+		var local_up := (player.global_transform.basis.inverse() * up).normalized()
+		var tilt := Basis(Quaternion(Vector3.UP, local_up)) if local_up.dot(Vector3.UP) < 0.9999 else Basis.IDENTITY
+		_skis.transform.basis = tilt
+		_board.transform.basis = tilt
 
 
 ## Make sure the torso has its own StandardMaterial3D override (the jacket)

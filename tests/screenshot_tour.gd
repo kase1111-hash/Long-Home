@@ -28,6 +28,9 @@ extends SceneTree
 ##                      the climber reaches this value (e.g. 4 for rain)
 ##   --slide            after the walk, teleport onto the nearest slideable
 ##                      slope, press Space and save slide_01/02.png mid-slide
+##   --gear             after the walk, stage the mountaineering kit and save
+##                      gear_skiing, gear_carve, gear_downclimb, gear_rappel
+##                      and gear_glissade PNGs (skis, crampons, axe, rope)
 ##   --settle=<frames>  frames to wait before the first shot (default 90;
 ##                      fog and weather ease in over a few seconds, so use
 ##                      ~400 when forcing a storm or whiteout)
@@ -53,6 +56,7 @@ var force_time: float = -1.0
 var force_wind: String = ""
 var force_temperature: float = -999.0
 var do_slide: bool = false
+var do_gear: bool = false
 var settle_frames: int = SETTLE_FRAMES
 
 ## Autoload nodes (resolved at run time, see note above)
@@ -85,6 +89,8 @@ func _init() -> void:
 			force_temperature = float(text.trim_prefix("--temperature="))
 		elif text == "--slide":
 			do_slide = true
+		elif text == "--gear":
+			do_gear = true
 		elif text.begins_with("--settle="):
 			settle_frames = maxi(int(text.trim_prefix("--settle=")), 1)
 	call_deferred("_run")
@@ -149,6 +155,10 @@ func _run() -> void:
 	# 6. Optionally start a slide and capture the spray
 	if do_slide:
 		await _slide_shots()
+
+	# 7. Optionally stage skis, a downclimb, a rappel and a glissade
+	if do_gear:
+		await _gear_shots()
 
 	print("[ScreenshotTour] Done")
 	quit(0)
@@ -330,6 +340,140 @@ func _slide_shots() -> void:
 	await _wait_frames(150)
 	print("[ScreenshotTour] Slide: speed %.1f m/s at %s" % [player.velocity.length(), player.global_position])
 	_save_shot("slide_02.png")
+
+
+## Stage the descent kit and the techniques in turn, one PNG each
+func _gear_shots() -> void:
+	var player := _get_player()
+	var terrain: Object = _locator.get_service("TerrainService")
+	var rope: Object = _locator.get_service("RopeService")
+	var pivot: Node = _get_camera_pivot()
+	if player == null or not is_instance_valid(terrain) or pivot == null:
+		push_warning("[ScreenshotTour] No player, terrain or camera; --gear skipped")
+		return
+	var snow := [int(_enums.SurfaceType["SNOW_FIRM"]), int(_enums.SurfaceType["SNOW_SOFT"]), int(_enums.SurfaceType["SNOW_PACKED"])]
+	var event_bus: Node = root.get_node_or_null("/root/EventBus")
+	if event_bus != null:
+		event_bus.diegetic_message.connect(func(text: String, _duration: float) -> void:
+			print("[ScreenshotTour] Climber: \"%s\"" % text))
+
+	# Skis: carried on the pack, then on the feet and running
+	var gear_script: GDScript = load("res://src/core/data/gear_state.gd") as GDScript
+	player.gear_state.add_item(gear_script.GearItem.new(int(_enums.GearType["SKIS"]), 1.0, 3.2))
+	var slope_cell: Object = _find_cell(player, terrain, func(cell: Object) -> bool:
+		return cell.slope_angle >= 24.0 and cell.slope_angle <= 30.0 and int(cell.surface_type) in snow and cell.distance_to_cliff > 80.0)
+	if slope_cell != null:
+		_place(player, terrain, slope_cell.position)
+		await _ticks(30)
+		player.set_footwear(int(_enums.Footwear["SKIS"]))
+		await _ticks(5)
+		# A diagonal line, not the fall line: straight down is 30 m/s in seconds
+		player.ski.heading = slope_cell.slope_direction.rotated(Vector3.UP, 0.7)
+		await _ticks(90)
+		_aim_camera(pivot, player.velocity, -12.0)
+		await _ticks(20)
+		_save_shot("gear_skiing.png")
+		Input.action_press("move_right")
+		await _ticks(30)
+		_aim_camera(pivot, player.velocity.rotated(Vector3.UP, 1.2), -10.0)
+		await _ticks(15)
+		Input.action_release("move_right")
+		_save_shot("gear_carve.png")
+		Input.action_press("move_back")
+		await _ticks(240)
+		Input.action_release("move_back")
+		player.set_footwear(int(_enums.Footwear["CRAMPONS"]))
+		await _ticks(10)
+
+	# Downclimbing a steep face: crampons on, axe in, facing the slope
+	var face_cell: Object = _find_cell(player, terrain, func(cell: Object) -> bool:
+		return cell.slope_angle >= 39.0 and cell.slope_angle <= 44.0 and int(cell.surface_type) in snow and cell.distance_to_cliff > 12.0)
+	if face_cell != null:
+		_place(player, terrain, face_cell.position)
+		await _ticks(40)
+		_aim_camera(pivot, face_cell.slope_direction.cross(Vector3.UP), -5.0)
+		Input.action_press("move_back")
+		await _ticks(60)
+		Input.action_release("move_back")
+		_save_shot("gear_downclimb.png")
+
+	# A sitting glissade on firm snow
+	if slope_cell != null:
+		_place(player, terrain, slope_cell.position)
+		player.look_at(player.global_position + slope_cell.slope_direction, Vector3.UP)
+		await _ticks(30)
+		await _tap_action("slide_initiate")
+		await _ticks(70)
+		_aim_camera(pivot, player.velocity.rotated(Vector3.UP, 0.8), -8.0)
+		await _ticks(15)
+		_save_shot("gear_glissade.png")
+		await _tap_action("slide_initiate")  # Self-arrest
+		await _ticks(240)
+
+	# A rappel down a cliff band, seen from out in the air
+	if is_instance_valid(rope):
+		var lip: Object = _find_cell(player, terrain, func(cell: Object) -> bool:
+			return cell.slope_angle < 36.0 and cell.distance_to_cliff < 3.5 and cell.distance_to_cliff > 1.0 \
+				and rope.anchor_detector.find_anchor(cell.position, true) != null \
+				and terrain.get_slope_at(cell.position + cell.slope_direction * 4.0) >= 55.0)
+		if lip != null:
+			_place(player, terrain, lip.position)
+			var down: Vector3 = lip.slope_direction
+			_aim_camera(pivot, down, -10.0)
+			await _ticks(20)
+			rope.request_rappel(player)
+			Engine.time_scale = 8.0
+			var waited := 0
+			while rope.phase == int(rope.RopePhase["DEPLOYING"]) and waited < 6000:
+				await physics_frame
+				waited += 1
+			Engine.time_scale = 1.0
+			Input.action_press("move_forward")
+			await _ticks(360)
+			Input.action_release("move_forward")
+			_aim_camera(pivot, -down, 8.0)
+			await _ticks(25)
+			print("[ScreenshotTour] Rappel: rope phase %s, %.1f m of rope out" % [
+				rope.RopePhase.keys()[rope.phase], rope.rappel_controller.distance_descended])
+			_save_shot("gear_rappel.png")
+			await _tap_action("rope_deploy")
+			await _ticks(30)
+
+## Wait a number of physics ticks (rendered frames can each run several)
+func _ticks(count: int) -> void:
+	for i in range(count):
+		await physics_frame
+
+
+func _find_cell(player: Node3D, terrain: Object, condition: Callable) -> Object:
+	var cells: Array = terrain.find_cells(player.global_position, 320.0, condition)
+	if cells.is_empty():
+		return null
+	return cells[0]
+
+
+func _place(player: Node3D, terrain: Object, at: Vector3) -> void:
+	var spot := at
+	spot.y = terrain.get_height_at(spot) + 0.3
+	player.global_position = spot
+	player.velocity = Vector3.ZERO
+
+
+## Point the camera along a horizontal direction at a pitch (degrees)
+func _aim_camera(pivot: Node, direction: Vector3, pitch_degrees: float) -> void:
+	var flat := Vector3(direction.x, 0.0, direction.z)
+	if flat.length_squared() < 0.0001:
+		return
+	flat = flat.normalized()
+	pivot.yaw = atan2(-flat.x, -flat.z)
+	pivot.pitch = deg_to_rad(pitch_degrees)
+
+
+func _tap_action(action: String) -> void:
+	Input.action_press(action)
+	await physics_frame
+	await physics_frame
+	Input.action_release(action)
 
 
 func _get_player() -> Node3D:

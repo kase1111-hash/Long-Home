@@ -138,6 +138,7 @@ func _physics_process(_delta: float) -> void:
 
 	var sliding := state == GameEnums.PlayerMovementState.SLIDING \
 		or state == GameEnums.PlayerMovementState.ARRESTED
+	var skiing := state == GameEnums.PlayerMovementState.SKIING
 	var plume := 0.0
 	if grounded and medium != Medium.NONE:
 		if sliding and speed > SLIDE_MIN_SPEED:
@@ -145,6 +146,10 @@ func _physics_process(_delta: float) -> void:
 			# Digging the axe in throws more than gliding does
 			if state == GameEnums.PlayerMovementState.ARRESTED:
 				plume = minf(plume + 0.35, 1.0)
+		elif skiing and speed > SLIDE_MIN_SPEED and player.ski != null:
+			# A clean carve leaves a thin wake; a skid throws a rooster tail
+			var wake := clampf((speed - SLIDE_MIN_SPEED) / (SLIDE_FULL_SPEED * 2.0), 0.0, 0.5)
+			plume = clampf(wake + player.ski.skid * 0.8, 0.0, 1.0)
 		elif speed > WALK_DUST_SPEED and _is_loose(medium):
 			# Fast walking on scree, mud or powder raises a little
 			plume = clampf((speed - WALK_DUST_SPEED) / 6.0, 0.0, 0.25)

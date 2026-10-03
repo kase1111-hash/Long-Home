@@ -67,6 +67,12 @@ class GearItem:
 			GameEnums.GearType.GLOVES:
 				properties["warmth"] = 0.7
 				properties["dexterity"] = 0.8
+			GameEnums.GearType.SKIS:
+				properties["length"] = 1.75  # metres
+				properties["sidecut_radius"] = 20.0  # metres
+			GameEnums.GearType.SNOWBOARD:
+				properties["length"] = 1.6  # metres
+				properties["sidecut_radius"] = 8.0  # metres
 
 	func damage(amount: float) -> void:
 		condition_value = maxf(0.0, condition_value - amount)
@@ -125,6 +131,24 @@ static func create_light_loadout() -> GearState:
 	state.add_item(GearItem.new(GameEnums.GearType.ICE_AXE, 1.0, 0.4))
 	state.add_item(GearItem.new(GameEnums.GearType.LAYERS, 0.9, 1.5))
 	state.add_item(GearItem.new(GameEnums.GearType.GLOVES, 0.9, 0.15))
+
+	return state
+
+
+## Ski mountaineering: skis on the pack, light technical kit, a short rope
+static func create_ski_loadout() -> GearState:
+	var state := GearState.new()
+
+	state.add_item(GearItem.new(GameEnums.GearType.SKIS, 1.0, 3.2))
+	state.add_item(GearItem.new(GameEnums.GearType.CRAMPONS, 1.0, 0.8))
+	state.add_item(GearItem.new(GameEnums.GearType.ICE_AXE, 1.0, 0.4))
+	state.add_item(GearItem.new(GameEnums.GearType.HELMET, 1.0, 0.4))
+	state.add_item(GearItem.new(GameEnums.GearType.HARNESS, 1.0, 0.4))
+	state.add_item(GearItem.new(GameEnums.GearType.ROPE, 1.0, 3.0))
+	state.add_item(GearItem.new(GameEnums.GearType.LAYERS, 1.0, 1.8))
+	state.add_item(GearItem.new(GameEnums.GearType.GLOVES, 1.0, 0.2))
+	state.add_item(GearItem.new(GameEnums.GearType.GOGGLES, 1.0, 0.1))
+	state.items[GameEnums.GearType.ROPE].properties["length"] = 40.0  # Light 40 m rope: 20 m rappels
 
 	return state
 

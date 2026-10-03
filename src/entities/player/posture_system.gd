@@ -140,9 +140,8 @@ func _calculate_target_stability() -> float:
 		GameEnums.PlayerMovementState.INCAPACITATED:
 			return 0.1
 		GameEnums.PlayerMovementState.SKIING:
-			var ski := player.get_node_or_null("SkiPhysics")
-			if ski != null and ski.has_method("get_stability"):
-				var on_skis: float = ski.get_stability()
+			if player.ski != null:
+				var on_skis := player.ski.get_stability()
 				stability_modifiers["skiing"] = on_skis - 1.0
 				return on_skis
 			return 0.8

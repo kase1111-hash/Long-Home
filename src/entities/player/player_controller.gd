@@ -105,6 +105,7 @@ var movement: PlayerMovement
 var posture: PostureSystem
 var input_handler: PlayerInput
 var state_machine: PlayerStateMachine
+var ski: SkiPhysics
 
 # =============================================================================
 # STATE
@@ -212,8 +213,10 @@ func _setup_components() -> void:
 	posture = PostureSystem.new(self)
 	input_handler = PlayerInput.new(self)
 	state_machine = PlayerStateMachine.new(self)
+	ski = SkiPhysics.new(self)
 
 	add_child(movement)
+	add_child(ski)
 	add_child(posture)
 	add_child(input_handler)
 	add_child(state_machine)
@@ -401,8 +404,7 @@ func _on_landed(pre_velocity: Vector3) -> void:
 
 	match current_state:
 		GameEnums.PlayerMovementState.SKIING:
-			var ski := get_node_or_null("SkiPhysics")
-			if ski != null and ski.has_method("on_landed"):
+			if ski != null:
 				ski.on_landed(cushioned)
 		GameEnums.PlayerMovementState.SLIDING:
 			var slides := get_slide_system()
@@ -814,6 +816,12 @@ func _update_gear_action(delta: float) -> void:
 			say("Skis on. Heels down.", 1.8)
 		GameEnums.Footwear.SNOWBOARD:
 			say("Strapped in.", 1.8)
+
+
+## Put something else on the feet right now (gear lost or broken)
+func set_footwear(new_footwear: GameEnums.Footwear) -> void:
+	gear_action = &""
+	_set_footwear(new_footwear)
 
 
 func _set_footwear(new_footwear: GameEnums.Footwear) -> void:

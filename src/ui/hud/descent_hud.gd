@@ -30,6 +30,8 @@ const REFRESH_INTERVAL := 0.25
 
 ## Seconds the control hints stay up after the HUD appears
 const HINTS_AUTO_HIDE_DELAY := 15.0
+## Seconds a contextual hint stays up when it comes back on its own
+const CONTEXT_HINT_TIME := 8.0
 ## Fade-out duration of the automatic hide
 const HINTS_FADE_TIME := 1.0
 ## Fade duration when hints are toggled by hand
@@ -39,7 +41,14 @@ const HINTS_TOGGLE_FADE_TIME := 0.2
 const MESSAGE_FADE_IN := 0.3
 const MESSAGE_FADE_OUT := 0.6
 
-const HINTS_TEXT := "WASD move  ·  Mouse look  ·  Space slide  ·  R rope  ·  Q/E lean  ·  M map  ·  C self-check  ·  Esc pause  ·  H hints"
+const HINTS_TEXT := "WASD move  ·  Mouse look  ·  Space glissade / arrest  ·  S brake  ·  R rope  ·  F crampons  ·  T skis  ·  Q/E lean  ·  M map  ·  C self-check  ·  Esc pause  ·  H hints"
+
+## Contextual control reminders, shown in place of the general hints while
+## the climber is doing something with its own controls
+const HINTS_SLIDING := "S dig in heels and spike  ·  A/D lean  ·  W lie back  ·  Space self-arrest"
+const HINTS_ROPE := "Push down the face to let rope run  ·  + Space to let it run fast  ·  Let go to brake  ·  Up to climb  ·  R unclip on a ledge, or build the next anchor"
+const HINTS_ROPE_BUILD := "Building the anchor  ·  R strip it and back off"
+const HINTS_SKIING := "A/D turn  ·  S skid to slow or stop  ·  W tuck (pole on the flat)  ·  T step out  ·  Space self-arrest after a fall"
 
 ## Layout (design resolution is 1920x1080, viewport stretch)
 const SCREEN_MARGIN := 24.0
@@ -83,6 +92,15 @@ const STATE_NAMES := {
 	GameEnums.PlayerMovementState.ARRESTED: "Self-arrest",
 	GameEnums.PlayerMovementState.RESTING: "Resting",
 	GameEnums.PlayerMovementState.INCAPACITATED: "Incapacitated",
+	GameEnums.PlayerMovementState.SKIING: "Skiing",
+}
+
+## What is on the climber's feet, for the read-out
+const FOOTWEAR_NAMES := {
+	GameEnums.Footwear.BOOTS: "Boots",
+	GameEnums.Footwear.CRAMPONS: "Crampons",
+	GameEnums.Footwear.SKIS: "Skis",
+	GameEnums.Footwear.SNOWBOARD: "Splitboard",
 }
 
 # =============================================================================
@@ -95,6 +113,7 @@ var _elevation_value: Label
 var _descended_value: Label
 var _base_camp_value: Label
 var _moving_value: Label
+var _feet_value: Label
 var _time_value: Label
 var _temp_caption: Label
 var _temp_value: Label
@@ -131,6 +150,10 @@ var _hints_visible: bool = true
 var _hints_auto_hide_remaining: float = HINTS_AUTO_HIDE_DELAY
 var _hints_tween: Tween
 var _message_tween: Tween
+## Seconds left on a contextual hint brought back after the hints faded
+var _context_hint_timer: float = 0.0
+## The player hid the hints with H: contextual hints stay hidden too
+var _hints_dismissed: bool = false
 
 # =============================================================================
 # LIFECYCLE
@@ -198,6 +221,8 @@ func show_message(message: String, duration: float) -> void:
 ## Show or hide the control hints; cancels the automatic hide
 func set_hints_visible(is_visible: bool, animate: bool = true) -> void:
 	_hints_auto_hide_remaining = -1.0
+	_hints_dismissed = not is_visible
+	_context_hint_timer = 0.0
 	_fade_hints(is_visible, HINTS_TOGGLE_FADE_TIME if animate else 0.0)
 
 
@@ -241,6 +266,7 @@ func _build_run_panel() -> void:
 	_descended_value = _add_row("Descended")
 	_base_camp_value = _add_row("Base camp")
 	_moving_value = _add_row("Moving")
+	_feet_value = _add_row("Feet")
 	_time_value = _add_row("Time")
 
 	# Temperature row stays hidden until a source provides a value
@@ -388,7 +414,9 @@ func _refresh() -> void:
 	_descended_value.text = _descended_text(run)
 	_base_camp_value.text = _base_camp_text()
 	_moving_value.text = _moving_text()
+	_feet_value.text = _feet_text()
 	_time_value.text = _time_text(run)
+	_update_context_hints()
 	_update_temperature_row()
 
 
@@ -443,7 +471,69 @@ func _moving_text() -> String:
 	if is_instance_valid(_player):
 		state = _player.current_state
 	var state_name: String = STATE_NAMES.get(state, UNKNOWN)
+	if not is_instance_valid(_player):
+		return state_name
+
+	match state:
+		GameEnums.PlayerMovementState.SKIING:
+			if _player.footwear == GameEnums.Footwear.SNOWBOARD:
+				state_name = "Riding"
+			if _player.ski != null and _player.ski.speed > 0.5:
+				state_name += " %d km/h" % roundi(_player.ski.speed * 3.6)
+		GameEnums.PlayerMovementState.ROPING:
+			var rope := ServiceLocator.get_service("RopeService") as RopeService
+			if rope != null and rope.get_activity_text() != "":
+				state_name = "On rope: %s" % rope.get_activity_text()
+		GameEnums.PlayerMovementState.SLIDING:
+			var slides := _player.get_slide_system()
+			if slides != null and slides.is_arresting:
+				state_name = "Self-arresting"
+			elif slides != null and slides.is_uncontrolled:
+				state_name = "Falling down the slope"
 	return state_name
+
+
+func _feet_text() -> String:
+	if not is_instance_valid(_player):
+		return UNKNOWN
+	var text: String = FOOTWEAR_NAMES.get(_player.footwear, UNKNOWN)
+	if _player.is_busy_with_gear():
+		var progress := roundi(_player.get_gear_action_progress() * 100.0)
+		match _player.gear_action:
+			&"crampons":
+				text = "%s (%s crampons %d%%)" % [text, "taking off" if _player.footwear == GameEnums.Footwear.CRAMPONS else "strapping on", progress]
+			&"skis":
+				text = "%s (%s %d%%)" % [text, "stepping out" if _player.is_on_skis() else "stepping in", progress]
+	return text
+
+
+## Swap the general hints for the controls of what the climber is doing now
+func _update_context_hints() -> void:
+	if _hints_label == null:
+		return
+	var text := HINTS_TEXT
+	if is_instance_valid(_player):
+		match _player.current_state:
+			GameEnums.PlayerMovementState.SLIDING:
+				text = HINTS_SLIDING
+			GameEnums.PlayerMovementState.SKIING:
+				text = HINTS_SKIING
+			GameEnums.PlayerMovementState.ROPING:
+				var rope := ServiceLocator.get_service("RopeService") as RopeService
+				if rope != null and rope.phase == RopeService.RopePhase.RAPPELLING:
+					text = HINTS_ROPE
+				else:
+					text = HINTS_ROPE_BUILD
+	if _hints_label.text != text:
+		_hints_label.text = text
+		# A new set of controls is worth showing even after the hints faded
+		if text != HINTS_TEXT and not _hints_visible and _hints_auto_hide_remaining < 0.0 and not _hints_dismissed:
+			_fade_hints(true, HINTS_TOGGLE_FADE_TIME)
+			_context_hint_timer = CONTEXT_HINT_TIME
+	if _context_hint_timer > 0.0:
+		_context_hint_timer -= REFRESH_INTERVAL
+		if _context_hint_timer <= 0.0 and text != HINTS_TEXT:
+			_fade_hints(false, HINTS_FADE_TIME)
 
 
 func _time_text(run: RunContext) -> String:
