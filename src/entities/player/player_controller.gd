@@ -170,6 +170,7 @@ var smooth_velocity: Vector3 = Vector3.ZERO
 
 var _slide_system: SlideSystem
 var _incapacitated_time: float = 0.0
+var _fall_still_time: float = 0.0
 var _rescue_called: bool = false
 var _last_message: String = ""
 var _last_message_time: float = -100.0
@@ -326,13 +327,27 @@ func _apply_physics(delta: float) -> void:
 		grounded = get_height_above_terrain() < (0.6 if clinging else 0.3)
 
 	if grounded:
-		if not is_grounded and air_time > 0.12:
+		# A fall that started on the ground (an anchor ripping at a ledge) still
+		# has to be resolved once the body has settled
+		var touched_down := not is_grounded and air_time > 0.12
+		var settled_fall := current_state == GameEnums.PlayerMovementState.FALLING and state_time > 0.25
+		if touched_down or settled_fall:
 			_on_landed(pre_velocity)
 		air_time = 0.0
 	else:
 		air_time += delta
 		_check_fall_start()
 	is_grounded = grounded
+
+	# A falling body wedged where nothing counts as floor (a narrow gully) but
+	# no longer moving has landed all the same
+	if current_state == GameEnums.PlayerMovementState.FALLING and velocity.length() < 0.3:
+		_fall_still_time += delta
+		if _fall_still_time > 1.0:
+			_fall_still_time = 0.0
+			_on_landed(pre_velocity)
+	else:
+		_fall_still_time = 0.0
 
 
 func _update_tracking(delta: float) -> void:
@@ -510,6 +525,7 @@ func trigger_fall() -> void:
 		push = current_cell.slope_direction * 1.5
 	velocity = push + Vector3(0.0, -1.0, 0.0)
 	air_time = FALL_START_TIME
+	is_grounded = false
 	change_state(GameEnums.PlayerMovementState.FALLING)
 
 # =============================================================================

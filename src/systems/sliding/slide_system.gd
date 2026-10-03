@@ -219,6 +219,7 @@ func _ready() -> void:
 
 	# Start/stop sliding physics when the player state machine enters/leaves SLIDING
 	EventBus.player_movement_changed.connect(_on_player_movement_changed)
+	EventBus.descent_ready.connect(_on_descent_ready)
 
 	# Register service
 	ServiceLocator.register_service("SlideSystem", self)
@@ -234,6 +235,13 @@ func _on_player_ready(service: Object) -> void:
 func _on_terrain_ready(service: Object) -> void:
 	terrain_service = service as TerrainService
 	print("[SlideSystem] Connected to TerrainService")
+
+
+## A new descent: forget the last one's one-off warnings
+func _on_descent_ready() -> void:
+	_warned_crampons = false
+	_pending_uncontrolled = false
+	_pending_cause = "glissade"
 
 
 func _on_player_movement_changed(old_state: GameEnums.PlayerMovementState, new_state: GameEnums.PlayerMovementState) -> void:
@@ -819,7 +827,9 @@ func _upset(cause: String) -> void:
 func attempt_self_arrest() -> bool:
 	if not is_sliding or is_arresting or arrest_cooldown > 0.0:
 		return false
-	if slide_time < ARREST_INPUT_GRACE:
+	# The press that sat the climber down is not an arrest; a slip or a crash
+	# had no press, so a quick reaction there counts
+	if slide_time < ARREST_INPUT_GRACE and not is_uncontrolled:
 		return false
 
 	is_arresting = true

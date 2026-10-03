@@ -177,8 +177,9 @@ func _ready() -> void:
 	ServiceLocator.get_service_async("TerrainService", _on_terrain_ready)
 	ServiceLocator.get_service_async("PlayerController", _on_player_ready)
 
-	# A fresh pack for every descent
+	# A fresh pack for every descent; rope work stops when the run does
 	EventBus.descent_ready.connect(reset_for_run)
+	EventBus.run_ended.connect(_on_run_ended)
 	EventBus.player_movement_changed.connect(_on_player_movement_changed)
 
 	# Register self
@@ -243,7 +244,25 @@ func reset_for_run() -> void:
 	_reanchor_target = null
 
 
+## The run is over: drop whatever rope work was going on
+func _on_run_ended(_run: RunContext, _outcome: GameEnums.ResolutionType) -> void:
+	stop_rope_work()
+
+
+## Stop building, rappelling and pulling right now (run over, climber gone)
+func stop_rope_work() -> void:
+	rappel_controller.is_rappelling = false
+	if deployment_system.current_state != RopeDeploymentSystem.DeploymentState.IDLE:
+		deployment_system.force_abort()
+	_set_phase(RopePhase.NONE)
+	rope_in_use = false
+	_reanchor_target = null
+
+
 func _physics_process(delta: float) -> void:
+	if phase != RopePhase.NONE and not GameStateManager.is_run_active():
+		stop_rope_work()
+		return
 	if phase != RopePhase.NONE:
 		rope_time_total += delta
 	if phase == RopePhase.PULLING:
@@ -339,6 +358,10 @@ func _needs_rope_below(climber: PlayerController) -> bool:
 
 
 func _start_deployment(anchor: AnchorPoint) -> void:
+	# A finished deployment sits in READY until cleared; clear it while the
+	# phase is not DEPLOYING so the cancellation is not taken for a new abort
+	if deployment_system.current_state != RopeDeploymentSystem.DeploymentState.IDLE:
+		deployment_system.force_abort()
 	_active_anchor = anchor
 	_set_phase(RopePhase.DEPLOYING)
 	if deployment_system.current_state == RopeDeploymentSystem.DeploymentState.IDLE:
@@ -681,6 +704,8 @@ func _on_deployment_complete(anchor: AnchorPoint, rope: Rope) -> void:
 
 	if begin_rappel():
 		_set_phase(RopePhase.RAPPELLING)
+		# The anchor is built and the rope threaded: the deployment job is done
+		deployment_system.force_abort()
 		if rappel_controller.is_body_rappel:
 			_climber.say("No harness. The rope goes round your hips and over a shoulder.", 3.0)
 		else:

@@ -5,6 +5,7 @@ extends SceneTree
 ##   2. R again: build, weight-test, thread, and they are on the rope
 ##   3. hold W looking down the face: the rope runs, the climber goes down the
 ##      cliff, touches down on easier ground and pulls the rope after them
+##   4. back at the lip, R builds a second anchor (and R strips it)
 ##
 ##   godot --headless --audio-driver Dummy --path . -s res://tests/smoke_rappel.gd [-- --mountain=<id>]
 ##
@@ -164,6 +165,23 @@ func _run() -> void:
 	print("[smoke_rappel] rope %s after the pull (%.1f s); rope work took %.0f s of game time in all" % [
 		"recovered" if kept else "left behind", pull, rope.rope_time_total])
 	_expect(_messages.size() >= 4, "the climber narrates the rope work (%d lines)" % _messages.size())
+
+	# 5. Back at the lip, the rope comes out again (a finished rappel must not
+	# leave the anchor builder stuck)
+	if kept:
+		player.global_position = spot
+		player.velocity = Vector3.ZERO
+		await _seconds(0.5)
+		await _tap("rope_deploy")
+		await _seconds(2.0)
+		_expect(rope.phase == int(phases["DEPLOYING"]) and player.current_state == roping,
+			"a second anchor goes in after a finished rappel (phase %s)" % rope.RopePhase.keys()[rope.phase])
+		await _tap("rope_deploy")
+		var strip := 0.0
+		while strip < 15.0 and rope.phase != int(phases["NONE"]):
+			await _seconds(0.25)
+			strip += 0.25
+		_expect(rope.phase == int(phases["NONE"]), "and comes out again with R")
 
 	Engine.time_scale = 1.0
 	Engine.physics_ticks_per_second = 60

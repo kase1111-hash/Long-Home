@@ -106,6 +106,8 @@ func _on_state_changed(_old_state: GameEnums.PlayerMovementState, new_state: Gam
 func _enter() -> void:
 	is_board = player.footwear == GameEnums.Footwear.SNOWBOARD
 	_warned_rock = false
+	_recovery = 0.0
+	_crash_cooldown = 0.0
 	var facing := player.get_facing_direction()
 	facing.y = 0.0
 	facing = facing.normalized() if facing.length_squared() > 0.01 else Vector3.FORWARD

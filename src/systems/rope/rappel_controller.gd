@@ -260,7 +260,7 @@ func abort() -> void:
 func _physics_process(delta: float) -> void:
 	if not is_rappelling or player == null or terrain_service == null:
 		return
-	if player.current_state != GameEnums.PlayerMovementState.ROPING:
+	if player.current_state != GameEnums.PlayerMovementState.ROPING or not GameStateManager.is_run_active():
 		return
 
 	if is_jammed:

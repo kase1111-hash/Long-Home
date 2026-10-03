@@ -188,6 +188,17 @@ func transition_to(new_state: GameEnums.PlayerMovementState) -> void:
 	current_state.enter()
 
 
+## Where a climber ends up when an activity stops: on skis, clinging to a
+## steep face, or standing
+static func _back_on_feet(climber: PlayerController) -> GameEnums.PlayerMovementState:
+	if climber.is_on_skis():
+		return GameEnums.PlayerMovementState.SKIING
+	var cell := climber.current_cell
+	if cell != null and cell.slope_angle > PlayerController.DOWNCLIMB_ENTER_SLOPE:
+		return GameEnums.PlayerMovementState.DOWNCLIMBING
+	return GameEnums.PlayerMovementState.STANDING
+
+
 # =============================================================================
 # BASE STATE CLASS
 # =============================================================================
@@ -379,7 +390,11 @@ class SlidingState extends PlayerState:
 		pass
 
 	func check_transitions() -> GameEnums.PlayerMovementState:
-		# SlideSystem ends the slide (stop, arrest, fall) and picks the next state
+		# SlideSystem ends the slide (stop, arrest, fall) and picks the next state;
+		# if it is not running one, never leave the climber stuck sliding
+		var slides := player.get_slide_system()
+		if (slides == null or not slides.is_sliding) and player.state_time > 0.5:
+			return PlayerStateMachine._back_on_feet(player)
 		return GameEnums.PlayerMovementState.SLIDING
 
 
@@ -406,7 +421,12 @@ class RopingState extends PlayerState:
 		# R again: strip the anchor, unclip on a ledge, or build the next one
 		if player.input_handler and player.input_handler.is_action_just_pressed("rope_deploy"):
 			player.request_rope()
-		# RopeService ends the rope work (off rope, cancelled, anchor failure)
+		# RopeService ends the rope work (off rope, cancelled, anchor failure);
+		# with no rope work going on, step off the rope
+		var rope := ServiceLocator.get_service("RopeService") as RopeService
+		if (rope == null or rope.phase == RopeService.RopePhase.NONE) and player.state_time > 1.0 \
+				and player.current_state == GameEnums.PlayerMovementState.ROPING:
+			return PlayerStateMachine._back_on_feet(player)
 		return player.current_state
 
 
