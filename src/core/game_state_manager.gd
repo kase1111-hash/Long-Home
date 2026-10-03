@@ -364,7 +364,11 @@ func exit_map_check() -> bool:
 func _on_fatal_event_completed() -> void:
 	# When fatal event sequence finishes, complete the run
 	if is_run_active():
-		complete_run(GameEnums.ResolutionType.FATALITY, "Fatal incident")
+		var cause := "Fatal incident"
+		var fatal := ServiceLocator.get_service("FatalEventManager")
+		if fatal != null and fatal.has_method("get_cause_text"):
+			cause = fatal.get_cause_text()
+		complete_run(GameEnums.ResolutionType.FATALITY, cause)
 
 
 # =============================================================================

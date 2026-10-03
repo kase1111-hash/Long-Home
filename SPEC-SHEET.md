@@ -258,6 +258,80 @@ time for a given peak.
   crevasses, and the survey charges every line extra for an icefall (glacier steeper than 30°),
   so the guidebook goes round them.
 
+### Avalanches (implemented)
+
+**The day.** Each attempt is a new day (`AvalancheConditions`, drawn from the mountain's
+climate):
+
+| Input | Drawn from | Feeds |
+|-------|-----------|-------|
+| New snow (72 h) | Storm cycles more likely on volatile peaks; mostly modest, now and then big | Storm slab (from 20 cm), loose dry, wind slab supply |
+| Wind (km/h, from) | Faster on exposed peaks, mostly westerly | Wind slab on the three lee aspects (from 25 km/h) |
+| Persistent weak layer | Likelier on cold, continental peaks | Persistent slab (shady aspects; all for depth hoar), remote triggering |
+| Afternoon warmth | A day offset from a clear standard day; the run's temperatures follow it | Wet loose (sunny aspects, afternoons), wet slab |
+
+**The danger** per band (lower, middle, upper third of the mountain) comes from each problem's
+likelihood class (unlikely, possible, likely, very likely), plus a size step. Persistent slabs
+count half a step more; a problem on only one or two aspects counts half a step less. The scale is
+1 Low, 2 Moderate, 3 Considerable, 4 High, 5 Very High. Over many days a stormy peak sees all of
+the first four. The bulletin prints the danger rows, the problems with aspect roses, the
+snowpack and the travel advice.
+
+**Release.** The field (4 m grid) gives each snow cell an instability: the problem's likelihood
+× a steepness factor × slope-to-slope variability (±45% noise) × a shape factor × forest
+anchoring.
+- Steepness factor: 0 below 28°, rising to 1 at 36°, flat to 45°, falling off above that, and 0
+  past 62°. Loose dry snow needs over 38°; wet snow moves from 28°.
+- Shape: convex rolls up to +30%. Forest: dense trees cut it by up to 85%.
+- Wet problems scale with warmth through the day.
+
+| Trigger | Rate |
+|---------|------|
+| A person on an unstable slope | `0.012/s × instability² × load` (walking 1.0, kicking steps 1.1, skiing 0.8, glissading 0.7, standing 0.3) |
+| A crash or hard landing | A one-off chance of up to half the instability |
+| Whumpf / shooting cracks | `0.035/s × slab instability² × load`; a collapse can release a steep slope within 25 m |
+| Natural | 0 / 0.15 / 0.8 / 3 / 8 per game hour from Low to Very High, plus warmth |
+| Serac | 0.6 per game hour from the icefalls, scaled by warmth |
+
+**The flow.** Snow parcels run over the heightfield under Voellmy-Salm friction
+(`a = g(sin θ − μ cos θ) − g v² / (ξ h)`).
+- Slab μ is 0.40, 0.31, 0.25 and 0.21 for sizes 1 to 4, and ξ is 700 to 2,300.
+- Loose snow has μ 0.42; wet snow +0.06 μ and half the ξ; ice μ 0.3.
+- Snow on the track is entrained (at most doubling a parcel).
+- Debris is deposited where the snow stops, about a metre thick per parcel, compacted to 60%, and
+  smoothed.
+- Snow that leaves the map is lost. A 40 m apron at the edge stands for the valley floor.
+- Runout (α) angles come out at about 20-35°, and speeds at 20-27 m/s for size 2-3 slabs.
+- When the snow stops, the bed (lowered by the slab depth, firm snow) and the debris (raised,
+  packed snow) are carved into the terrain, and a crown wall is drawn.
+
+**Caught and buried.**
+- Caught: carried with the flow, with burial depth growing at 0.32 m/s per 10 m/s of flow.
+  - Swimming sheds 0.45 m a second of effort.
+  - An airbag (pulled within 3 s) rises at 0.6 m/s.
+  - Pushing across the flow drifts 2.2 m/s toward the edge.
+  - Trees, rocks and cliffs injure above 6-9 m/s.
+  - Space below 6 m/s makes an air pocket.
+- Buried: depth is capped by the debris there.
+
+| Depth | Outcome |
+|-------|---------|
+| < 0.15 m | On top of the debris |
+| 0.15-0.5 m | Buried, face clear: dig out (40 strokes per metre, halved with a hand up) |
+| 0.5-1 m | Head under: dig before the air runs out (15 game minutes, 35 with an air pocket) |
+| ≥ 1 m | Only rescuers: witnessed? (50% near the normal route, 20% elsewhere), then 12-25 min with a transceiver or 45-120 min without, and survival from the burial curve (91% to 18 min, 34% at 35 min, 60% with an air pocket) |
+
+**Planning.**
+- Each guidebook line gets an ATES class from its metres on open 30-50° snow slopes and in the
+  paths below them (plus crevassed glacier):
+  - Simple: under 15 m, little runout exposure.
+  - Complex: over 150 m, over 30% of the line, over 45% exposed, or over 150 m of glacier.
+  - Challenging: anything in between.
+- The reduction method (after Munter): danger potential 2/4/8/16 ÷ steepest slope (35-39° → 2,
+  under 35° → 4) ÷ aspects (off the north sector 2, off the northern half 3, off the bulletin's
+  aspects 4; none in wet snow). 1 or less is acceptable.
+- Slope-angle shading prints 30/35/40/45° classes.
+
 ---
 
 ## 4. Sliding Mechanics

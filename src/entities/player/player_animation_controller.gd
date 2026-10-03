@@ -307,6 +307,8 @@ func _movement_state_to_animation(state: GameEnums.PlayerMovementState) -> Strin
 			return &"incapacitated"
 		GameEnums.PlayerMovementState.SKIING:
 			return &"skiing"
+		GameEnums.PlayerMovementState.CAUGHT:
+			return &"falling"
 		_:
 			return &"idle"
 
@@ -526,6 +528,18 @@ func _get_pose() -> Dictionary:
 		GameEnums.PlayerMovementState.INCAPACITATED:
 			offset.y = -0.75
 			rotation.x = 1.4
+		GameEnums.PlayerMovementState.CAUGHT:
+			var avalanches := ServiceLocator.get_service("AvalancheSystem") as AvalancheSystem
+			if avalanches != null and avalanches.is_buried():
+				# Set in the debris, one arm up
+				offset.y = -0.9
+				rotation.x = 0.5
+			else:
+				# Rolled over and over in the moving snow
+				offset.y = -0.4
+				rotation.x = fmod(state_time * 5.0, TAU)
+				rotation.z = sin(state_time * 3.0) * 0.8
+				snap = true
 	if player.is_busy_with_gear():
 		# Bent over the straps and bindings
 		offset.y -= 0.25

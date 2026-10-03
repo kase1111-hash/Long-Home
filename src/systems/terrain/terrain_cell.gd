@@ -67,6 +67,10 @@ var is_exit_zone: bool = false
 ## On a glacier (ice or snow over ice, crevasses possible)
 var is_glacier: bool = false
 
+## Avalanche debris lying here (metres) and the bed a slab slid off
+var debris_depth: float = 0.0
+var avalanche_bed: bool = false
+
 ## Exit zone quality (0-1, how good of a stopping point)
 var exit_zone_quality: float = 0.0
 

@@ -192,7 +192,8 @@ func _update_actions() -> void:
 		"open_map",
 		"crampons_toggle",
 		"skis_toggle",
-		"probe"
+		"probe",
+		"snow_pit"
 	]
 
 	for action in action_names:

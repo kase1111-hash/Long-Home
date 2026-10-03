@@ -374,6 +374,28 @@ func _get_moment_text(moment: Dictionary) -> String:
 			return ""  # Don't show this one
 		"summit_reached":
 			return "[%s] Summit" % time_str
+		"avalanche_triggered":
+			return "[%s] Triggered an avalanche" % time_str
+		"avalanche_natural":
+			return "[%s] An avalanche ran nearby" % time_str
+		"serac_fall":
+			return "[%s] A serac fell from the icefall" % time_str
+		"avalanche_caught":
+			return "[%s] Caught in an avalanche" % time_str
+		"avalanche_burial":
+			return "[%s] Buried in the debris" % time_str
+		"avalanche_survived":
+			return "[%s] Out of the avalanche" % time_str
+		"dug_out":
+			return "[%s] Dug out" % time_str
+		"airbag_deployed":
+			return "[%s] Pulled the airbag" % time_str
+		"whumpf":
+			return "[%s] The snowpack collapsed underfoot" % time_str
+		"shooting_cracks":
+			return "[%s] Shooting cracks" % time_str
+		"snow_pit":
+			return "[%s] Dug a snow pit: %s" % [time_str, str(moment.get("details", {}).get("result", "")).get_slice(".", 0)]
 		"crevasse_fall":
 			return "[%s] Fell into a crevasse" % time_str
 		"crevasse_climbed_out":

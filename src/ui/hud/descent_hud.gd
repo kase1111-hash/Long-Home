@@ -41,7 +41,7 @@ const HINTS_TOGGLE_FADE_TIME := 0.2
 const MESSAGE_FADE_IN := 0.3
 const MESSAGE_FADE_OUT := 0.6
 
-const HINTS_TEXT := "WASD move  ·  Mouse look  ·  Space glissade / arrest  ·  S brake  ·  R rope  ·  F crampons  ·  T skis  ·  G probe  ·  Q/E lean  ·  M map  ·  C self-check  ·  Esc pause  ·  H hints"
+const HINTS_TEXT := "WASD move  ·  Mouse look  ·  Space glissade / arrest  ·  S brake  ·  R rope  ·  F crampons  ·  T skis  ·  G probe  ·  V snow pit  ·  Q/E lean  ·  M map  ·  C self-check  ·  Esc pause  ·  H hints"
 
 ## Contextual control reminders, shown in place of the general hints while
 ## the climber is doing something with its own controls
@@ -50,6 +50,8 @@ const HINTS_ROPE := "Push down the face to let rope run  ·  + Space to let it r
 const HINTS_ROPE_BUILD := "Building the anchor  ·  R strip it and back off"
 const HINTS_SKIING := "A/D turn  ·  S skid to slow or stop  ·  W tuck (pole on the flat)  ·  T step out  ·  Space self-arrest after a fall"
 const HINTS_CREVASSE := "Push against a wall to climb out (axe in hand, crampons on: F)  ·  Keep pushing to keep climbing"
+const HINTS_AVALANCHE := "Space pull the airbag, then swim  ·  Push across the flow to fight for the edge  ·  As it slows, Space: a hand up, an air pocket"
+const HINTS_BURIED := "Space dig (again and again)  ·  Keep your breath"
 
 ## Layout (design resolution is 1920x1080, viewport stretch)
 const SCREEN_MARGIN := 24.0
@@ -94,6 +96,7 @@ const STATE_NAMES := {
 	GameEnums.PlayerMovementState.RESTING: "Resting",
 	GameEnums.PlayerMovementState.INCAPACITATED: "Incapacitated",
 	GameEnums.PlayerMovementState.SKIING: "Skiing",
+	GameEnums.PlayerMovementState.CAUGHT: "Caught in an avalanche",
 }
 
 ## What is on the climber's feet, for the read-out
@@ -515,6 +518,9 @@ func _moving_text() -> String:
 	var crevasses := ServiceLocator.get_service("CrevasseSystem") as CrevasseSystem
 	if crevasses != null and crevasses.get_activity_text() != "":
 		return crevasses.get_activity_text()
+	var avalanches := ServiceLocator.get_service("AvalancheSystem") as AvalancheSystem
+	if avalanches != null and avalanches.get_activity_text() != "":
+		return avalanches.get_activity_text()
 
 	match state:
 		GameEnums.PlayerMovementState.SKIING:
@@ -555,7 +561,12 @@ func _update_context_hints() -> void:
 		return
 	var text := HINTS_TEXT
 	var crevasses := ServiceLocator.get_service("CrevasseSystem") as CrevasseSystem
-	if crevasses != null and crevasses.is_in_crevasse():
+	var avalanches := ServiceLocator.get_service("AvalancheSystem") as AvalancheSystem
+	if avalanches != null and avalanches.is_buried():
+		text = HINTS_BURIED
+	elif avalanches != null and avalanches.is_caught():
+		text = HINTS_AVALANCHE
+	elif crevasses != null and crevasses.is_in_crevasse():
 		text = HINTS_CREVASSE
 	elif is_instance_valid(_player):
 		match _player.current_state:

@@ -60,6 +60,9 @@ const STYLE_COSTS := {
 	"obstacle_impact": [0.08, 0.24, "collision"],
 	"crevasse_fall": [0.2, 0.4, "crevasse fall"],
 	"crevasse_slip": [0.03, 0.09, "slip on the crevasse wall"],
+	"avalanche_triggered": [0.15, 0.3, "avalanche triggered"],
+	"avalanche_caught": [0.3, 0.5, "caught in an avalanche"],
+	"avalanche_burial": [0.15, 0.3, "buried"],
 }
 
 ## Style never drops below this (the line still went)

@@ -54,6 +54,8 @@ var guide_list: VBoxContainer
 var guide_card: VBoxContainer
 var follow_button: Button
 var guide_note: Label
+var bulletin_content: VBoxContainer
+var slope_toggle: CheckButton
 
 # =============================================================================
 # STATE
@@ -137,8 +139,63 @@ func refresh() -> void:
 func _refresh_all() -> void:
 	_read_route_mode()
 	_refresh_guidebook()
+	_refresh_bulletin()
 	_analyze_current_route()
 	_update_weather_display()
+
+
+## Today's avalanche bulletin for this mountain
+func _refresh_bulletin() -> void:
+	if bulletin_content == null:
+		return
+	AvalancheBulletinPanel.fill(bulletin_content, get_avalanche_conditions(), terrain_service != null and terrain_service.glacier != null)
+
+
+## Today's snowpack on the mountain being planned (null without a service)
+func get_avalanche_conditions() -> AvalancheConditions:
+	var service := ServiceLocator.get_service("AvalancheService") as AvalancheService
+	if service == null:
+		return null
+	var mountain_id := terrain_service.current_mountain if terrain_service != null else ""
+	if mountain_id.is_empty():
+		var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
+		var mountain := mountain_db.get_selected_mountain() if mountain_db else null
+		if mountain == null:
+			return null
+		mountain_id = mountain.id
+	return service.today(mountain_id)
+
+
+func _on_slope_toggled(enabled: bool) -> void:
+	if map_display != null:
+		map_display.show_slope_shading = enabled
+		map_display.queue_redraw()
+
+
+## The avalanche lines of the plan: today's danger, the line's terrain, and
+## the reduction method
+func _avalanche_text(metrics: RouteMetrics.Result) -> String:
+	var today := get_avalanche_conditions()
+	if today == null or metrics == null:
+		return ""
+	var lines: Array[String] = []
+	var main := today.get_main_problem()
+	var danger := today.get_max_danger()
+	var problem_text := ""
+	if main != null:
+		problem_text = " (%s on %s)" % [main.get_name().to_lower(), main.aspect_text()]
+	lines.append("Avalanche: %s today%s" % [AvalancheConditions.LEVEL_NAMES[danger], problem_text])
+	var terrain_line := RouteMetrics.avalanche_line(metrics).replace("Avalanche terrain: ", "Your line: ")
+	lines.append(terrain_line)
+	if main != null and metrics.avalanche_metres >= 6.0:
+		var named := 0
+		for p in today.problems:
+			named |= p.aspects
+		var on_problem := metrics.avalanche_metres_on(named)
+		if on_problem >= 6.0:
+			lines.append("%d m of it on the aspects the bulletin names." % roundi(on_problem))
+	lines.append(ReductionMethod.evaluate(today, metrics).text)
+	return "\n".join(lines)
 
 
 func _resolve_nodes() -> void:
@@ -159,6 +216,8 @@ func _resolve_nodes() -> void:
 	guide_card = find_child("GuideCard", true, false) as VBoxContainer
 	follow_button = find_child("FollowButton", true, false) as Button
 	guide_note = find_child("GuideNote", true, false) as Label
+	bulletin_content = find_child("BulletinContent", true, false) as VBoxContainer
+	slope_toggle = find_child("SlopeToggle", true, false) as CheckButton
 
 
 func _connect_signals() -> void:
@@ -185,6 +244,8 @@ func _connect_signals() -> void:
 		descent_button.pressed.connect(_on_leg_pressed.bind(GameEnums.RunPhase.DESCENT))
 	if follow_button:
 		follow_button.pressed.connect(_on_follow_pressed)
+	if slope_toggle:
+		slope_toggle.toggled.connect(_on_slope_toggled)
 
 
 func _setup_ui() -> void:
@@ -493,6 +554,8 @@ func _update_route_info() -> void:
 	var time_label := _get_or_create_label(route_info_panel, "TimeLabel")
 	var grade_label := _get_or_create_label(route_info_panel, "GradeLabel")
 	var risk_label := _get_or_create_label(route_info_panel, "RiskLabel")
+	var avalanche_label := _get_or_create_label(route_info_panel, "AvalancheLabel")
+	avalanche_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var warnings_label := _get_or_create_label(route_info_panel, "WarningsLabel")
 	var recommendations_label := _get_or_create_label(route_info_panel, "RecommendationsLabel")
 	var logbook_label := _get_or_create_label(route_info_panel, "LogbookLabel")
@@ -506,6 +569,7 @@ func _update_route_info() -> void:
 		time_label.text = "Book time: --"
 		grade_label.text = "Grade: --"
 		risk_label.text = "Risk: --"
+		avalanche_label.text = ""
 		warnings_label.text = ""
 		recommendations_label.text = "Waiting for terrain..."
 		return
@@ -529,6 +593,11 @@ func _update_route_info() -> void:
 		grade_label.text = "Grade: --"
 
 	day_label.text = _day_plan_text()
+	avalanche_label.text = _avalanche_text(metrics)
+	var today := get_avalanche_conditions()
+	if today != null:
+		var check := ReductionMethod.evaluate(today, metrics)
+		avalanche_label.add_theme_color_override("font_color", Color(0.75, 0.88, 0.7) if check.acceptable else Color(1.0, 0.62, 0.35))
 
 	# Risk display with color
 	var risk_percent := current_analysis.overall_risk * 100
@@ -717,8 +786,15 @@ func _update_weather_display() -> void:
 		wind = "exposed"
 	elif mountain.wind_exposure > 0.33:
 		wind = "breezy"
-	weather_label.text = "Forecast: %s\nSummit temp: %.0f°C\nWind: %s" % [
-		volatility, mountain.typical_temperature, wind
+	# The day's warmth comes with the avalanche bulletin (the run follows it)
+	var summit_temperature := mountain.typical_temperature
+	var temperature_note := ""
+	var today := get_avalanche_conditions()
+	if today != null:
+		summit_temperature = today.afternoon_temperature(today.elevation_range.y)
+		temperature_note = " (afternoon)"
+	weather_label.text = "Forecast: %s\nSummit temp: %.0f°C%s\nWind: %s" % [
+		volatility, summit_temperature, temperature_note, wind
 	]
 
 
@@ -900,6 +976,11 @@ func _build_ui() -> void:
 		label.name = label_name
 		label.text = label_name.replace("Label", "") + ": --"
 		plan.add_child(label)
+	var avalanche_label := Label.new()
+	avalanche_label.name = "AvalancheLabel"
+	avalanche_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	avalanche_label.add_theme_font_size_override("font_size", 13)
+	plan.add_child(avalanche_label)
 
 	plan.add_child(HSeparator.new())
 
@@ -955,6 +1036,48 @@ func _build_ui() -> void:
 	follow.text = "Follow this line"
 	follow.disabled = true
 	guide.add_child(follow)
+
+	# --- Avalanche tab: today's bulletin ---
+	var bulletin_scroll := ScrollContainer.new()
+	bulletin_scroll.name = "Avalanche"
+	bulletin_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	tabs.add_child(bulletin_scroll)
+	var bulletin := VBoxContainer.new()
+	bulletin.name = "BulletinContent"
+	bulletin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bulletin.add_theme_constant_override("separation", 6)
+	bulletin_scroll.add_child(bulletin)
+
+	# Slope-angle shading on the map (the classes avalanche maps print)
+	var slope_panel := PanelContainer.new()
+	slope_panel.name = "SlopePanel"
+	slope_panel.position = Vector2(12, 10)
+	var slope_style := StyleBoxFlat.new()
+	slope_style.bg_color = Color(0.08, 0.09, 0.12, 0.72)
+	slope_style.set_corner_radius_all(5)
+	slope_style.set_content_margin_all(6)
+	slope_panel.add_theme_stylebox_override("panel", slope_style)
+	map_container.add_child(slope_panel)
+	var slope_bar := HBoxContainer.new()
+	slope_bar.name = "SlopeBar"
+	slope_bar.add_theme_constant_override("separation", 4)
+	slope_panel.add_child(slope_bar)
+	var slope_check := CheckButton.new()
+	slope_check.name = "SlopeToggle"
+	slope_check.text = "Slope angle"
+	slope_check.button_pressed = true
+	slope_bar.add_child(slope_check)
+	for band in TopoMapDisplay.SLOPE_CLASSES:
+		var chip := ColorRect.new()
+		chip.custom_minimum_size = Vector2(14, 14)
+		chip.color = Color(band.color, 0.9)
+		chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		slope_bar.add_child(chip)
+		var degrees := Label.new()
+		degrees.text = band.label
+		degrees.add_theme_font_size_override("font_size", 12)
+		degrees.add_theme_color_override("font_color", Color(0.92, 0.92, 0.9))
+		slope_bar.add_child(degrees)
 
 	# Elevation profile (bottom)
 	var elevation := Control.new()

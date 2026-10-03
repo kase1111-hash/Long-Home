@@ -16,7 +16,7 @@ extends Node
 ## skate back down. Without them there is no way up the ice; after a long
 ## wait the run ends in a rescue.
 ##
-## Probing (G). The climber plunges the axe shaft (or a ski pole) into the
+## Probing (G). The climber plunges the axe shaft (or a ski pole, or an avalanche probe) into the
 ## snow ahead: a hollow bridge within reach is found and a dark probe hole
 ## left in the snow. Nothing on the mountain is labelled; what the climber
 ## learns is what the shaft tells them, and the faint sag a bridge leaves.
@@ -344,7 +344,8 @@ func start_probe() -> void:
 	if state != GameEnums.PlayerMovementState.STANDING and state != GameEnums.PlayerMovementState.WALKING and state != GameEnums.PlayerMovementState.SKIING:
 		return
 	var has_axe := player.gear_state != null and player.gear_state.has_ice_axe()
-	if not has_axe and not player.is_on_skis():
+	var has_probe := player.gear_state != null and player.gear_state.has_item(GameEnums.GearType.SHOVEL_PROBE)
+	if not has_axe and not has_probe and not player.is_on_skis():
 		player.say("Nothing to probe with.", 2.0)
 		return
 	probe_timer = PROBE_TIME

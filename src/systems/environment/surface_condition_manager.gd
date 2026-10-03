@@ -295,6 +295,10 @@ func _update_avalanche_risk(temp: float, sun_intensity: float) -> void:
 	if weather_service and weather_service.precipitation == WeatherService.PrecipitationType.FREEZING_RAIN:
 		risk += 0.35
 
+	# The day's snowpack, where one was drawn (AvalancheSystem), sets the base
+	var avalanches := ServiceLocator.get_service("AvalancheSystem") as AvalancheSystem
+	if avalanches != null and avalanches.active and avalanches.conditions != null:
+		risk = float(avalanches.conditions.get_max_danger() - 1) / 4.0 + risk * 0.25
 	avalanche_risk = clampf(risk, 0.0, 1.0)
 
 	if avalanche_risk > 0.6:

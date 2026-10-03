@@ -162,6 +162,32 @@ class Result:
 	var rope_required: bool = false
 	## Shortest rope that makes the abseils (metres, 0 = none needed)
 	var min_rope_length: float = 0.0
+	## Avalanche terrain (the ground itself, not the day's snowpack):
+	## horizontal metres on open snow slopes of 30-50 deg (where slabs start),
+	## per aspect (AvalancheConditions sectors), the steepest of them, metres
+	## in the paths below such slopes, and the ATES class (1 Simple,
+	## 2 Challenging, 3 Complex)
+	var avalanche_metres: float = 0.0
+	var avalanche_aspect_metres: PackedFloat32Array = PackedFloat32Array([0, 0, 0, 0, 0, 0, 0, 0])
+	var avalanche_max_slope: float = 0.0
+	var runout_metres: float = 0.0
+	var ates: int = 1
+
+	## Aspects with at least min_metres of avalanche terrain (bit mask)
+	func avalanche_aspects(min_metres: float = 6.0) -> int:
+		var mask := 0
+		for i in range(8):
+			if avalanche_aspect_metres[i] >= min_metres:
+				mask |= 1 << i
+		return mask
+
+	## Metres of avalanche terrain on the aspects of a mask
+	func avalanche_metres_on(mask: int) -> float:
+		var total := 0.0
+		for i in range(8):
+			if (mask >> i) & 1 == 1:
+				total += avalanche_aspect_metres[i]
+		return total
 
 	func get_full_grade() -> String:
 		return "%s %s" % [grade, commitment]
@@ -196,7 +222,7 @@ static func travel_mode_for(state: int, slide_control: int) -> int:
 			if slide_control == GameEnums.SlideControlLevel.CONTROLLED or slide_control == GameEnums.SlideControlLevel.MARGINAL:
 				return MODE_GLIDE
 			return MODE_ADRIFT
-		GameEnums.PlayerMovementState.FALLING, GameEnums.PlayerMovementState.ARRESTED, GameEnums.PlayerMovementState.INCAPACITATED:
+		GameEnums.PlayerMovementState.FALLING, GameEnums.PlayerMovementState.ARRESTED, GameEnums.PlayerMovementState.INCAPACITATED, GameEnums.PlayerMovementState.CAUGHT:
 			return MODE_ADRIFT
 	return MODE_FOOT
 
@@ -434,7 +460,87 @@ static func measure(line: PackedVector3Array, terrain: TerrainService, options: 
 	result.grade = AlpineGrade.grade_name(result.grade_value)
 	result.commitment = AlpineGrade.commitment(result.minutes)
 	result.step_kinds = kinds
+	_measure_avalanche_terrain(result, terrain, slopes, surfaces)
 	return result
+
+
+const ATES_NAMES: Array[String] = ["", "Simple", "Challenging", "Complex"]
+## Avalanche terrain: open snow slopes between these angles (deg)
+const AVALANCHE_MIN_SLOPE := 30.0
+const AVALANCHE_MAX_SLOPE := 50.0
+
+
+## Avalanche terrain along the line, and its ATES class. The Avalanche
+## Terrain Exposure Scale rates a route by how much of it lies in or below
+## avalanche start zones: Simple (low angle or forest, the odd runout),
+## Challenging (well-defined paths and start zones, with ways to limit the
+## exposure), Complex (large open slopes, overlapping paths, terrain traps,
+## crevassed icefalls; little way to limit it).
+static func _measure_avalanche_terrain(result: Result, terrain: TerrainService, slopes: PackedFloat32Array, surfaces: PackedInt32Array) -> void:
+	var steps := slopes.size()
+	for i in range(steps):
+		var horizontal := result.distances[i + 1] - result.distances[i]
+		var mid := (result.points[i] + result.points[i + 1]) * 0.5
+		var slope := slopes[i]
+		var snow := TractionModel.is_snow(surfaces[i])
+		if snow and slope >= AVALANCHE_MIN_SLOPE and slope <= AVALANCHE_MAX_SLOPE and not _forested(terrain, mid):
+			result.avalanche_metres += horizontal
+			result.avalanche_max_slope = maxf(result.avalanche_max_slope, slope)
+			var cell := terrain.get_cell_at(mid)
+			if cell != null and cell.slope_direction.length_squared() > 0.0001:
+				var sector := AvalancheConditions.aspect_of(Vector2(cell.slope_direction.x, cell.slope_direction.z))
+				result.avalanche_aspect_metres[sector] += horizontal
+		elif i % 4 == 0 and _below_avalanche_slope(terrain, mid):
+			result.runout_metres += minf(horizontal * 4.0, result.length - result.distances[i])
+	var length := maxf(result.length, 1.0)
+	var start_share := result.avalanche_metres / length
+	var runout_share := result.runout_metres / length
+	if result.avalanche_metres < 15.0 and runout_share < 0.1 and result.glacier_metres < 40.0:
+		result.ates = 1
+	elif result.avalanche_metres > 150.0 or start_share > 0.3 or runout_share > 0.45 or result.glacier_metres > 150.0:
+		result.ates = 3
+	else:
+		result.ates = 2
+
+
+## Dense trees anchor the snowpack
+static func _forested(terrain: TerrainService, p: Vector3) -> bool:
+	if terrain.scatter == null:
+		return false
+	var trees := 0
+	for obj in terrain.scatter.get_objects_near(p, 5.0):
+		if obj.is_tree() and obj.size >= 2.0:
+			trees += 1
+	return trees >= 3
+
+
+## Is a point in the path of an avalanche slope above it? Walk up the fall
+## line: 24 m or more of open steep snow within 120 m means yes
+static func _below_avalanche_slope(terrain: TerrainService, p: Vector3) -> bool:
+	var point := p
+	var steep := 0
+	for _k in range(20):
+		var cell := terrain.get_cell_at(point)
+		if cell == null or cell.slope_direction.length_squared() < 0.0001:
+			return false
+		if TractionModel.is_snow(cell.surface_type) and cell.slope_angle >= AVALANCHE_MIN_SLOPE and cell.slope_angle <= AVALANCHE_MAX_SLOPE + 10.0:
+			steep += 1
+			if steep >= 4:
+				return true
+		point -= cell.slope_direction.normalized() * 6.0
+		if not terrain.has_terrain_at(point):
+			return false
+	return false
+
+
+## "Challenging (ATES 2) · 120 m of 30-50° slopes facing N, NE"
+static func avalanche_line(metrics: Result) -> String:
+	var text := "Avalanche terrain: %s (ATES %d)" % [ATES_NAMES[metrics.ates], metrics.ates]
+	if metrics.avalanche_metres >= 6.0:
+		text += " · %d m of 30-50° slopes facing %s" % [roundi(metrics.avalanche_metres), AvalancheConditions.aspect_list(metrics.avalanche_aspects())]
+	if metrics.runout_metres >= 20.0:
+		text += " · %d m below them" % roundi(metrics.runout_metres)
+	return text
 
 
 ## Resample the line every SAMPLE_STEP horizontal metres onto the ground,
