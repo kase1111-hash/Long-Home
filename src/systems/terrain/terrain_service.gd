@@ -72,6 +72,9 @@ var dem_loader: DEMLoader
 ## Mesh + collision builder (child node)
 var generator: TerrainGenerator
 
+## Trees and boulders (child node, rebuilt after every load)
+var scatter: TerrainScatter
+
 ## Current mountain manifest (loaded from DEM files)
 var current_manifest: Dictionary = {}
 
@@ -108,6 +111,10 @@ func _ready() -> void:
 	generator = TerrainGenerator.new()
 	generator.name = "TerrainGenerator"
 	add_child(generator)
+
+	# Trees and boulders, rebuilt after every load
+	scatter = TerrainScatter.new()
+	add_child(scatter)
 
 	# Register with service locator
 	ServiceLocator.register_service("TerrainService", self)
@@ -164,6 +171,10 @@ func load_terrain(mountain_id: String) -> bool:
 	# Meshes + collision (the generator skips the duplicate rebuild on terrain_loaded)
 	if generator != null:
 		generator.rebuild_all()
+
+	# Trees and boulders, before anyone hears terrain_loaded (maps, anchors)
+	if scatter != null:
+		scatter.rebuild(self)
 
 	print("[TerrainService] Terrain ready in %d ms" % (Time.get_ticks_msec() - started))
 	_print_terrain_stats()

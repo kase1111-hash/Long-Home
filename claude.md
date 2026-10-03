@@ -62,7 +62,8 @@ src/
 │   ├── summit_goal.gd  # Summit cairn + full-route summit check
 │   ├── planning/       # RouteSurvey (guidebook lines), RouteMetrics (pitches, book times),
 │   │                   # AlpineGrade (F..ED, I..VI), RouteScorer (logbook scoring)
-│   ├── terrain/        # Procedural mountains, meshes/collision, analysis (10 files)
+│   ├── terrain/        # Procedural mountains, meshes/collision, analysis; TerrainScatter (trees,
+│   │                   # boulders: placement, MultiMesh, colliders) + ScatterMeshes (low-poly builders)
 │   ├── sliding/        # Slide physics (5 files)
 │   ├── rope/           # Rope and rappelling (7 files)
 │   ├── environment/    # Weather, time, temperature, sky/clouds/ranges/fog/precipitation visuals (8 files)
@@ -80,7 +81,7 @@ src/
 ├── data/               # Gear and mountain databases (2 files)
 └── scenes/             # Scene management (1 file)
 tests/                  # Godot-native checks (check_scripts, smoke_goal, ui_tour,
-                        # screenshot_tour, test_route_scoring, smoke_full_route) + Python validators
+                        # screenshot_tour, test_route_scoring, smoke_full_route, test_scatter) + Python validators
 ```
 
 ## Key Systems
@@ -130,6 +131,18 @@ changes (F crampons, T skis) → `PostureSystem` (grip margin → stability, sli
 fall detection). ROPING is kinematic: `RappelController` places the climber on the face.
 DOWNCLIMBING and ARRESTED cling (no gravity, vertical follows the terrain).
 
+### Trees, boulders and run history (who owns what)
+
+`TerrainService.load_terrain` calls `TerrainScatter.rebuild` after the meshes and before
+`terrain_loaded`, so maps (`TopoMapGenerator` prints woodland/boulders) and anchors
+(`AnchorDetector.scatter_anchors`) see it. Obstacles are on physics layer 3 (`OBSTACLE_LAYER`
+= 4): the player's `collision_mask` is 5 (terrain + obstacles); camera rays use 1 only.
+`PlayerController._check_obstacle_impacts` turns a fast collision into `hit_obstacle` (incident
+`obstacle_impact`, injury by speed, ski crash / slide upset). Systems announce incidents and
+decisions with `EventBus.record_incident/record_decision`; `GameStateManager` logs them into
+the active run (`RunContext.log_*`, camera-shot decisions skipped), which is what the post-game
+key moments and `RouteScorer` style and abseil counts read.
+
 ### Planning and scoring (who owns what)
 
 `RouteMetrics.measure(line, terrain, options)` is the one yardstick: it resamples a line every
@@ -164,6 +177,7 @@ godot --headless --audio-driver Dummy --path . -s res://tests/smoke_slide.gd    
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_mechanics.gd  # downclimb, crampons, landings
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_rappel.gd -- --mountain=north_face  # rope
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_ski.gd        # skis (add -- --board)
+godot --headless --audio-driver Dummy --path . -s res://tests/test_scatter.gd        # trees, boulders, impacts, anchors
 godot --headless --audio-driver Dummy --path . -s res://tests/test_route_scoring.gd  # grades, guidebook, scoring
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_full_route.gd    # full route + retreat
 xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-driver opengl3 \

@@ -70,6 +70,13 @@ const LANDING_HARD := 4.5
 const LANDING_INJURY := 7.0
 const LANDING_SEVERE := 11.0
 
+## Meeting a tree or a boulder (m/s into it): harmless at walking pace, a
+## knock above OBSTACLE_HARMLESS, an injury above OBSTACLE_INJURY, serious
+## above OBSTACLE_SEVERE
+const OBSTACLE_HARMLESS := 3.0
+const OBSTACLE_INJURY := 6.0
+const OBSTACLE_SEVERE := 11.0
+
 ## Seconds incapacitated before rescuers carry the climber down
 const RESCUE_DELAY := 5.0
 
@@ -171,6 +178,9 @@ var smooth_velocity: Vector3 = Vector3.ZERO
 var _slide_system: SlideSystem
 var _incapacitated_time: float = 0.0
 var _fall_still_time: float = 0.0
+
+## Seconds before another tree or boulder can hurt (one impact per collision)
+var _obstacle_cooldown: float = 0.0
 var _rescue_called: bool = false
 var _last_message: String = ""
 var _last_message_time: float = -100.0
@@ -321,6 +331,8 @@ func _apply_physics(delta: float) -> void:
 	var pre_velocity := velocity
 	move_and_slide()
 	_recover_from_ground_underside(pre_velocity)
+	_obstacle_cooldown = maxf(0.0, _obstacle_cooldown - delta)
+	_check_obstacle_impacts(pre_velocity)
 
 	var grounded := is_on_floor()
 	if not grounded and (clinging or motor):
@@ -365,6 +377,95 @@ func _update_tracking(delta: float) -> void:
 	if Engine.get_physics_frames() % 3 == 0:
 		position_updated.emit(global_position, smooth_velocity)
 		EventBus.player_position_updated.emit(global_position, smooth_velocity)
+
+
+## Trees and boulders (TerrainScatter) are walked round at walking pace, but
+## meeting one at speed (sliding, skiing, falling) is a collision with
+## something that does not give
+func _check_obstacle_impacts(pre_velocity: Vector3) -> void:
+	if _obstacle_cooldown > 0.0:
+		return
+	for i in range(get_slide_collision_count()):
+		var collision := get_slide_collision(i)
+		var shape := collision.get_collider_shape() as Node
+		if shape == null or not shape.has_meta("scatter_kind"):
+			continue
+		var normal := collision.get_normal()
+		normal.y = 0.0
+		if normal.length_squared() < 0.0001:
+			continue
+		var impact := maxf(0.0, -pre_velocity.dot(normal.normalized()))
+		if impact >= OBSTACLE_HARMLESS:
+			hit_obstacle(str(shape.get_meta("scatter_kind")), impact)
+		return
+
+
+## The climber hits a tree or a boulder at impact m/s
+func hit_obstacle(kind: String, impact: float) -> void:
+	_obstacle_cooldown = 1.0
+	var is_rock := kind == "boulder" or kind == "rock"
+	EventBus.record_incident("obstacle_impact", {
+		"object": kind,
+		"speed": impact,
+		"state": GameEnums.PlayerMovementState.keys()[current_state]
+	})
+	# It stops you
+	velocity.x *= 0.15
+	velocity.z *= 0.15
+
+	var disabling := false
+	if impact >= OBSTACLE_SEVERE:
+		var severity := clampf(0.6 + (impact - OBSTACLE_SEVERE) / 15.0, 0.6, 1.0)
+		_apply_impact_injury(severity, impact, kind, true)
+		set_stability(0.1)
+		disabling = severity >= 0.85
+	elif impact >= OBSTACLE_INJURY:
+		_apply_impact_injury(clampf(0.2 + (impact - OBSTACLE_INJURY) / 12.0, 0.2, 0.6), impact, kind, false)
+		set_stability(stability - 0.5)
+	else:
+		set_stability(stability - 0.3)
+
+	match current_state:
+		GameEnums.PlayerMovementState.SKIING:
+			if ski != null:
+				ski._crash("obstacle")
+		GameEnums.PlayerMovementState.SLIDING:
+			var slides := get_slide_system()
+			if slides != null:
+				slides._upset("obstacle")
+	if disabling and body_state != null:
+		change_state(GameEnums.PlayerMovementState.INCAPACITATED)
+	say("You slam into a boulder." if is_rock else "You hit a tree.", 2.5)
+
+
+## Blunt injury from a collision: arms and legs at moderate speed, the body
+## (and an unhelmeted head) at high speed
+func _apply_impact_injury(severity: float, impact: float, kind: String, serious: bool) -> void:
+	if body_state == null:
+		return
+	var locations: Array = [
+		GameEnums.BodyPart.LEFT_ARM, GameEnums.BodyPart.RIGHT_ARM,
+		GameEnums.BodyPart.LEFT_LEG, GameEnums.BodyPart.RIGHT_LEG,
+	]
+	if serious:
+		locations = [GameEnums.BodyPart.TORSO, GameEnums.BodyPart.LEFT_LEG, GameEnums.BodyPart.RIGHT_LEG]
+		if gear_state == null or not gear_state.has_item(GameEnums.GearType.HELMET):
+			locations.append(GameEnums.BodyPart.HEAD)
+	var location: GameEnums.BodyPart = locations[randi() % locations.size()]
+	var injury_type := GameEnums.InjuryType.FRACTURE if severity > 0.45 else GameEnums.InjuryType.SPRAIN
+	if location == GameEnums.BodyPart.HEAD or location == GameEnums.BodyPart.TORSO:
+		injury_type = GameEnums.InjuryType.FRACTURE if severity > 0.6 else GameEnums.InjuryType.LACERATION
+	var injury := Injury.new(injury_type, severity, location, 0.0)
+	body_state.add_injury(injury)
+	EventBus.injury_occurred.emit(injury)
+	EventBus.body_state_updated.emit(body_state)
+	EventBus.record_incident("injury", {
+		"cause": kind,
+		"severity": severity,
+		"impact_speed": impact,
+		"type": GameEnums.InjuryType.keys()[injury_type],
+		"location": GameEnums.BodyPart.keys()[location]
+	})
 
 
 ## The terrain is a heightfield: it has no overhangs, so touching a "ceiling"

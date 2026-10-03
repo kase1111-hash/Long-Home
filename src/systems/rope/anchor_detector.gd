@@ -185,6 +185,7 @@ func _scan_terrain_for_anchors(center: Vector3) -> Array[AnchorPoint]:
 			if anchor:
 				anchors.append(anchor)
 
+	anchors.append_array(scatter_anchors(center, half_range))
 	return anchors
 
 
@@ -215,7 +216,49 @@ func find_anchor(center: Vector3, with_kit: bool, exclude: Array = []) -> Anchor
 			if score > best_score:
 				best_score = score
 				best = anchor
+	# A sling round a tree or a big boulder standing within reach
+	for natural in scatter_anchors(center, reach_range + 1.0):
+		if _is_excluded(natural, exclude):
+			continue
+		var natural_distance := Vector2(natural.position.x - center.x, natural.position.z - center.z).length()
+		var natural_score := natural.get_effective_quality() - 0.08 * natural_distance - 0.1 * natural.get_placement_difficulty()
+		if natural_score > best_score:
+			best_score = natural_score
+			best = natural
 	return best
+
+
+## Anchors offered by the trees and boulders standing near a point
+## (TerrainScatter): a sound conifer or a big boulder takes a sling and is as
+## good as anchors get; a dead snag is a gamble. Quality is never shown.
+func scatter_anchors(center: Vector3, radius: float) -> Array[AnchorPoint]:
+	var anchors: Array[AnchorPoint] = []
+	if terrain_service == null or terrain_service.scatter == null:
+		return anchors
+	for obj in terrain_service.scatter.get_objects_near(center, radius):
+		var roll := float(absi(hash(Vector3i(int(obj.position.x * 10.0), 0, int(obj.position.z * 10.0)))) % 1000) / 1000.0
+		var anchor: AnchorPoint = null
+		match obj.kind:
+			TerrainScatter.Kind.CONIFER:
+				if obj.size >= 3.0:
+					anchor = AnchorPoint.new()
+					anchor.anchor_type = AnchorPoint.AnchorType.TREE
+					anchor.base_quality = clampf(0.78 + obj.size * 0.012 + 0.04 * roll, 0.78, 0.96)
+			TerrainScatter.Kind.SNAG:
+				anchor = AnchorPoint.new()
+				anchor.anchor_type = AnchorPoint.AnchorType.TREE
+				anchor.base_quality = 0.35 + 0.25 * roll  # Dead wood
+			TerrainScatter.Kind.BOULDER:
+				if obj.size >= 1.2:
+					anchor = AnchorPoint.new()
+					anchor.anchor_type = AnchorPoint.AnchorType.BOULDER
+					anchor.base_quality = clampf(0.6 + obj.size * 0.12 + 0.05 * roll, 0.6, 0.95)
+		if anchor == null:
+			continue
+		anchor.position = obj.position + Vector3(0.0, minf(1.0, obj.size * 0.3), 0.0)
+		anchor.load_direction = Vector3.DOWN
+		anchors.append(anchor)
+	return anchors
 
 
 ## Anchor a terrain cell offers. Deterministic per cell so the same ledge
