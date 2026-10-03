@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (glaciers and crevasses)
+
+- **A glacier on most mountains.** The generator lays a glacier tongue in the flank beside the
+  normal route. It is sized per peak by `MountainDatabase.glacier_extent`, and The Knife Edge has
+  none. Its RNG is separate, so the rest of each mountain is unchanged.
+  - The surface is smooth ice flowing down the fall line, and the cliff bands under it become
+    icefalls.
+  - Lateral moraines run along the edges.
+  - Below the equilibrium line the glacier is bare ice; above it, snow lies on top.
+  - `GlacierField` holds the coverage, the moraines and the crevasses.
+- **Crevasses.** Transverse rows (dense in the icefalls), marginal chevrons and a bergschrund.
+  Open slots are cut into the heightfield, several metres deep. Others lie hidden under snow
+  bridges of varying strength, which show only a faint sag.
+- **Bridges that give way.** `CrevasseSystem` sets the collapse hazard from bridge strength,
+  temperature and load (skis and glissades spread it). When a bridge goes,
+  `TerrainService.carve_crevasse_section` carves that stretch open at runtime, down to a debris
+  floor. It re-analyses and rebuilds only the chunks it touches (about 65 ms). The climber falls
+  in for real.
+- **Climbing out.** With an axe and crampons on, push against a wall to front-point out. It is
+  slow and tiring, and a tired climber can slip back. Without them, a long wait ends in a rescue.
+- **Probing (G).** Plunge the axe shaft or a ski pole ahead to find hollow snow. It leaves a dark
+  probe hole. Nothing is labelled on the mountain.
+- **Planning.**
+  - The topo maps shade the glacier and draw its open crevasses.
+  - Guidebook lines that cross the glacier grade higher, have slower book times, and carry the
+    note "crosses the glacier (probe ahead)". The survey prices glacier ground per style, and every
+    line goes round the icefalls.
+  - The route card asks for an axe to probe.
+  - The mountain select screen shows the glacier, and the gear check warns when the axe or
+    crampons are missing.
+- **Scoring and moments.** `crevasse_fall` and `crevasse_slip` incidents cost style. The
+  post-game screen recalls the fall, the climb out, and a probe that found a hollow.
+- **HUD.** The activity text covers probing, being in a slot and climbing out, with their own
+  hints, and "G probe" joins the hint line.
+- `tests/test_glacier.gd` (48 checks):
+  - generation per mountain and determinism
+  - corridor clearance and slope, surfaces, open depths and walkable bridges
+  - no trees on the ice, map symbols, route metrics and grades
+  - a live descent: probing, collapse hazards, a carved collapse, climbing out, and a rescue
+    without axe and crampons
+
 ### Added (trees and boulders)
 
 - **Trees and boulders on every mountain.** `TerrainScatter` places them after each terrain

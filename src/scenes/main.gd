@@ -196,6 +196,7 @@ func _bootstrap_descent_systems() -> void:
 	_bootstrap_service("BodyConditionService", BodyConditionService, world)
 	_bootstrap_service("SlideSystem", SlideSystem, world)
 	_bootstrap_service("RopeService", RopeService, world)
+	_bootstrap_service("CrevasseSystem", CrevasseSystem, world)
 	_bootstrap_service("RiskDetectionService", RiskDetectionService, world)
 	_bootstrap_service("FatalEventManager", FatalEventManager, world)
 	_bootstrap_service("FatalityDetector", FatalityDetector, world)

@@ -63,7 +63,9 @@ src/
 │   ├── planning/       # RouteSurvey (guidebook lines), RouteMetrics (pitches, book times),
 │   │                   # AlpineGrade (F..ED, I..VI), RouteScorer (logbook scoring)
 │   ├── terrain/        # Procedural mountains, meshes/collision, analysis; TerrainScatter (trees,
-│   │                   # boulders: placement, MultiMesh, colliders) + ScatterMeshes (low-poly builders)
+│   │                   # boulders: placement, MultiMesh, colliders) + ScatterMeshes (low-poly builders);
+│   │                   # GlacierField (glacier coverage, moraines, crevasses)
+│   ├── glacier/        # CrevasseSystem: bridge collapse, falls into the slot, climbing out, probing
 │   ├── sliding/        # Slide physics (5 files)
 │   ├── rope/           # Rope and rappelling (7 files)
 │   ├── environment/    # Weather, time, temperature, sky/clouds/ranges/fog/precipitation visuals (8 files)
@@ -81,12 +83,13 @@ src/
 ├── data/               # Gear and mountain databases (2 files)
 └── scenes/             # Scene management (1 file)
 tests/                  # Godot-native checks (check_scripts, smoke_goal, ui_tour,
-                        # screenshot_tour, test_route_scoring, smoke_full_route, test_scatter) + Python validators
+                        # screenshot_tour, test_route_scoring, smoke_full_route, test_scatter,
+                        # test_glacier) + Python validators
 ```
 
 ## Key Systems
 
-### 17 Major Systems
+### 18 Major Systems
 
 1. **Terrain** - Chunked loading, 11 surface types, 6 terrain zones by slope angle
 2. **Sliding** - Slope-plane glissade physics, braking, physical self-arrest; control spectrum (CONTROLLED → MARGINAL → UNSTABLE → LOST)
@@ -105,6 +108,7 @@ tests/                  # Godot-native checks (check_scripts, smoke_goal, ui_tou
 15. **Gear Database** - Equipment definitions
 16. **Mountain Database** - Mountain metadata, progress, logbook, full-route unlock
 17. **Planning & Scoring** - Guidebook lines per mountain, alpine grades, book times, logbook scoring, full route
+18. **Glaciers & Crevasses** - Glacier tongues with icefalls and moraines, open and snow-bridged crevasses, probing, bridge collapse, climbing out
 
 ### State Machines
 
@@ -143,6 +147,25 @@ decisions with `EventBus.record_incident/record_decision`; `GameStateManager` lo
 the active run (`RunContext.log_*`, camera-shot decisions skipped), which is what the post-game
 key moments and `RouteScorer` style and abseil counts read.
 
+### Glaciers and crevasses (who owns what)
+
+`ProceduralMountainGenerator._setup_glacier` lays a glacier beside the corridor (at least 26 m
+away, extent from `MountainDatabase.glacier_extent`; 0 = none) and plans its crevasses with its
+own RNG, so the rest of the mountain is unchanged. `_fill_heights` blends the face into the
+smooth ice surface, adds lateral moraines and cuts the open crevasses (bridged ones only sag
+0.45 m). The result's `GlacierField` (weights and moraine on the height grid, crevasses with a
+bucket index) becomes `TerrainService.glacier`. `TerrainService._classify_cell` makes glacier
+cells ICE below the ELA or steeper than 40°, snow above, scree on moraine, ICE in open slots.
+`TerrainScatter` skips glacier cells. `CrevasseSystem` (service, physics priority 10) checks
+the bridge under the climber each frame (`collapse_hazard`: strength, temperature, load); a
+collapse calls `TerrainService.carve_crevasse_section`, which lowers that stretch to a debris
+floor, re-analyses the 3x3 chunks, reclassifies and updates cliff distances locally, and
+rebuilds the chunk meshes (~65 ms). Climbing out holds the player (`PlayerController.held_by`
+skips its own physics) and moves them up the wall. Incidents `crevasse_fall` / `crevasse_slip`
+cost style; decisions `probe` and `crevasse_climbed_out` reach the post-game moments.
+`RouteMetrics` and `RouteSurvey` count glacier metres (slower book pace, grade bump, cost;
+`ICEFALL_COST` keeps every line off glacier steeper than 30°).
+
 ### Planning and scoring (who owns what)
 
 `RouteMetrics.measure(line, terrain, options)` is the one yardstick: it resamples a line every
@@ -178,6 +201,7 @@ godot --headless --audio-driver Dummy --path . -s res://tests/smoke_mechanics.gd
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_rappel.gd -- --mountain=north_face  # rope
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_ski.gd        # skis (add -- --board)
 godot --headless --audio-driver Dummy --path . -s res://tests/test_scatter.gd        # trees, boulders, impacts, anchors
+godot --headless --audio-driver Dummy --path . -s res://tests/test_glacier.gd        # glaciers, crevasses, probe, collapse
 godot --headless --audio-driver Dummy --path . -s res://tests/test_route_scoring.gd  # grades, guidebook, scoring
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_full_route.gd    # full route + retreat
 xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-driver opengl3 \

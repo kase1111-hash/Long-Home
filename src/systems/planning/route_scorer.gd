@@ -58,6 +58,8 @@ const STYLE_COSTS := {
 	"micro_slip": [0.005, 0.05, "slip"],
 	"collapse": [0.15, 0.30, "collapse"],
 	"obstacle_impact": [0.08, 0.24, "collision"],
+	"crevasse_fall": [0.2, 0.4, "crevasse fall"],
+	"crevasse_slip": [0.03, 0.09, "slip on the crevasse wall"],
 }
 
 ## Style never drops below this (the line still went)

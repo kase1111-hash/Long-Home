@@ -56,12 +56,14 @@ const MAX_INDEX := 16
 ##   rappels          abseils needed (or made)
 ##   exposure         fraction of the line with a drop close below (0-1)
 ##   ice_metres       horizontal metres of ice steeper than 30 deg
+##   glacier_metres   horizontal metres on a crevassed glacier
 static func grade_value(
 	sustained_slope: float,
 	steep_metres: float,
 	rappels: int,
 	exposure: float,
-	ice_metres: float
+	ice_metres: float,
+	glacier_metres: float = 0.0
 ) -> float:
 	var value := slope_index(sustained_slope)
 
@@ -80,6 +82,10 @@ static func grade_value(
 	# Steep ice is harder than snow at the same angle
 	if ice_metres > 15.0:
 		value += clampf((ice_metres - 15.0) / 60.0, 0.0, 1.0)
+
+	# Crevassed glacier: route finding, probing, the chance of a bridge going
+	if glacier_metres > 40.0:
+		value += 0.5 + clampf((glacier_metres - 40.0) / 300.0, 0.0, 0.5)
 
 	return clampf(value, 0.0, float(MAX_INDEX))
 

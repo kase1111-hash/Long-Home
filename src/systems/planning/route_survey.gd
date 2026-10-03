@@ -30,6 +30,9 @@ const DUPLICATE_DISTANCE := 18.0
 const WAYPOINT_TOLERANCE := 3.0
 ## The rib keeps at least this far off the normal route where it can (metres)
 const RIB_AVOID_DISTANCE := 60.0
+## Glacier steeper than this is an icefall (degrees); every line pays to cross it
+const ICEFALL_SLOPE := 30.0
+const ICEFALL_COST := 3.0
 
 const STYLE_IDS := {
 	Style.NORMAL: "normal",
@@ -105,6 +108,7 @@ class Grid:
 	var cliff: PackedFloat32Array = PackedFloat32Array()
 	var snow: PackedByteArray = PackedByteArray()
 	var rope: PackedByteArray = PackedByteArray()
+	var glacier: PackedByteArray = PackedByteArray()
 	var valid: PackedByteArray = PackedByteArray()
 
 	func index_of(world: Vector2) -> int:
@@ -251,6 +255,7 @@ static func _build_grid(terrain: TerrainService) -> Grid:
 	grid.cliff.resize(count)
 	grid.snow.resize(count)
 	grid.rope.resize(count)
+	grid.glacier.resize(count)
 	grid.valid.resize(count)
 	for z in range(grid.height):
 		for x in range(grid.width):
@@ -266,6 +271,7 @@ static func _build_grid(terrain: TerrainService) -> Grid:
 			grid.cliff[i] = cell.distance_to_cliff
 			grid.snow[i] = 1 if TractionModel.is_snow(cell.surface_type) else 0
 			grid.rope[i] = 1 if cell.requires_rope else 0
+			grid.glacier[i] = 1 if cell.is_glacier else 0
 	return grid
 
 
@@ -275,6 +281,21 @@ static func _node_cost(grid: Grid, i: int, style: int) -> float:
 	var cliff_distance := grid.cliff[i]
 	var rope := grid.rope[i] == 1
 	var cost := 1.0
+	# Crevassed ice: the safe lines skirt it, the ski line takes it with care.
+	# An icefall (the glacier steepening over a rock step: seracs overhead, a
+	# maze of open slots) is what every guidebook line goes round
+	if grid.glacier[i] == 1:
+		match style:
+			Style.NORMAL:
+				cost += 1.5
+			Style.RIB:
+				cost += 1.0
+			Style.DIRECT:
+				cost += 0.4
+			Style.SNOW:
+				cost += 0.2
+		if slope > ICEFALL_SLOPE:
+			cost += ICEFALL_COST
 	match style:
 		Style.NORMAL:
 			if slope > 18.0:
@@ -656,6 +677,8 @@ static func _describe(route: GuideRoute, normal: GuideRoute) -> String:
 		facts.append("crampons")
 	if m.exposure > 0.15:
 		facts.append("exposed")
+	if m.glacier_metres > 30.0:
+		facts.append("crosses the glacier (probe ahead)")
 	if m.snow_fraction > 0.85 and m.rappels == 0 and m.max_slope < 45.0:
 		facts.append("skiable")
 	if not facts.is_empty():

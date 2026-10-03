@@ -38,6 +38,8 @@ const SUSTAINED_WINDOW := 10
 const PACE := 0.85
 ## Walking speed on the flat (m/s real time, PlayerController.base_walk_speed)
 const BASE_WALK_SPEED := 2.4
+## Pace on a glacier: route finding round crevasses, probing ahead
+const GLACIER_PACE := 0.85
 ## Average of the downclimbing placement pulse (0.3 + 0.7 * mean sin^2)
 const CLIMB_PULSE_MEAN := 0.65
 ## Abseil timing (real seconds): find and build an anchor, thread, rope down,
@@ -91,6 +93,8 @@ class Pitch:
 	var surface: int = 0
 	var exposed: bool = false
 	var icy: bool = false
+	## Crosses a glacier (crevasses)
+	var glacier: bool = false
 	var rappels: int = 0
 	var longest_rappel: float = 0.0
 	## Book time for the pitch (game minutes)
@@ -138,6 +142,8 @@ class Result:
 	var metres_by_kind: Dictionary = {}
 	var steep_metres: float = 0.0
 	var ice_metres: float = 0.0
+	## Horizontal metres on a glacier
+	var glacier_metres: float = 0.0
 	var exposed_metres: float = 0.0
 	var exposure: float = 0.0
 	var snow_fraction: float = 0.0
@@ -236,12 +242,14 @@ static func measure(line: PackedVector3Array, terrain: TerrainService, options: 
 	var slopes := PackedFloat32Array()
 	var surfaces := PackedInt32Array()
 	var exposed := PackedByteArray()
+	var on_glacier := PackedByteArray()
 	var step_seconds := PackedFloat32Array()
 	geo_kinds.resize(steps)
 	kinds.resize(steps)
 	slopes.resize(steps)
 	surfaces.resize(steps)
 	exposed.resize(steps)
+	on_glacier.resize(steps)
 	step_seconds.resize(steps)
 
 	var boots := GameEnums.Footwear.BOOTS
@@ -258,12 +266,15 @@ static func measure(line: PackedVector3Array, terrain: TerrainService, options: 
 		var rope := false
 		var cliff_distance := 1000.0
 		var slope_dir := Vector3.ZERO
+		var glacier_cell := false
 		if cell != null:
 			slope = cell.slope_angle
 			surface = cell.surface_type
 			rope = cell.requires_rope
 			cliff_distance = cell.distance_to_cliff
 			slope_dir = cell.slope_direction
+			glacier_cell = cell.is_glacier
+		on_glacier[i] = 1 if glacier_cell else 0
 		slopes[i] = slope
 		surfaces[i] = surface
 
@@ -337,6 +348,8 @@ static func measure(line: PackedVector3Array, terrain: TerrainService, options: 
 				var cross := steepness * across
 				speed = BASE_WALK_SPEED * surface_speed * TractionModel.tobler_factor(grade, cross, surface) * weight_modifier
 			speed *= PACE
+			if glacier_cell:
+				speed *= GLACIER_PACE
 			step_seconds[i] = surface_distance / maxf(speed, 0.05)
 
 	result.snow_fraction = snow_metres / maxf(result.distances[n - 1], 0.001)
@@ -344,6 +357,11 @@ static func measure(line: PackedVector3Array, terrain: TerrainService, options: 
 
 	# --- pitches -----------------------------------------------------------
 	result.pitches = _build_pitches(result, kinds, slopes, surfaces, exposed, max_rappel)
+	for pitch in result.pitches:
+		for i in range(pitch.first_sample, pitch.last_sample):
+			if on_glacier[i] == 1:
+				pitch.glacier = true
+				break
 
 	# Timing per pitch (rope pitches by abseil, from the geometry)
 	var total_seconds := 0.0
@@ -396,6 +414,8 @@ static func measure(line: PackedVector3Array, terrain: TerrainService, options: 
 			result.ice_metres += horizontal
 		if exposed[i] == 1:
 			result.exposed_metres += horizontal
+		if on_glacier[i] == 1:
+			result.glacier_metres += horizontal
 	result.exposure = result.exposed_metres / maxf(voluntary_metres, 1.0)
 	result.controlled_vertical = maxf(0.0, result.get_vertical() - adrift_drop)
 	result.sustained_slope = _sustained_slope(slopes, kinds)
@@ -408,7 +428,8 @@ static func measure(line: PackedVector3Array, terrain: TerrainService, options: 
 	result.crampons_advised = result.ice_metres > 5.0 or _hard_snow_metres(result, slopes, surfaces, kinds) > 20.0
 
 	result.grade_value = AlpineGrade.grade_value(
-		result.sustained_slope, result.steep_metres, result.rappels, result.exposure, result.ice_metres
+		result.sustained_slope, result.steep_metres, result.rappels, result.exposure, result.ice_metres,
+		result.glacier_metres
 	)
 	result.grade = AlpineGrade.grade_name(result.grade_value)
 	result.commitment = AlpineGrade.commitment(result.minutes)
@@ -635,6 +656,8 @@ static func describe_pitch(pitch: Pitch, ascending: bool = false) -> String:
 		Kind.ADRIFT:
 			body = "%d m out of control" % roundi(pitch.length)
 	var notes: Array[String] = []
+	if pitch.glacier:
+		notes.append("glacier: crevasses")
 	if pitch.icy:
 		notes.append("ice")
 	if pitch.exposed and pitch.kind != Kind.RAPPEL:

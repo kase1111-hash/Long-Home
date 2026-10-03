@@ -55,12 +55,13 @@ As a first-person mountain survival experience, Long-Home combines realistic ter
 
 ## Features
 
-### 17 Major Systems
+### 18 Major Systems
 
 | System | Status | Description |
 |--------|--------|-------------|
-| **Terrain & World** | Complete | Procedural 640 m mountains per peak (DEM loading optional), rendered meshes + collision, slope analysis, 11 surface types, 6 terrain zones; low-poly forests, krummholz, snags, boulders and talus placed from the terrain, with colliders |
+| **Terrain & World** | Complete | Procedural 640 m mountains per peak (DEM loading optional), rendered meshes + collision, slope analysis, 11 surface types, 6 terrain zones; low-poly forests, krummholz, snags, boulders and talus placed from the terrain, with colliders; glaciers with icefalls, moraines and open or snow-bridged crevasses |
 | **Footing & Movement** | Complete | One traction model for boots, crampons, axe and hands: Tobler walking pace, grip-margin slips, slow face-in downclimbing, timed crampon changes, landing impacts |
+| **Glaciers & Crevasses** | Complete | Probing ahead with the axe, snow bridges that give way under load and warmth, falls into the slot carved into the terrain, front-pointing out or waiting for a rescue |
 | **Sliding Mechanics** | Complete | Slope-plane glissade physics with braking, crampon catches and rock impacts; physical self-arrest; snow spray or dust trails the climber |
 | **Rope System** | Complete | Anchor building and testing, doubled-rope rappels under brake-hand control, re-anchoring, rope pulls that can snag |
 | **Skiing & Snowboarding** | Complete | Touring skis or a splitboard: carving, skidding, hockey stops, crashes into slides, rock damage |
@@ -156,6 +157,11 @@ godot --headless --audio-driver Dummy --path . -s res://tests/smoke_ski.gd
 # symbols, and in a live descent: blocked by a boulder at walking pace, hurt by a tree at speed
 godot --headless --audio-driver Dummy --path . -s res://tests/test_scatter.gd
 
+# Glaciers and crevasses: generation on every mountain, ice and snow zones, open slots and
+# walkable bridges, maps and grades, and in a live descent: probe, a bridge collapse, climbing
+# out with axe and crampons, and a rescue without them
+godot --headless --audio-driver Dummy --path . -s res://tests/test_glacier.gd
+
 # Alpine grades, guidebook lines on every mountain, book times, route scoring and the logbook
 godot --headless --audio-driver Dummy --path . -s res://tests/test_route_scoring.gd
 
@@ -210,6 +216,7 @@ descend), on the rope (push down the face to let rope run) and on skis (`A`/`D` 
 | Let the rope run fast while rappelling | hold `Space` |
 | Strap crampons on / take them off (timed) | `F` |
 | Step into skis or a splitboard / step out (timed, on snow, ≤ 38°) | `T` |
+| Probe the snow ahead with the axe shaft or a ski pole (on a glacier) | `G` |
 | On skis: turn, skid to slow or stop, tuck or pole | `A`/`D`, `S`, `W` |
 | Check Self (Body Status) | `C` |
 | Open Map (needs the topo map in your pack) | `M` |
@@ -283,6 +290,31 @@ one, put a Mesh resource (`.tres`, `.res`, `.mesh`) or a model (`.glb`, `.gltf`,
   can be authored at any scale. Model the origin at the base of the trunk, or the middle of the
   rock's footprint.
 - **Materials:** the mesh's own materials are kept.
+
+### Glaciers and crevasses
+
+Most peaks carry a glacier in the flank beside the normal route (`glacier_field.gd`, built by
+the procedural generator; *The Knife Edge* has none). The ice flows down the fall line between
+lateral moraines and steepens into icefalls where the rock steps are. Below the equilibrium line
+it is bare ice; above it, snow lies on top.
+
+- **Crevasses** open where the ice stretches: rows across the icefalls, chevrons along the
+  edges, and the bergschrund at the head. Open slots are cut into the terrain, several metres
+  deep. Others are hidden under snow bridges, which show only a faint sag.
+- **Probing** (`G`, with an axe or ski poles). The shaft goes into the snow ahead and tells you
+  whether it is hollow, and it leaves a dark probe hole. Nothing on the mountain is labelled; a
+  probe and the sag are all you get.
+- **Bridges give way.** A thin bridge goes in about a second under a walker, and a thick one
+  nearly always holds. Afternoon warmth weakens them; skis and a glissade spread the load. When
+  a bridge goes, that stretch of the crevasse is carved open to the debris below (4-8.5 m) and
+  you fall in for real.
+- **Getting out.** With an axe in hand and crampons on, push against a wall to front-point out
+  at about 0.2 m/s. It is tiring, and a tired climber can skate back down. Without them there
+  is no way up the ice, and after a long wait the run ends in a rescue.
+- **On paper.** The topo map shades the glacier and draws the open crevasses (not the hidden
+  ones). The guidebook adds half a grade or more for a crevassed glacier, slows its book time
+  and notes "crosses the glacier (probe ahead)". The normal route keeps off the ice, and every
+  guidebook line goes round the icefalls.
 
 ### Planning, the guidebook and the logbook
 
@@ -359,7 +391,9 @@ Long-Home/
 │   │   ├── sliding/                  # Slide mechanics (5 files)
 │   │   ├── rope/                     # Rope system (7 files)
 │   │   ├── terrain/                  # Procedural mountains, meshes, collision, analysis,
-│   │   │                             # trees and boulders (terrain_scatter, scatter_meshes)
+│   │   │                             # trees and boulders (terrain_scatter, scatter_meshes),
+│   │   │                             # glacier and crevasse data (glacier_field)
+│   │   ├── glacier/                  # Crevasse falls, bridge collapse, climbing out, probing
 │   │   ├── environment/              # Weather, time, sky/clouds/ranges/fog/precipitation visuals (8 files)
 │   │   ├── descent_goal.gd           # Base camp marker + run completion
 │   │   ├── risk/                     # Risk detection (5 files)
@@ -397,7 +431,7 @@ Long-Home/
 │
 ├── tests/                            # Godot-native checks (check_scripts, smoke_goal, ui_tour,
 │                                     # screenshot_tour, test_route_scoring, smoke_full_route,
-│                                     # test_scatter)
+│                                     # test_scatter, test_glacier)
 │                                     # and Python regex validators
 ├── SPEC-SHEET.md                     # Complete game specification
 ├── PROGRAMMING-ROADMAP.md            # Implementation guide

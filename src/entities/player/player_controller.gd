@@ -181,6 +181,10 @@ var _fall_still_time: float = 0.0
 
 ## Seconds before another tree or boulder can hurt (one impact per collision)
 var _obstacle_cooldown: float = 0.0
+
+## An outside system moving the climber (climbing out of a crevasse). While
+## set, input still updates but posture, states, movement and physics wait.
+var held_by: Object = null
 var _rescue_called: bool = false
 var _last_message: String = ""
 var _last_message_time: float = -100.0
@@ -257,6 +261,14 @@ func _physics_process(delta: float) -> void:
 
 	# Process input with delay
 	_process_input(delta)
+
+	# Held and moved by another system (climbing out of a crevasse)
+	if held_by != null:
+		if not is_instance_valid(held_by):
+			held_by = null
+		else:
+			_update_tracking(delta)
+			return
 
 	# Crampons and skis
 	_handle_gear_input()
@@ -637,6 +649,7 @@ func trigger_fall() -> void:
 ## The same player node is reused across runs so every system that cached
 ## it or connected to its signals keeps working; call this after placing it.
 func reset_for_new_run() -> void:
+	held_by = null
 	velocity = Vector3.ZERO
 	smooth_velocity = Vector3.ZERO
 	last_position = global_position

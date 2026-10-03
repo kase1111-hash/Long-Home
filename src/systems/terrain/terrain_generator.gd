@@ -260,6 +260,22 @@ func _build_chunk(chunk_coords: Vector2i) -> void:
 	chunk_mesh_generated.emit(chunk_coords)
 
 
+## Rebuild one chunk's meshes and collider after its heights changed (a
+## crevasse bridge giving way), replacing the old ones
+func rebuild_chunk(chunk_coords: Vector2i) -> void:
+	var old_mesh: Node = chunk_meshes.get(chunk_coords, null)
+	if old_mesh != null and is_instance_valid(old_mesh):
+		mesh_parent.remove_child(old_mesh)
+		old_mesh.queue_free()
+	chunk_meshes.erase(chunk_coords)
+	var old_collider: Node = chunk_colliders.get(chunk_coords, null)
+	if old_collider != null and is_instance_valid(old_collider):
+		collider_parent.remove_child(old_collider)
+		old_collider.queue_free()
+	chunk_colliders.erase(chunk_coords)
+	_build_chunk(chunk_coords)
+
+
 func _clear_all_meshes() -> void:
 	for instance in chunk_meshes.values():
 		var mesh_instance: MeshInstance3D = instance

@@ -374,6 +374,14 @@ func _get_moment_text(moment: Dictionary) -> String:
 			return ""  # Don't show this one
 		"summit_reached":
 			return "[%s] Summit" % time_str
+		"crevasse_fall":
+			return "[%s] Fell into a crevasse" % time_str
+		"crevasse_climbed_out":
+			return "[%s] Climbed out of the crevasse" % time_str
+		"probe":
+			if moment.get("details", {}).get("hollow", false):
+				return "[%s] Probed a hidden crevasse" % time_str
+			return ""
 		"obstacle_impact":
 			var object_name: String = moment.get("details", {}).get("object", "tree")
 			return "[%s] Hit a %s" % [time_str, "boulder" if object_name == "boulder" else "tree"]
