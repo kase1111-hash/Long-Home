@@ -38,6 +38,10 @@ var cliff_color: Color = Color(0.8, 0.2, 0.2, 0.8)
 ## Color for exit zones
 var exit_zone_color: Color = Color(0.2, 0.7, 0.3, 0.6)
 
+## Woodland (pale green, printed under the contours) and boulders (dark stipple)
+var woodland_color: Color = Color(0.7, 0.82, 0.58, 1.0)
+var boulder_color: Color = Color(0.36, 0.31, 0.26, 1.0)
+
 ## Height grid value where no chunk is loaded
 const MISSING_HEIGHT := -1.0e30
 
@@ -78,6 +82,9 @@ class TopoMapData:
 	var hazard_markers: Array[Dictionary] = []
 	var elevation_range: Vector2 = Vector2.ZERO  # min, max
 	var sample_count: Vector2i = Vector2i.ZERO  # contour grid samples (x, z)
+	## Trees and big boulders from TerrainScatter (world xz)
+	var tree_points: PackedVector2Array = PackedVector2Array()
+	var boulder_points: PackedVector2Array = PackedVector2Array()
 
 
 ## Height samples of the whole loaded world on one regular grid (row-major,
@@ -110,6 +117,10 @@ func get_terrain_map(terrain_service: TerrainService) -> TopoMapData:
 		terrain_service.terrain_bounds_min,
 		terrain_service.terrain_bounds_max
 	)
+	# Woodland and boulders, as a printed map shows them
+	if terrain_service.scatter != null:
+		_cached_map.tree_points = terrain_service.scatter.get_tree_points()
+		_cached_map.boulder_points = terrain_service.scatter.get_boulder_points()
 	_cached_images.clear()
 	_cache_key = key
 	return _cached_map
@@ -119,7 +130,7 @@ func get_terrain_map(terrain_service: TerrainService) -> TopoMapData:
 ## alongside the map data, so displays sharing a size render once)
 func get_terrain_image(terrain_service: TerrainService, resolution: Vector2i) -> Image:
 	var map_data := get_terrain_map(terrain_service)
-	var style_key := hash([resolution, major_contour_color, minor_contour_color, cliff_color, exit_zone_color])
+	var style_key := hash([resolution, major_contour_color, minor_contour_color, cliff_color, exit_zone_color, woodland_color, boulder_color])
 	var cached: Image = _cached_images.get(style_key, null)
 	if cached != null:
 		return cached
@@ -434,6 +445,11 @@ func render_to_image(map_data: TopoMapData, resolution: Vector2i) -> Image:
 		return image
 	var scale := Vector2(resolution.x / extent.x, resolution.y / extent.y)
 
+	# Woodland tint first, under everything (each tree a crown-sized disc)
+	var crown := maxi(1, roundi(2.5 * scale.x))
+	for tree in map_data.tree_points:
+		draw_marker(image, _world_to_image(tree, map_data.bounds_min, scale), woodland_color, crown)
+
 	# Draw contour lines
 	for contour in map_data.contour_lines:
 		var color := major_contour_color if contour.is_major else minor_contour_color
@@ -460,6 +476,11 @@ func render_to_image(map_data: TopoMapData, resolution: Vector2i) -> Image:
 	for exit_pos in map_data.exit_zones:
 		var img_pos := _world_to_image(exit_pos, map_data.bounds_min, scale)
 		draw_marker(image, img_pos, exit_zone_color, 4)
+
+	# Boulder stipple
+	var stone := maxi(1, roundi(0.7 * scale.x))
+	for boulder in map_data.boulder_points:
+		draw_marker(image, _world_to_image(boulder, map_data.bounds_min, scale), boulder_color, stone)
 
 	return image
 

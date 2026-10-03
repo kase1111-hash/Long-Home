@@ -57,6 +57,7 @@ const STYLE_COSTS := {
 	"skis_broken": [0.05, 0.05, "broken skis"],
 	"micro_slip": [0.005, 0.05, "slip"],
 	"collapse": [0.15, 0.30, "collapse"],
+	"obstacle_impact": [0.08, 0.24, "collision"],
 }
 
 ## Style never drops below this (the line still went)

@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (trees and boulders)
+
+- **Trees and boulders on every mountain.** `TerrainScatter` places them after each terrain
+  load, deterministically per peak, from the analysed terrain:
+  - low-poly conifers (three styles) grow in clumps below a treeline set by the mountain's
+    climate, and give way to wind-flattened krummholz and grey snags near the treeline
+  - boulders lie on scree and rock, pile up as talus under the cliff bands, and sit sparsely on
+    snow as erratics
+  - small rocks litter broken ground
+  - the corridor, the summit and base camp stay clear
+  - The Knife Edge grows about 1,200 trees; The Long Way Down about 60
+- **Rendering.** `ScatterMeshes` builds flat-shaded, vertex-coloured meshes in code, dusted with
+  snow by climate. They are drawn with one MultiMesh per variant, and the trees sway with the
+  wind.
+- **Swappable meshes.** A Mesh or model in `res://assets/scatter/` (`conifer_0.glb`,
+  `boulder.tres`, …) replaces a built mesh, fitted to size from its bounding box.
+- **Obstacles.** Trunks, snags and boulders over 0.9 m have colliders on a new obstacle physics
+  layer (the climber's mask now includes it; the camera's does not).
+  - Walking into one is harmless. At speed, it stops you: a knock over 3 m/s, an arm or leg
+    injury over 6 m/s, the body or an unhelmeted head over 11 m/s.
+  - Skiing into one is a crash, and sliding into one tumbles you.
+  - Each impact is an `obstacle_impact` incident and costs style in the route score.
+- **Natural anchors.** Sound conifers and boulders over 1.2 m take a sling and are the best
+  anchors around; a dead snag is a gamble.
+- **Maps** print woodland as a pale green tint under the contours and big boulders as a dark
+  stipple.
+- `tests/test_scatter.gd` (40 checks): placement rules, clear zones, grounding, determinism,
+  colliders, mesh overrides, anchors and map symbols. It also checks, in a live descent, that
+  you are stopped by a boulder at walking pace and hurt by a tree at speed.
+
+### Fixed
+
+- **Incidents and decisions now reach the run.** Systems announced them through
+  `EventBus.record_incident/record_decision`, but nothing put them in the run's history. The
+  post-game key moments were always empty, and the route score never saw the slips, slides or
+  abseils of a real run. `GameStateManager` now logs them into the active run (camera-shot
+  bookkeeping excluded).
+
 ### Added (route planning, guidebook, route scoring, full route)
 
 - **A guidebook for every mountain.** `RouteSurvey` finds the lines a guidebook would print and

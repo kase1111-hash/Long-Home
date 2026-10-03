@@ -388,6 +388,8 @@ func _crash_line(reason: String) -> String:
 			return "You land it badly."
 		"edge":
 			return "An edge catches."
+		"obstacle":
+			return "Nowhere to turn."
 	return "Too fast. You go down."
 
 

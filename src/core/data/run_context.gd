@@ -118,6 +118,10 @@ var travel_mode: int = 0
 ## The scored result (RouteScorer.RouteScore), filled when the run ends
 var route_score: RefCounted = null
 
+## Marks a decision/incident entry already in this run's history, so the
+## EventBus echo of record_decision/record_incident is not logged twice
+const LOGGED_KEY := "logged"
+
 ## A single position sample further than this is a teleport (spawn, debug
 ## warp, test harness), not travel - it resets tracking instead of adding
 ## a bogus distance
@@ -243,19 +247,34 @@ func update_time(delta_real: float) -> void:
 
 ## Record a decision
 func record_decision(decision_type: String, details: Dictionary = {}) -> void:
-	var decision := {
-		"type": decision_type,
-		"game_time": game_time_elapsed,
-		"real_time": real_time_elapsed,
-		"position": position,
-		"details": details
-	}
-	decisions.append(decision)
+	var decision := log_decision(decision_type, details)
 	EventBus.decision_recorded.emit(decision_type, decision)
 
 
 ## Record an incident
 func record_incident(incident_type: String, details: Dictionary = {}) -> void:
+	var incident := log_incident(incident_type, details)
+	EventBus.incident_recorded.emit(incident_type, incident)
+
+
+## Add a decision to the history without announcing it (GameStateManager
+## logs the decisions systems announce through EventBus.record_decision)
+func log_decision(decision_type: String, details: Dictionary = {}) -> Dictionary:
+	var decision := {
+		"type": decision_type,
+		"game_time": game_time_elapsed,
+		"real_time": real_time_elapsed,
+		"position": position,
+		"details": details,
+		LOGGED_KEY: true
+	}
+	decisions.append(decision)
+	return decision
+
+
+## Add an incident to the history without announcing it (GameStateManager
+## logs the incidents systems announce through EventBus.record_incident)
+func log_incident(incident_type: String, details: Dictionary = {}) -> Dictionary:
 	var incident := {
 		"type": incident_type,
 		"game_time": game_time_elapsed,
@@ -263,10 +282,11 @@ func record_incident(incident_type: String, details: Dictionary = {}) -> void:
 		"position": position,
 		"velocity": velocity,
 		"body_state": body_state.duplicate_state() if body_state else null,
-		"details": details
+		"details": details,
+		LOGGED_KEY: true
 	}
 	incidents.append(incident)
-	EventBus.incident_recorded.emit(incident_type, incident)
+	return incident
 
 
 # =============================================================================

@@ -187,6 +187,40 @@ This mirrors real mountaineering psychology.
 
 **Result:** Educational gravity without tutorials.
 
+### Trees and Boulders (implemented)
+
+`TerrainScatter` dresses every mountain after it loads, deterministically per peak, from the
+analysed terrain cells:
+
+| Object | Where | Rule |
+|--------|-------|------|
+| Conifers | Below the treeline, in clumps (forest noise) | Ground under 38°, not ice or a cliff; shorter toward the treeline |
+| Krummholz, dead snags | The last band below the treeline | Wind-flattened dwarf conifers and grey snags replace the forest |
+| Boulders | Scree and rock, sparse erratics on snow | Gather as talus at the foot of cliffs (cliff uphill, within 30 m) |
+| Small rocks | Wherever the ground is broken | No collider |
+
+- **Treeline from climate.** The treeline is set from the mountain's typical temperature: a mild
+  peak (The Knife Edge, -5 °C) is wooded half-way up the terrain, while a cold giant (The Long
+  Way Down, -25 °C) has a few stunted trees at its foot. The colder the peak, the more snow on
+  the branches.
+- **Kept clear.** The guaranteed corridor (5-6 m), the summit plateau (16 m) and base camp
+  (26 m) stay clear.
+- **Obstacles.** Trunks, snags and boulders over 0.9 m have cylinder colliders on their own
+  physics layer. You walk round them, and at walking pace bumping one is harmless.
+- **Impacts.** Hitting one at speed (sliding, skiing, falling) stops you:
+  - over 3 m/s, a knock to balance
+  - over 6 m/s, a sprain or fracture to an arm or leg
+  - over 11 m/s, the body and an unhelmeted head, possibly disabling
+  Skiing into one is a crash, and sliding into one tumbles you. Collisions cost style in the
+  route score.
+- **Anchors.** A sound conifer or a boulder over 1.2 m takes a sling: as good as anchors get. A
+  dead snag is a gamble.
+- **On the map.** Topo maps print woodland as a pale green tint under the contours and big
+  boulders as a dark stipple, as real maps do.
+- **Meshes.** Low-poly, flat-shaded and vertex-coloured, built in code (`ScatterMeshes`); trees
+  sway with the wind. An authored mesh in `res://assets/scatter/` named `<kind>_<variant>` or
+  `<kind>` replaces the built one, fitted to the object's size from its bounding box.
+
 ---
 
 ## 4. Sliding Mechanics

@@ -93,6 +93,37 @@ func _connect_signals() -> void:
 	EventBus.player_movement_changed.connect(_on_player_movement_changed)
 	EventBus.slide_started.connect(_on_slide_started)
 	EventBus.slide_control_changed.connect(_on_slide_control_changed)
+	EventBus.incident_recorded.connect(_on_incident_recorded)
+	EventBus.decision_recorded.connect(_on_decision_recorded)
+
+
+# =============================================================================
+# RUN HISTORY (incidents and decisions announced on the EventBus)
+# =============================================================================
+
+## Camera Director shot bookkeeping, not choices the climber made
+const CAMERA_DECISIONS := [
+	"anticipate", "commitment_shot", "consequence_shot", "context_shot", "cut",
+	"imperfection", "release_shot", "sequence_end", "sequence_start",
+	"shot_timeout", "tension_shot",
+]
+
+
+## Systems announce incidents (slips, slides, impacts, injuries, rope trouble)
+## through EventBus.record_incident; the active run keeps them for the
+## post-game analysis and the route score
+func _on_incident_recorded(incident_type: String, context: Dictionary) -> void:
+	if not is_run_active() or context.get(RunContext.LOGGED_KEY, false):
+		return
+	current_run.log_incident(incident_type, context)
+
+
+func _on_decision_recorded(decision_type: String, context: Dictionary) -> void:
+	if not is_run_active() or context.get(RunContext.LOGGED_KEY, false):
+		return
+	if decision_type in CAMERA_DECISIONS:
+		return
+	current_run.log_decision(decision_type, context)
 
 
 # =============================================================================

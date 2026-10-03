@@ -59,7 +59,7 @@ As a first-person mountain survival experience, Long-Home combines realistic ter
 
 | System | Status | Description |
 |--------|--------|-------------|
-| **Terrain & World** | Complete | Procedural 640 m mountains per peak (DEM loading optional), rendered meshes + collision, slope analysis, 11 surface types, 6 terrain zones |
+| **Terrain & World** | Complete | Procedural 640 m mountains per peak (DEM loading optional), rendered meshes + collision, slope analysis, 11 surface types, 6 terrain zones; low-poly forests, krummholz, snags, boulders and talus placed from the terrain, with colliders |
 | **Footing & Movement** | Complete | One traction model for boots, crampons, axe and hands: Tobler walking pace, grip-margin slips, slow face-in downclimbing, timed crampon changes, landing impacts |
 | **Sliding Mechanics** | Complete | Slope-plane glissade physics with braking, crampon catches and rock impacts; physical self-arrest; snow spray or dust trails the climber |
 | **Rope System** | Complete | Anchor building and testing, doubled-rope rappels under brake-hand control, re-anchoring, rope pulls that can snag |
@@ -151,6 +151,10 @@ godot --headless --audio-driver Dummy --path . -s res://tests/smoke_rappel.gd --
 
 # Step into skis (T), run the fall line, skid to a stop, step out (add --board for the splitboard)
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_ski.gd
+
+# Trees and boulders: placement rules, clear zones, colliders, mesh overrides, anchors, map
+# symbols, and in a live descent: blocked by a boulder at walking pace, hurt by a tree at speed
+godot --headless --audio-driver Dummy --path . -s res://tests/test_scatter.gd
 
 # Alpine grades, guidebook lines on every mountain, book times, route scoring and the logbook
 godot --headless --audio-driver Dummy --path . -s res://tests/test_route_scoring.gd
@@ -254,6 +258,32 @@ what is on your feet against `tan(slope)` plus a little for every step's braking
   nothing, about 3 m is a hard landing, about 6 m breaks something, and a disabling injury ends
   the run with a rescue.
 
+### Trees and boulders
+
+Each mountain is dressed after it loads (`src/systems/terrain/terrain_scatter.gd`):
+
+- **Trees and boulders.** Low-poly conifers grow in clumps below a treeline set by the
+  mountain's climate, thinning into wind-flattened krummholz and dead snags near the top of
+  their range. Boulders lie on scree and rock and pile up as talus under the cliff bands, and
+  small rocks litter broken ground.
+- **Clear ground.** The normal route, the summit and base camp are kept clear.
+- **Obstacles.** You walk round trunks and boulders. Sliding, skiing or falling into one at
+  speed hurts, and the faster you are, the worse it is.
+- **Anchors and maps.** A sound tree or a big boulder makes the best rappel anchor, and the
+  topo maps print woodland and boulders.
+
+**Swapping in better meshes.** The meshes are built in code (`scatter_meshes.gd`). To replace
+one, put a Mesh resource (`.tres`, `.res`, `.mesh`) or a model (`.glb`, `.gltf`, `.tscn`) in
+`res://assets/scatter/`:
+
+- **Names:** `conifer_0`, `conifer_1`, `conifer_2`, `shrub_0`, `shrub_1`, `snag_0`, `snag_1`,
+  `boulder_0` … `boulder_3`, `rock_0` … `rock_2`. A bare `conifer`, `boulder` and so on replaces
+  every variant of that kind.
+- **Fitting:** each mesh is fitted from its bounding box, base down, to the object's size, so it
+  can be authored at any scale. Model the origin at the base of the trunk, or the middle of the
+  rock's footprint.
+- **Materials:** the mesh's own materials are kept.
+
 ### Planning, the guidebook and the logbook
 
 Planning happens at the hut, on paper. Nothing about a route is ever drawn, labelled or marked
@@ -328,7 +358,8 @@ Long-Home/
 │   │   ├── body/                     # Physical condition (4 files)
 │   │   ├── sliding/                  # Slide mechanics (5 files)
 │   │   ├── rope/                     # Rope system (7 files)
-│   │   ├── terrain/                  # Procedural mountains, meshes, collision, analysis (10 files)
+│   │   ├── terrain/                  # Procedural mountains, meshes, collision, analysis,
+│   │   │                             # trees and boulders (terrain_scatter, scatter_meshes)
 │   │   ├── environment/              # Weather, time, sky/clouds/ranges/fog/precipitation visuals (8 files)
 │   │   ├── descent_goal.gd           # Base camp marker + run completion
 │   │   ├── risk/                     # Risk detection (5 files)
@@ -365,7 +396,8 @@ Long-Home/
 │           └── manifest.json
 │
 ├── tests/                            # Godot-native checks (check_scripts, smoke_goal, ui_tour,
-│                                     # screenshot_tour, test_route_scoring, smoke_full_route)
+│                                     # screenshot_tour, test_route_scoring, smoke_full_route,
+│                                     # test_scatter)
 │                                     # and Python regex validators
 ├── SPEC-SHEET.md                     # Complete game specification
 ├── PROGRAMMING-ROADMAP.md            # Implementation guide
