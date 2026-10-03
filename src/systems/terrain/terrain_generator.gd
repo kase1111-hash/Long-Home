@@ -561,18 +561,23 @@ func _generate_chunk_collision(chunk: TerrainChunk) -> void:
 	var height_data := PackedFloat32Array()
 	height_data.resize(map_width * map_depth)
 
+	# Heights are relative to world_origin.y and pre-divided by the cell size,
+	# because the shape is scaled uniformly by it (see below)
 	for z in range(map_depth):
 		for x in range(map_width):
-			height_data[z * map_width + x] = _padded_height(x, z) - chunk.world_origin.y
+			height_data[z * map_width + x] = (_padded_height(x, z) - chunk.world_origin.y) / chunk.cell_size
 
 	heightmap_shape.map_data = height_data
 	collision_shape.shape = heightmap_shape
 
 	# HeightMapShape3D is centred on its XZ extent with 1 unit between samples:
 	# scale to the cell size and shift by half a chunk so sample (0, 0) lands on
-	# the chunk origin. Heights are already relative to world_origin.y.
+	# the chunk origin. The scale must be uniform: the physics engine does not
+	# support non-uniformly scaled shapes, and a (cell, 1, cell) heightmap
+	# flips its contact normals now and then, so a body moving fast over it
+	# hits the underside of the ground and stops dead.
 	collision_shape.position = Vector3(chunk.chunk_size * 0.5, 0.0, chunk.chunk_size * 0.5)
-	collision_shape.scale = Vector3(chunk.cell_size, 1.0, chunk.cell_size)
+	collision_shape.scale = Vector3.ONE * chunk.cell_size
 
 	static_body.add_child(collision_shape)
 	static_body.position = chunk.world_origin

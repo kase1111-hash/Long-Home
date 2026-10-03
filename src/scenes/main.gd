@@ -89,11 +89,17 @@ var weather_service: WeatherService = null
 ## Base camp marker + arrival detection for the active descent
 var descent_goal: DescentGoal = null
 
+## Summit cairn (and, on a full route, the summit check)
+var summit_goal: SummitGoal = null
+
 ## In-game HUD (elevation, distance to base camp, control hints)
 var descent_hud: Control = null
 
 ## HUD scene path (loaded lazily so the scene is optional)
 const DESCENT_HUD_SCENE := "res://src/ui/hud/descent_hud.tscn"
+
+## A full route starts this far from the camp centre, toward the summit (metres)
+const FULL_ROUTE_START_OFFSET := 9.0
 
 # =============================================================================
 # LIFECYCLE
@@ -238,6 +244,11 @@ func _debug_quick_start() -> void:
 	# Create test conditions
 	var conditions := StartConditions.create_moderate()
 	conditions.mountain_id = mountain_id
+	if _has_user_arg("--full-route") and mountain_db != null:
+		# Developer shortcut: the full route without beating the game first
+		mountain_db.full_route_override = true
+		mountain_db.set_route_mode(GameEnums.RouteMode.FULL_ROUTE)
+	_apply_route_mode(conditions)
 
 	# Transition through states with frame delays to let signal handlers complete
 	GameStateManager.transition_to(GameEnums.GameState.MOUNTAIN_SELECT)
@@ -324,10 +335,36 @@ func _on_run_ended(run_context: RunContext, outcome: GameEnums.ResolutionType) -
 	var summary := run_context.get_run_summary()
 	print("[Main] Summary: %s" % str(summary))
 
+	# Score the line before the run is recorded (on-sight is judged on the
+	# knowledge the climber started with)
+	_score_run(run_context)
+
 	# Progress, knowledge and unlocks live in the mountain database
 	var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
 	if mountain_db != null:
 		mountain_db.record_run(run_context.mountain_id, outcome, run_context.game_time_elapsed * 60.0)
+
+
+## Grade and score the line actually travelled and file it in the logbook
+func _score_run(run: RunContext) -> void:
+	var routes: Array[RouteSurvey.GuideRoute] = []
+	if terrain_service != null and terrain_service.current_mountain == run.mountain_id:
+		routes = RouteSurvey.survey(terrain_service)
+	var score := RouteScorer.score_run(run, terrain_service, routes)
+	run.route_score = score
+
+	var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
+	if mountain_db != null:
+		run.set_meta("score_is_best", mountain_db.record_score(run.mountain_id, score.to_dict()))
+		var home := run.outcome == GameEnums.ResolutionType.CLEAN_RETURN or run.outcome == GameEnums.ResolutionType.INJURED_RETURN
+		if home:
+			for route in routes:
+				if route.name == score.route_name or (run.summit_reached and route.name == score.ascent_route_name):
+					mountain_db.record_route_climbed(run.mountain_id, route.id)
+
+	print("[Main] Route score: %d - %s (style %s, pace x%.2f, plan %d%%)" % [
+		score.total, score.get_title(), score.style_label, score.pace_factor, roundi(score.plan_share * 100.0)
+	])
 
 
 ## Feed the climber's altitude to the environment (temperature, hazards)
@@ -481,13 +518,27 @@ func _on_planning_complete(route: PackedVector3Array) -> void:
 	conditions.gear_state = loadout
 	conditions.mountain_id = mountain.id
 	conditions.knowledge_level = mountain_db.get_knowledge_level(mountain.id)
+	_apply_route_mode(conditions)
 
 	# Start run with planned route
 	var run := GameStateManager.start_run(mountain.id, conditions)
 	if run:
 		run.set_meta("planned_route", route)
+		if planning_screen != null:
+			if run.is_full_route():
+				run.set_meta("planned_ascent", planning_screen.get_planned_route(GameEnums.RunPhase.ASCENT))
+			run.set_meta("guide_route", planning_screen.get_selected_guide_id())
 
 	# Transition handled by planning screen
+
+
+## The selected route mode shapes the day: a full route leaves base camp
+## fresh at an alpine start; a descent starts on the summit after the climb
+func _apply_route_mode(conditions: StartConditions) -> void:
+	var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
+	if mountain_db == null:
+		return
+	conditions.apply_route_mode(mountain_db.get_route_mode())
 
 
 func _start_descent() -> void:
@@ -602,14 +653,19 @@ func _spawn_player(run: RunContext) -> void:
 		player.process_mode = Node.PROCESS_MODE_INHERIT
 
 	# Position at summit/start area, facing base camp so the first view is
-	# down the mountain; the camera snaps behind the climber after that
+	# down the mountain; the camera snaps behind the climber after that.
+	# A full route starts at the edge of base camp, facing the summit.
 	var start_pos := _get_start_position()
-	player.global_position = start_pos
 	var goal_pos := _get_goal_position()
-	var to_goal := goal_pos - start_pos
-	to_goal.y = 0.0
-	if to_goal.length_squared() > 0.01:
-		player.look_at(start_pos + to_goal, Vector3.UP)
+	var facing := goal_pos - start_pos
+	if run.is_full_route():
+		var summit := start_pos
+		start_pos = _get_full_route_start(summit, goal_pos)
+		facing = summit - start_pos
+	player.global_position = start_pos
+	facing.y = 0.0
+	if facing.length_squared() > 0.01:
+		player.look_at(start_pos + facing, Vector3.UP)
 	if is_new:
 		var pivot := player.camera_pivot as PlayerCamera
 		if pivot != null:
@@ -652,6 +708,17 @@ func _get_start_position() -> Vector3:
 	return Vector3(0, 3000, 0)
 
 
+## Full route start: just outside base camp on the summit side, on the ground
+func _get_full_route_start(summit: Vector3, base: Vector3) -> Vector3:
+	var toward := Vector3(summit.x - base.x, 0.0, summit.z - base.z)
+	if toward.length_squared() < 0.01:
+		return base + Vector3(0, 0.5, 0)
+	var spot := base + toward.normalized() * FULL_ROUTE_START_OFFSET
+	if terrain_service != null:
+		spot.y = terrain_service.get_height_at(spot)
+	return spot + Vector3(0, 0.5, 0)
+
+
 ## Base camp position: terrain goal, else the lowest terrain corner
 func _get_goal_position() -> Vector3:
 	if terrain_service == null:
@@ -672,6 +739,13 @@ func _setup_descent_goal() -> void:
 	descent_goal = DescentGoal.new()
 	descent_goal.player_ref = player
 	world.add_child(descent_goal)
+
+	# The summit cairn stands on every run; on a full route it is the turn
+	if summit_goal != null:
+		summit_goal.queue_free()
+	summit_goal = SummitGoal.new()
+	summit_goal.player_ref = player
+	world.add_child(summit_goal)
 
 
 func _setup_hud() -> void:
@@ -700,6 +774,8 @@ func _end_descent() -> void:
 		player.process_mode = Node.PROCESS_MODE_DISABLED
 	if descent_goal != null and is_instance_valid(descent_goal):
 		descent_goal.set_physics_process(false)
+	if summit_goal != null and is_instance_valid(summit_goal):
+		summit_goal.set_physics_process(false)
 
 
 func _cleanup_descent() -> void:
@@ -713,6 +789,9 @@ func _cleanup_descent() -> void:
 	if descent_goal != null:
 		descent_goal.queue_free()
 		descent_goal = null
+	if summit_goal != null:
+		summit_goal.queue_free()
+		summit_goal = null
 
 	# Clean up HUD
 	if physical_map != null:

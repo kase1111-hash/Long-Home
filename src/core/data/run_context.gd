@@ -88,6 +88,36 @@ extends Resource
 ## Timestamps for path history (parallel array)
 @export var path_timestamps: PackedFloat64Array = PackedFloat64Array()
 
+## How each path sample was travelled (RouteMetrics.MODE_*: on foot, climbing,
+## on the rope, gliding, out of control), parallel to path_history. Scoring
+## grades only the ground covered under control.
+@export var path_modes: PackedByteArray = PackedByteArray()
+
+## Current travel mode (GameStateManager sets it from the player's state)
+var travel_mode: int = 0
+
+# =============================================================================
+# ROUTE MODE (full route: up, then down)
+# =============================================================================
+
+## Descent only, or the full route from base camp to the summit and back
+@export var route_mode: GameEnums.RouteMode = GameEnums.RouteMode.DESCENT
+
+## Which way the climber is heading
+@export var phase: GameEnums.RunPhase = GameEnums.RunPhase.DESCENT
+
+## Full route: the summit has been reached
+@export var summit_reached: bool = false
+
+## Game hours elapsed when the summit was reached (-1 = not yet)
+@export var summit_time: float = -1.0
+
+## path_history index at the summit (-1 = not yet)
+@export var summit_path_index: int = -1
+
+## The scored result (RouteScorer.RouteScore), filled when the run ends
+var route_score: RefCounted = null
+
 ## A single position sample further than this is a teleport (spawn, debug
 ## warp, test harness), not travel - it resets tracking instead of adding
 ## a bogus distance
@@ -138,6 +168,9 @@ static func create_new_run(mountain: String, conditions: StartConditions) -> Run
 	context.current_weather = conditions.weather
 	context.current_wind = conditions.wind_strength
 	context.current_temperature = conditions.temperature
+	context.route_mode = conditions.route_mode
+	if conditions.route_mode == GameEnums.RouteMode.FULL_ROUTE:
+		context.phase = GameEnums.RunPhase.ASCENT
 
 	return context
 
@@ -168,6 +201,29 @@ func update_position(new_position: Vector3, new_velocity: Vector3) -> void:
 	if path_history.is_empty() or path_history[-1].distance_to(position) >= 1.0:
 		path_history.append(position)
 		path_timestamps.append(game_time_elapsed)
+		path_modes.append(travel_mode)
+
+
+## Full route: the climber stands on the summit; the way home starts now
+func reach_summit() -> void:
+	if summit_reached:
+		return
+	summit_reached = true
+	phase = GameEnums.RunPhase.DESCENT
+	summit_time = game_time_elapsed
+	# Descent progress now runs from the top
+	start_elevation = maxf(start_elevation, position.y)
+	summit_path_index = maxi(0, path_history.size() - 1)
+	record_decision("summit_reached", {
+		"elevation": position.y,
+		"game_time": game_time_elapsed,
+		"time_of_day": current_time
+	})
+
+
+## True for a full-route run
+func is_full_route() -> bool:
+	return route_mode == GameEnums.RouteMode.FULL_ROUTE
 
 
 ## Forget the last position sample so the next update_position() call
@@ -336,7 +392,9 @@ func get_run_summary() -> Dictionary:
 		"incidents_count": incidents.size(),
 		"final_fatigue": body_state.fatigue if body_state else 0.0,
 		"injuries": body_state.injuries.size() if body_state else 0,
-		"difficulty": start_conditions.get_difficulty_score() if start_conditions else 0.0
+		"difficulty": start_conditions.get_difficulty_score() if start_conditions else 0.0,
+		"route_mode": route_mode,
+		"summit_reached": summit_reached
 	}
 
 

@@ -1,8 +1,9 @@
 class_name ResolutionScreen
 extends Control
 ## Resolution screen shown at the end of a run
-## Displays outcome in a minimal, atmospheric way
-## No scores, no medals - just clarity
+## Displays outcome in a minimal, atmospheric way, then the logbook line:
+## the line climbed, its grade, the style and the score (RouteScorer).
+## No medals - just clarity
 
 # =============================================================================
 # SIGNALS
@@ -84,6 +85,9 @@ func show_resolution(context: RunContext, result: GameEnums.ResolutionType) -> v
 	# Set outcome text
 	outcome_label.text = OUTCOME_TITLES.get(outcome, "The End")
 	outcome_subtitle.text = OUTCOME_SUBTITLES.get(outcome, "")
+	var home := outcome == GameEnums.ResolutionType.CLEAN_RETURN or outcome == GameEnums.ResolutionType.INJURED_RETURN
+	if context != null and context.is_full_route() and home:
+		outcome_subtitle.text = "Up and down: the whole mountain" if context.summit_reached else "The summit will wait"
 
 	# Build stats display
 	_build_stats()
@@ -132,6 +136,20 @@ func _build_stats() -> void:
 	if injury_count > 0:
 		_add_stat("Injuries", str(injury_count))
 
+	# Full route: the summit, or the turn back
+	if run_context.is_full_route():
+		_add_stat("Summit", "Reached" if run_context.summit_reached else "Not reached")
+
+	# The logbook line
+	var score := run_context.route_score as RouteScorer.RouteScore
+	if score != null:
+		_add_stat("Line", score.get_title())
+		_add_stat("Style", score.style_label)
+		var score_text := "%d pts" % score.total
+		if run_context.get_meta("score_is_best", false) and score.total > 0:
+			score_text += "  (new best)"
+		_add_stat("Score", score_text)
+
 
 func _add_stat(label_text: String, value_text: String) -> void:
 	var container := HBoxContainer.new()
@@ -139,7 +157,7 @@ func _add_stat(label_text: String, value_text: String) -> void:
 
 	var label := Label.new()
 	label.text = label_text + ":"
-	label.custom_minimum_size = Vector2(100, 0)
+	label.custom_minimum_size = Vector2(110, 0)
 	label.add_theme_color_override("font_color", Color(0.5, 0.5, 0.55, 0.8))
 
 	var value := Label.new()

@@ -1,7 +1,18 @@
 class_name PostureSystem
 extends Node
-## Manages player stability, balance, and micro-slip events
+## Manages player stability, balance, and slips
 ## Creates the "feel" of precarious mountain terrain
+##
+## Balance comes from footing first: the grip of what is on the feet
+## (TractionModel.foot_grip) against what the slope and the pace demand, plus
+## the axe and the hands while downclimbing. Fatigue, injuries and a drop
+## beside you take a little more off.
+##
+## Slips are a Poisson process on that grip margin: rare with grip to spare,
+## every few seconds on a knife edge, immediate once the footing cannot hold.
+## Most slips are a stagger. On thin margins they become a slide (snow, ice,
+## scree and broken rock steeper than a body can rest on) or a fall (cliffs),
+## unless the plunged axe or the other holds catch it.
 
 # =============================================================================
 # CONFIGURATION
@@ -16,17 +27,17 @@ var stability_recovery_rate: float = 0.3
 ## How quickly stability drains in dangerous situations
 var stability_drain_rate: float = 0.5
 
-## Interval between potential micro-slip checks (seconds)
-var micro_slip_check_interval: float = 0.5
+## Shortest gap between two slips (seconds): a slip is a moment, not a buzz
+var slip_refractory_time: float = 0.6
+
+## Longer gap after going down on the ground
+var fall_over_refractory_time: float = 2.0
 
 ## Probability multiplier for micro-slips
 var micro_slip_probability_scale: float = 1.0
 
-## Speed threshold for speed-based instability
-var speed_instability_threshold: float = 3.0
-
-## Slope threshold for slope-based instability
-var slope_instability_threshold: float = 25.0
+## Clinging with three points on, a slip is mostly a foot popping off
+var clinging_escalation_scale: float = 0.4
 
 # =============================================================================
 # STATE
@@ -35,7 +46,7 @@ var slope_instability_threshold: float = 25.0
 ## Reference to player controller
 var player: PlayerController
 
-## Time since last micro-slip check
+## Seconds until another slip can happen
 var micro_slip_timer: float = 0.0
 
 ## Current stability modifiers
@@ -49,6 +60,8 @@ var slip_tracking_window: float = 10.0
 
 ## Is player in a precarious situation
 var is_precarious: bool = false
+
+var _slip_history_timer: float = 0.0
 
 
 # =============================================================================
@@ -70,50 +83,74 @@ func update(delta: float) -> void:
 	# Apply stability change
 	_update_stability(target_stability, delta)
 
-	# Check for micro-slips
-	micro_slip_timer += delta
-	if micro_slip_timer >= micro_slip_check_interval:
-		micro_slip_timer = 0.0
-		_check_for_micro_slip()
+	# Slips on thin footing
+	micro_slip_timer = maxf(0.0, micro_slip_timer - delta)
+	if micro_slip_timer <= 0.0 and _can_slip():
+		var rate := TractionModel.slip_rate(player.grip_margin) * (1.0 + 0.25 * recent_slips.size())
+		if randf() < rate * micro_slip_probability_scale * delta:
+			_trigger_micro_slip()
 
 	# Update precarious state
 	is_precarious = player.stability < 0.5
 
 	# Clean up old slip records
-	_clean_slip_history()
+	_clean_slip_history(delta)
 
 
 # =============================================================================
 # STABILITY CALCULATION
 # =============================================================================
 
-func _calculate_target_stability() -> float:
-	var stability := base_stability
+## Grip left over what the slope and the pace demand (negative: cannot hold)
+func compute_grip_margin() -> float:
+	var cell := player.current_cell
+	if cell == null:
+		return 1.0
 
-	# Clear modifiers
+	var footwear := player.get_traction_footwear()
+	var grip := TractionModel.foot_grip(
+		cell.surface_type, footwear, player.get_crampon_effectiveness(), player.air_temperature)
+
+	# Footwork suffers with tired legs and numb feet
+	grip *= 1.0 - 0.12 * player.get_fatigue()
+	grip *= 1.0 - 0.15 * player.get_foot_cold()
+
+	if player.is_clinging():
+		grip += TractionModel.downclimb_support(
+			cell.surface_type, player.has_ice_axe(), player.get_ice_axe_effectiveness(),
+			player.get_hand_dexterity(), footwear)
+
+	# The body's own velocity, not the position delta (a teleport or respawn
+	# would read as a sprint)
+	var speed := minf(player.velocity.length(), 8.0)
+	var demand := TractionModel.required_grip(cell.slope_angle, speed)
+	return grip - demand
+
+
+func _calculate_target_stability() -> float:
 	stability_modifiers.clear()
 
-	# Terrain slope modifier
-	if player.current_cell:
-		var slope := player.current_cell.slope_angle
-		if slope > slope_instability_threshold:
-			var slope_penalty := (slope - slope_instability_threshold) / 45.0 * 0.4
-			stability -= slope_penalty
-			stability_modifiers["slope"] = -slope_penalty
+	match player.current_state:
+		GameEnums.PlayerMovementState.SLIDING, GameEnums.PlayerMovementState.FALLING:
+			stability_modifiers["off_feet"] = -0.7
+			return 0.3
+		GameEnums.PlayerMovementState.ROPING:
+			stability_modifiers["on_rope"] = -0.15
+			return 0.85
+		GameEnums.PlayerMovementState.INCAPACITATED:
+			return 0.1
+		GameEnums.PlayerMovementState.SKIING:
+			if player.ski != null:
+				var on_skis := player.ski.get_stability()
+				stability_modifiers["skiing"] = on_skis - 1.0
+				return on_skis
+			return 0.8
 
-	# Surface modifier
-	if player.current_cell:
-		var surface_penalty := _get_surface_stability_penalty(player.current_cell.surface_type)
-		stability -= surface_penalty
-		if surface_penalty > 0:
-			stability_modifiers["surface"] = -surface_penalty
-
-	# Speed modifier
-	var speed := player.smooth_velocity.length()
-	if speed > speed_instability_threshold:
-		var speed_penalty := (speed - speed_instability_threshold) / 10.0 * 0.3
-		stability -= speed_penalty
-		stability_modifiers["speed"] = -speed_penalty
+	var margin := compute_grip_margin()
+	player.grip_margin = margin
+	var stability := minf(base_stability, TractionModel.stability_from_margin(margin))
+	if stability < 1.0:
+		stability_modifiers["footing"] = stability - 1.0
 
 	# Fatigue modifier
 	if player.body_state:
@@ -131,18 +168,7 @@ func _calculate_target_stability() -> float:
 		if body_penalty > 0:
 			stability_modifiers["body"] = -body_penalty
 
-	# Gear modifier (crampons help on ice)
-	if player.gear_state and player.current_cell:
-		if player.current_cell.surface_type == GameEnums.SurfaceType.ICE:
-			if player.gear_state.has_crampons():
-				var crampon_bonus := player.gear_state.get_crampon_effectiveness() * 0.3
-				stability += crampon_bonus
-				stability_modifiers["crampons"] = crampon_bonus
-			else:
-				stability -= 0.3
-				stability_modifiers["no_crampons"] = -0.3
-
-	# Cliff proximity modifier
+	# A drop beside you takes the confidence out of every step
 	if player.current_cell:
 		var cliff_dist := player.current_cell.distance_to_cliff
 		if cliff_dist < 10.0:
@@ -150,30 +176,11 @@ func _calculate_target_stability() -> float:
 			stability -= cliff_penalty
 			stability_modifiers["cliff_proximity"] = -cliff_penalty
 
-	# Movement state modifier
-	match player.current_state:
-		GameEnums.PlayerMovementState.DOWNCLIMBING:
-			stability -= 0.1
-			stability_modifiers["downclimbing"] = -0.1
-		GameEnums.PlayerMovementState.RESTING:
-			stability += 0.2
-			stability_modifiers["resting"] = 0.2
+	if player.current_state == GameEnums.PlayerMovementState.RESTING:
+		stability += 0.2
+		stability_modifiers["resting"] = 0.2
 
 	return clampf(stability, 0.0, 1.0)
-
-
-func _get_surface_stability_penalty(surface: GameEnums.SurfaceType) -> float:
-	match surface:
-		GameEnums.SurfaceType.ICE:
-			return 0.3
-		GameEnums.SurfaceType.ROCK_WET:
-			return 0.2
-		GameEnums.SurfaceType.SCREE:
-			return 0.15
-		GameEnums.SurfaceType.SNOW_POWDER:
-			return 0.1
-		_:
-			return 0.0
 
 
 func _update_stability(target: float, delta: float) -> void:
@@ -190,125 +197,126 @@ func _update_stability(target: float, delta: float) -> void:
 
 
 # =============================================================================
-# MICRO-SLIP SYSTEM
+# SLIPS
 # =============================================================================
 
-func _check_for_micro_slip() -> void:
-	# Don't slip in safe states
-	if player.current_state in [
-		GameEnums.PlayerMovementState.RESTING,
-		GameEnums.PlayerMovementState.SLIDING,  # Already sliding
-		GameEnums.PlayerMovementState.FALLING   # Already falling
-	]:
-		return
-
-	# Calculate slip probability
-	var slip_chance := _calculate_slip_probability()
-
-	# Random roll
-	if randf() < slip_chance:
-		_trigger_micro_slip()
-
-
-func _calculate_slip_probability() -> float:
-	var probability := 0.0
-
-	# Base probability from stability
-	var instability := 1.0 - player.stability
-	probability += instability * 0.1
-
-	# Slope adds to probability
-	if player.current_cell:
-		var slope := player.current_cell.slope_angle
-		if slope > 20:
-			probability += (slope - 20) / 50.0 * 0.1
-
-	# Surface adds to probability
-	if player.current_cell:
-		match player.current_cell.surface_type:
-			GameEnums.SurfaceType.ICE:
-				probability += 0.15
-			GameEnums.SurfaceType.ROCK_WET:
-				probability += 0.08
-			GameEnums.SurfaceType.SCREE:
-				probability += 0.05
-
-	# Speed adds to probability
-	var speed := player.smooth_velocity.length()
-	if speed > 2.0:
-		probability += (speed - 2.0) / 10.0 * 0.1
-
-	# Fatigue adds to probability
-	if player.body_state:
-		probability += player.body_state.fatigue * 0.1
-
-	# Recent slips increase future slip probability (destabilization)
-	probability += len(recent_slips) * 0.02
-
-	return probability * micro_slip_probability_scale
+func _can_slip() -> bool:
+	return player.current_state in [
+		GameEnums.PlayerMovementState.STANDING,
+		GameEnums.PlayerMovementState.WALKING,
+		GameEnums.PlayerMovementState.DOWNCLIMBING,
+		GameEnums.PlayerMovementState.TRAVERSING,
+	]
 
 
 func _trigger_micro_slip() -> void:
-	# Calculate severity based on conditions
-	var severity := 0.3  # Base severity
+	var margin := player.grip_margin
+	var speed := minf(player.velocity.length(), 8.0)
+	var severity := clampf(0.3 + (0.12 - margin) * 2.0 + speed * 0.05, 0.1, 1.0)
 
-	# Slope increases severity
-	if player.current_cell:
-		severity += player.current_cell.slope_angle / 90.0 * 0.3
-
-	# Speed increases severity
-	severity += player.smooth_velocity.length() / 10.0 * 0.2
-
-	# Low stability increases severity
-	severity += (1.0 - player.stability) * 0.2
-
-	severity = clampf(severity, 0.1, 1.0)
-
-	# Apply stability loss
-	player.set_stability(player.stability - severity * 0.2)
-
-	# Record slip
+	micro_slip_timer = slip_refractory_time
+	player.set_stability(player.stability - severity * 0.25)
 	recent_slips.append(severity)
-
-	# Trigger player response
 	player.trigger_micro_slip(severity)
 
-	# Apply small velocity perturbation
-	if player.current_cell:
-		var slip_dir := player.current_cell.slope_direction
-		var slip_force := slip_dir * severity * 2.0
-		player.velocity += slip_force
+	var chance := TractionModel.slip_escalation_chance(margin) * (1.0 - _catch_chance())
+	if player.is_clinging():
+		chance *= clinging_escalation_scale
+	if randf() < chance:
+		_escalate_slip(severity, margin)
+		return
 
-	# Check if slip leads to fall
-	if player.stability < player.fall_threshold:
-		_trigger_fall_from_slip(severity)
-
-	# Check if slip leads to slide
-	if severity > 0.7 and player.can_initiate_slide():
-		_trigger_slide_from_slip()
+	# A stagger: a lurch downhill, caught
+	if not player.is_clinging() and player.current_cell != null:
+		player.velocity += player.current_cell.slope_direction * severity * 1.2
 
 
-func _trigger_fall_from_slip(severity: float) -> void:
-	player.change_state(GameEnums.PlayerMovementState.FALLING)
+## Chance the axe or the other holds catch a slip before it becomes a slide
+func _catch_chance() -> float:
+	var cell := player.current_cell
+	if cell == null:
+		return 0.0
+	var surface := cell.surface_type
+	var axe := player.has_ice_axe()
+	var axe_eff := player.get_ice_axe_effectiveness()
 
-	EventBus.record_incident("fall_from_slip", {
-		"severity": severity,
-		"stability": player.stability
-	})
+	if player.is_clinging():
+		if axe and (TractionModel.is_snow(surface) or surface == GameEnums.SurfaceType.ICE or surface == GameEnums.SurfaceType.MIXED):
+			return 0.6 * axe_eff
+		if TractionModel.is_rock(surface):
+			return 0.55 * player.get_hand_dexterity()
+		return 0.35
+
+	# Walking a snow slope with the shaft plunged in (self-belay)
+	if axe and TractionModel.is_snow(surface) and cell.slope_angle >= 20.0:
+		return 0.5 * axe_eff
+	return 0.0
 
 
-func _trigger_slide_from_slip() -> void:
-	player.change_state(GameEnums.PlayerMovementState.SLIDING)
+## The slip got away: a slide where a body cannot rest, a fall off a face,
+## or just a heavy fall on the spot
+func _escalate_slip(severity: float, margin: float) -> void:
+	var cell := player.current_cell
+	if cell == null:
+		return
+	var slope := cell.slope_angle
+	var surface := cell.surface_type
+	var body_hold := TractionModel.max_holding_slope(TractionModel.body_static_friction(surface))
 
-	EventBus.record_incident("slide_from_slip", {
-		"position": player.global_position,
-		"stability": player.stability
-	})
+	if slope >= 60.0:
+		EventBus.record_incident("fall_from_slip", {
+			"severity": severity, "slope": slope, "margin": margin,
+			"surface": GameEnums.SurfaceType.keys()[surface]
+		})
+		player.say(_fall_line(surface), 2.0)
+		player.trigger_fall()
+	elif slope > body_hold:
+		EventBus.record_incident("slide_from_slip", {
+			"position": player.global_position, "slope": slope, "margin": margin,
+			"surface": GameEnums.SurfaceType.keys()[surface]
+		})
+		player.say(_slide_line(surface), 2.0)
+		player.start_slide(true, "slip")
+	else:
+		# Down on the ground, but the slope holds you
+		micro_slip_timer = fall_over_refractory_time
+		player.set_stability(player.stability - 0.3)
+		player.velocity = Vector3(0.0, player.velocity.y, 0.0)
+		EventBus.record_incident("fall_over", {
+			"position": player.global_position, "slope": slope,
+			"surface": GameEnums.SurfaceType.keys()[surface]
+		})
+		if TractionModel.is_rock(surface) and randf() < 0.3 and player.body_state != null:
+			var part: GameEnums.BodyPart = [GameEnums.BodyPart.LEFT_HAND, GameEnums.BodyPart.RIGHT_HAND][randi() % 2]
+			var injury := Injury.new(GameEnums.InjuryType.SPRAIN, randf_range(0.1, 0.25), part, 0.0)
+			player.body_state.add_injury(injury)
+			EventBus.injury_occurred.emit(injury)
 
 
-func _clean_slip_history() -> void:
-	# Remove old slip records
-	# For simplicity, just keep a max count
+func _slide_line(surface: GameEnums.SurfaceType) -> String:
+	match surface:
+		GameEnums.SurfaceType.ICE:
+			return "Your feet skate out on the ice."
+		GameEnums.SurfaceType.SCREE:
+			return "The scree goes out from under you."
+		GameEnums.SurfaceType.ROCK, GameEnums.SurfaceType.ROCK_DRY, GameEnums.SurfaceType.ROCK_WET, GameEnums.SurfaceType.MIXED:
+			return "A hold goes. You're tumbling."
+	return "Your feet go. You're sliding."
+
+
+func _fall_line(surface: GameEnums.SurfaceType) -> String:
+	if surface == GameEnums.SurfaceType.ICE:
+		return "The ice lets go of you."
+	return "You come off the face."
+
+
+func _clean_slip_history(delta: float) -> void:
+	# Each slip shakes you for a while; the memory fades
+	_slip_history_timer += delta
+	if _slip_history_timer >= slip_tracking_window / 5.0:
+		_slip_history_timer = 0.0
+		if not recent_slips.is_empty():
+			recent_slips.pop_front()
 	while recent_slips.size() > 5:
 		recent_slips.pop_front()
 

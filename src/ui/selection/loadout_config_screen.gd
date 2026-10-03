@@ -567,6 +567,13 @@ func _on_gear_toggled(pressed: bool, gear_type: GameEnums.GearType) -> void:
 	if pressed:
 		var item := GearState.GearItem.new(gear_type, 1.0, info.base_weight)
 		current_loadout.add_item(item)
+		# Skis or a board, not both
+		if GearDatabase.EXCLUSIVE_GEAR.has(gear_type):
+			var other: GameEnums.GearType = GearDatabase.EXCLUSIVE_GEAR[gear_type]
+			if current_loadout.has_item(other):
+				current_loadout.remove_item(other)
+				if gear_toggles.has(other):
+					(gear_toggles[other] as CheckButton).set_pressed_no_signal(false)
 	else:
 		current_loadout.remove_item(gear_type)
 

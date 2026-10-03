@@ -19,7 +19,9 @@ enum AnchorType {
 	ICE_SCREW,       # Placed in ice
 	SNOW_STAKE,      # Placed in hard snow (least reliable)
 	FIXED_ANCHOR,    # Pre-existing bolt or piton
-	TREE             # Tree anchor (rare at altitude)
+	TREE,            # Tree anchor (rare at altitude)
+	SNOW_BOLLARD,    # Horseshoe trench cut in firm snow (no gear, slow)
+	V_THREAD         # Abalakov thread drilled through ice
 }
 
 
@@ -91,11 +93,29 @@ func get_effective_quality() -> float:
 		AnchorType.ICE_SCREW:
 			quality *= 0.8  # Temperature dependent
 		AnchorType.SNOW_STAKE:
-			quality *= 0.6  # Least reliable
+			quality *= 0.75  # A buried picket: fine in firm snow, poor in soft
 		AnchorType.TREE:
 			quality *= 1.1  # Reliable if present
+		AnchorType.SNOW_BOLLARD:
+			quality *= 0.8  # Good in firm snow, poor in soft
+		AnchorType.V_THREAD:
+			quality *= 1.0  # Strong in sound ice
 
 	return clampf(quality, 0.1, 1.0)
+
+
+## Coarse quality class for recording and replay (never shown to the player)
+func get_quality_class() -> GameEnums.AnchorQuality:
+	var quality := get_effective_quality()
+	if quality >= 0.85:
+		return GameEnums.AnchorQuality.EXCELLENT
+	if quality >= 0.65:
+		return GameEnums.AnchorQuality.GOOD
+	if quality >= 0.45:
+		return GameEnums.AnchorQuality.MARGINAL
+	if quality >= 0.25:
+		return GameEnums.AnchorQuality.POOR
+	return GameEnums.AnchorQuality.UNUSABLE
 
 
 ## Get failure probability for given load
@@ -140,8 +160,36 @@ func get_placement_difficulty() -> float:
 			return 0.7  # Technical placement
 		AnchorType.SNOW_STAKE:
 			return 0.5  # Dig and place
+		AnchorType.SNOW_BOLLARD:
+			return 1.2  # Chop a metre-wide trench with the axe
+		AnchorType.V_THREAD:
+			return 0.9  # Drill two holes that meet, thread a sling
 		_:
 			return 0.5
+
+
+## How the climber describes building this anchor (no rating, ever)
+func get_build_description() -> String:
+	match anchor_type:
+		AnchorType.ROCK_HORN:
+			return "You sling a horn of rock."
+		AnchorType.BOULDER:
+			return "You loop a sling round a boulder."
+		AnchorType.ROCK_CRACK:
+			return "You work a nut and a cam into a crack."
+		AnchorType.ICE_SCREW:
+			return "Two screws into the ice, equalised."
+		AnchorType.V_THREAD:
+			return "You drill a V-thread through the ice."
+		AnchorType.SNOW_STAKE:
+			return "You bury the picket and stamp it in."
+		AnchorType.SNOW_BOLLARD:
+			return "No gear for snow. You chop a bollard with the axe."
+		AnchorType.FIXED_ANCHOR:
+			return "An old bolt. You back it up and clip in."
+		AnchorType.TREE:
+			return "A stunted pine. It will have to do."
+	return "You build an anchor."
 
 
 ## Get visual hint type for diegetic feedback
@@ -161,6 +209,10 @@ func get_visual_hint() -> String:
 			return "metal_bolt"
 		AnchorType.TREE:
 			return "stunted_tree"
+		AnchorType.SNOW_BOLLARD:
+			return "cut_trench"
+		AnchorType.V_THREAD:
+			return "solid_ice"
 		_:
 			return ""
 
@@ -170,9 +222,9 @@ func get_audio_hint() -> String:
 	match anchor_type:
 		AnchorType.ROCK_HORN, AnchorType.BOULDER, AnchorType.ROCK_CRACK:
 			return "solid_tap"  # Tapping rock sounds solid
-		AnchorType.ICE_SCREW:
+		AnchorType.ICE_SCREW, AnchorType.V_THREAD:
 			return "ice_crunch"
-		AnchorType.SNOW_STAKE:
+		AnchorType.SNOW_STAKE, AnchorType.SNOW_BOLLARD:
 			return "snow_compress"
 		AnchorType.FIXED_ANCHOR:
 			return "metal_click"
@@ -204,7 +256,7 @@ func apply_environment(temperature: float, has_ice: bool, is_wet: bool) -> void:
 		ice_coverage_modifier = 0.7
 
 	# Cold affects ice anchors positively, warm negatively
-	if anchor_type == AnchorType.ICE_SCREW:
+	if anchor_type == AnchorType.ICE_SCREW or anchor_type == AnchorType.V_THREAD:
 		if temperature < -10.0:
 			weather_modifier = 1.1  # Solid ice
 		elif temperature > -2.0:
@@ -212,8 +264,8 @@ func apply_environment(temperature: float, has_ice: bool, is_wet: bool) -> void:
 		else:
 			weather_modifier = 0.9
 
-	# Snow stakes worse in warm conditions
-	if anchor_type == AnchorType.SNOW_STAKE:
+	# Snow anchors worse in warm conditions
+	if anchor_type == AnchorType.SNOW_STAKE or anchor_type == AnchorType.SNOW_BOLLARD:
 		if temperature > -5.0:
 			weather_modifier = 0.6
 

@@ -30,6 +30,8 @@ const REFRESH_INTERVAL := 0.25
 
 ## Seconds the control hints stay up after the HUD appears
 const HINTS_AUTO_HIDE_DELAY := 15.0
+## Seconds a contextual hint stays up when it comes back on its own
+const CONTEXT_HINT_TIME := 8.0
 ## Fade-out duration of the automatic hide
 const HINTS_FADE_TIME := 1.0
 ## Fade duration when hints are toggled by hand
@@ -39,7 +41,14 @@ const HINTS_TOGGLE_FADE_TIME := 0.2
 const MESSAGE_FADE_IN := 0.3
 const MESSAGE_FADE_OUT := 0.6
 
-const HINTS_TEXT := "WASD move  ·  Mouse look  ·  Space slide  ·  R rope  ·  Q/E lean  ·  M map  ·  C self-check  ·  Esc pause  ·  H hints"
+const HINTS_TEXT := "WASD move  ·  Mouse look  ·  Space glissade / arrest  ·  S brake  ·  R rope  ·  F crampons  ·  T skis  ·  Q/E lean  ·  M map  ·  C self-check  ·  Esc pause  ·  H hints"
+
+## Contextual control reminders, shown in place of the general hints while
+## the climber is doing something with its own controls
+const HINTS_SLIDING := "S dig in heels and spike  ·  A/D lean  ·  W lie back  ·  Space self-arrest"
+const HINTS_ROPE := "Push down the face to let rope run  ·  + Space to let it run fast  ·  Let go to brake  ·  Up to climb  ·  R unclip on a ledge, or build the next anchor"
+const HINTS_ROPE_BUILD := "Building the anchor  ·  R strip it and back off"
+const HINTS_SKIING := "A/D turn  ·  S skid to slow or stop  ·  W tuck (pole on the flat)  ·  T step out  ·  Space self-arrest after a fall"
 
 ## Layout (design resolution is 1920x1080, viewport stretch)
 const SCREEN_MARGIN := 24.0
@@ -83,6 +92,15 @@ const STATE_NAMES := {
 	GameEnums.PlayerMovementState.ARRESTED: "Self-arrest",
 	GameEnums.PlayerMovementState.RESTING: "Resting",
 	GameEnums.PlayerMovementState.INCAPACITATED: "Incapacitated",
+	GameEnums.PlayerMovementState.SKIING: "Skiing",
+}
+
+## What is on the climber's feet, for the read-out
+const FOOTWEAR_NAMES := {
+	GameEnums.Footwear.BOOTS: "Boots",
+	GameEnums.Footwear.CRAMPONS: "Crampons",
+	GameEnums.Footwear.SKIS: "Skis",
+	GameEnums.Footwear.SNOWBOARD: "Splitboard",
 }
 
 # =============================================================================
@@ -95,9 +113,12 @@ var _elevation_value: Label
 var _descended_value: Label
 var _base_camp_value: Label
 var _moving_value: Label
+var _feet_value: Label
 var _time_value: Label
 var _temp_caption: Label
 var _temp_value: Label
+var _descended_caption: Label
+var _base_camp_caption: Label
 
 var _bottom_stack: VBoxContainer
 var _message_label: Label
@@ -131,6 +152,10 @@ var _hints_visible: bool = true
 var _hints_auto_hide_remaining: float = HINTS_AUTO_HIDE_DELAY
 var _hints_tween: Tween
 var _message_tween: Tween
+## Seconds left on a contextual hint brought back after the hints faded
+var _context_hint_timer: float = 0.0
+## The player hid the hints with H: contextual hints stay hidden too
+var _hints_dismissed: bool = false
 
 # =============================================================================
 # LIFECYCLE
@@ -198,6 +223,8 @@ func show_message(message: String, duration: float) -> void:
 ## Show or hide the control hints; cancels the automatic hide
 func set_hints_visible(is_visible: bool, animate: bool = true) -> void:
 	_hints_auto_hide_remaining = -1.0
+	_hints_dismissed = not is_visible
+	_context_hint_timer = 0.0
 	_fade_hints(is_visible, HINTS_TOGGLE_FADE_TIME if animate else 0.0)
 
 
@@ -240,7 +267,10 @@ func _build_run_panel() -> void:
 	_elevation_value = _add_row("Elevation")
 	_descended_value = _add_row("Descended")
 	_base_camp_value = _add_row("Base camp")
+	_descended_caption = _rows.get_node("DescendedCaption") as Label
+	_base_camp_caption = _rows.get_node("BasecampCaption") as Label
 	_moving_value = _add_row("Moving")
+	_feet_value = _add_row("Feet")
 	_time_value = _add_row("Time")
 
 	# Temperature row stays hidden until a source provides a value
@@ -384,11 +414,16 @@ func _refresh() -> void:
 	_resolve_services()
 	var run: RunContext = GameStateManager.current_run
 
+	var climbing := run != null and run.is_full_route() and run.phase == GameEnums.RunPhase.ASCENT
+	_descended_caption.text = "Climbed" if climbing else "Descended"
+	_base_camp_caption.text = "Summit" if climbing else "Base camp"
 	_elevation_value.text = _elevation_text(run)
-	_descended_value.text = _descended_text(run)
-	_base_camp_value.text = _base_camp_text()
+	_descended_value.text = _climbed_text(run) if climbing else _descended_text(run)
+	_base_camp_value.text = _summit_text() if climbing else _base_camp_text()
 	_moving_value.text = _moving_text()
+	_feet_value.text = _feet_text()
 	_time_value.text = _time_text(run)
+	_update_context_hints()
 	_update_temperature_row()
 
 
@@ -408,12 +443,42 @@ func _player_ready() -> bool:
 	return is_instance_valid(_player) and _player.is_inside_tree()
 
 
+## Height read from the altimeter; without one, a reckoning from the map
+## (to the nearest contour, 50 m)
 func _elevation_text(run: RunContext) -> String:
+	var height := NAN
 	if _player_ready():
-		return _format_metres(_player.global_position.y)
-	if run != null:
-		return _format_metres(run.current_elevation)
-	return UNKNOWN
+		height = _player.global_position.y
+	elif run != null:
+		height = run.current_elevation
+	if is_nan(height):
+		return UNKNOWN
+	if run != null and run.gear_state != null and not run.gear_state.has_item(GameEnums.GearType.ALTIMETER):
+		return "≈ " + _format_metres(roundf(height / 50.0) * 50.0)
+	return _format_metres(height)
+
+
+## Full route, on the way up: share of the climb done
+func _climbed_text(run: RunContext) -> String:
+	if not is_instance_valid(_terrain) or run.start_elevation <= 0.0:
+		return UNKNOWN
+	var top := _terrain.start_position.y
+	var bottom := run.target_elevation
+	if top <= bottom:
+		return UNKNOWN
+	return "%d %%" % roundi(clampf((run.current_elevation - bottom) / (top - bottom), 0.0, 1.0) * 100.0)
+
+
+## Full route, on the way up: how far to the top (horizontal)
+func _summit_text() -> String:
+	if not _player_ready() or not is_instance_valid(_terrain):
+		return UNKNOWN
+	var top := _terrain.start_position
+	var here := _player.global_position
+	var distance := Vector2(here.x, here.z).distance_to(Vector2(top.x, top.z))
+	if distance <= SummitGoal.SUMMIT_RADIUS:
+		return "Here"
+	return _format_metres(distance)
 
 
 func _descended_text(run: RunContext) -> String:
@@ -443,7 +508,69 @@ func _moving_text() -> String:
 	if is_instance_valid(_player):
 		state = _player.current_state
 	var state_name: String = STATE_NAMES.get(state, UNKNOWN)
+	if not is_instance_valid(_player):
+		return state_name
+
+	match state:
+		GameEnums.PlayerMovementState.SKIING:
+			if _player.footwear == GameEnums.Footwear.SNOWBOARD:
+				state_name = "Riding"
+			if _player.ski != null and _player.ski.speed > 0.5:
+				state_name += " %d km/h" % roundi(_player.ski.speed * 3.6)
+		GameEnums.PlayerMovementState.ROPING:
+			var rope := ServiceLocator.get_service("RopeService") as RopeService
+			if rope != null and rope.get_activity_text() != "":
+				state_name = "On rope: %s" % rope.get_activity_text()
+		GameEnums.PlayerMovementState.SLIDING:
+			var slides := _player.get_slide_system()
+			if slides != null and slides.is_arresting:
+				state_name = "Self-arresting"
+			elif slides != null and slides.is_uncontrolled:
+				state_name = "Falling down the slope"
 	return state_name
+
+
+func _feet_text() -> String:
+	if not is_instance_valid(_player):
+		return UNKNOWN
+	var text: String = FOOTWEAR_NAMES.get(_player.footwear, UNKNOWN)
+	if _player.is_busy_with_gear():
+		var progress := roundi(_player.get_gear_action_progress() * 100.0)
+		match _player.gear_action:
+			&"crampons":
+				text = "%s (%s crampons %d%%)" % [text, "taking off" if _player.footwear == GameEnums.Footwear.CRAMPONS else "strapping on", progress]
+			&"skis":
+				text = "%s (%s %d%%)" % [text, "stepping out" if _player.is_on_skis() else "stepping in", progress]
+	return text
+
+
+## Swap the general hints for the controls of what the climber is doing now
+func _update_context_hints() -> void:
+	if _hints_label == null:
+		return
+	var text := HINTS_TEXT
+	if is_instance_valid(_player):
+		match _player.current_state:
+			GameEnums.PlayerMovementState.SLIDING:
+				text = HINTS_SLIDING
+			GameEnums.PlayerMovementState.SKIING:
+				text = HINTS_SKIING
+			GameEnums.PlayerMovementState.ROPING:
+				var rope := ServiceLocator.get_service("RopeService") as RopeService
+				if rope != null and rope.phase == RopeService.RopePhase.RAPPELLING:
+					text = HINTS_ROPE
+				else:
+					text = HINTS_ROPE_BUILD
+	if _hints_label.text != text:
+		_hints_label.text = text
+		# A new set of controls is worth showing even after the hints faded
+		if text != HINTS_TEXT and not _hints_visible and _hints_auto_hide_remaining < 0.0 and not _hints_dismissed:
+			_fade_hints(true, HINTS_TOGGLE_FADE_TIME)
+			_context_hint_timer = CONTEXT_HINT_TIME
+	if _context_hint_timer > 0.0:
+		_context_hint_timer -= REFRESH_INTERVAL
+		if _context_hint_timer <= 0.0 and text != HINTS_TEXT:
+			_fade_hints(false, HINTS_FADE_TIME)
 
 
 func _time_text(run: RunContext) -> String:

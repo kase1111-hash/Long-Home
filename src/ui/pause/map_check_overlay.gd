@@ -199,9 +199,20 @@ func show_overlay() -> void:
 	visible = true
 
 	run_context = GameStateManager.get_current_run()
+	# No map in the pack: the notes and the clock, but no map to look at
+	var has_map := run_context == null or run_context.gear_state == null or _has_gear(GameEnums.GearType.TOPO_MAP)
+	map_display.visible = has_map
+	route_overlay.visible = has_map
+	position_marker.visible = has_map
 	_update_player_position()
 	_generate_map()
 	_update_info_panel()
+	if not has_map and info_content != null:
+		var note := Label.new()
+		note.text = "You left the map at the hut."
+		note.add_theme_color_override("font_color", Color(0.8, 0.6, 0.3))
+		info_content.add_child(note)
+		info_content.move_child(note, 0)
 	# First open: containers have not been laid out yet
 	_update_position_marker.call_deferred()
 
@@ -257,6 +268,10 @@ func _update_player_position() -> void:
 		uncertainty_radius = UNCERTAINTY_STORM
 	elif run_context.current_weather == GameEnums.WeatherState.SNOW or run_context.current_weather == GameEnums.WeatherState.DETERIORATING:
 		uncertainty_radius = UNCERTAINTY_BASE * 2
+
+	# A compass holds a bearing when nothing can be seen
+	if _has_gear(GameEnums.GearType.COMPASS):
+		uncertainty_radius = UNCERTAINTY_BASE + (uncertainty_radius - UNCERTAINTY_BASE) * 0.4
 
 	_update_position_marker()
 
@@ -332,9 +347,22 @@ func _on_position_marker_draw() -> void:
 		position_marker.draw_line(center, arrow_end, Color(0.5, 0.8, 1.0), 3.0)
 
 
+## True when the run's pack holds the given item
+func _has_gear(type: GameEnums.GearType) -> bool:
+	return run_context != null and run_context.gear_state != null and run_context.gear_state.has_item(type)
+
+
 func _on_route_overlay_draw() -> void:
 	if run_context == null or map_data == null:
 		return
+
+	# Full route: the planned line up
+	var planned_ascent = run_context.get_meta("planned_ascent", PackedVector3Array())
+	if run_context.is_full_route() and planned_ascent.size() >= 2:
+		var up_points := PackedVector2Array()
+		for wp in planned_ascent:
+			up_points.append(_world_to_map(Vector2(wp.x, wp.z)))
+		route_overlay.draw_polyline(up_points, Color(0.3, 0.6, 0.45, 0.3 if run_context.summit_reached else 0.6), 2.5)
 
 	# Draw planned route if available
 	var planned_route = run_context.get_meta("planned_route", PackedVector3Array())
@@ -382,7 +410,10 @@ func _update_info_panel() -> void:
 
 	# Position section
 	_add_section_header(content, "Current Position")
-	_add_info_row(content, "Elevation", "%.0fm" % run_context.current_elevation)
+	if _has_gear(GameEnums.GearType.ALTIMETER):
+		_add_info_row(content, "Elevation", "%.0fm" % run_context.current_elevation)
+	else:
+		_add_info_row(content, "Elevation", "about %.0fm" % (roundf(run_context.current_elevation / 50.0) * 50.0))
 
 	var descent := run_context.start_elevation - run_context.current_elevation
 	_add_info_row(content, "Descended", "%.0fm" % descent)
@@ -423,6 +454,21 @@ func _update_info_panel() -> void:
 
 	# Separator
 	content.add_child(HSeparator.new())
+
+	# Guidebook page for the leg in hand
+	if _has_gear(GameEnums.GearType.GUIDEBOOK):
+		var card := RouteCard.for_run(run_context, terrain_service)
+		if not card.is_empty():
+			_add_section_header(content, "Guidebook")
+			var card_box := VBoxContainer.new()
+			card_box.add_theme_constant_override("separation", 2)
+			content.add_child(card_box)
+			RouteCard.fill(card_box, card["title"], card["metrics"], {
+				"ascending": card["ascending"],
+				"max_pitches": 10,
+				"font_size": 11,
+			})
+			content.add_child(HSeparator.new())
 
 	# Route memory section
 	var save_manager := ServiceLocator.get_service("SaveManager") as SaveManager

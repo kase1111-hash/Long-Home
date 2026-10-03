@@ -45,7 +45,7 @@ Players begin at the summit with difficulty locked in beforehand via trade-offs:
 |--------|-------------|
 | **Time of Day** | Sun angle, shadows, freeze-thaw cycles |
 | **Weather Window** | Stable, deteriorating, whiteout risk |
-| **Gear Loadout** | Rope length, crampons, layers, emergency bivy |
+| **Gear Loadout** | Rope length, crampons, layers, emergency bivy, skis or a splitboard |
 | **Physical Condition** | Fatigue, hydration, minor injuries |
 | **Knowledge** | Route beta, topo familiarity, previous ascent experience |
 
@@ -61,6 +61,36 @@ Before moving, players:
 
 **Feel:** Calm but heavy—like chess before the clock starts.
 
+#### Implemented Planning (the hut, on paper)
+
+Planning happens on paper at the hut. Nothing about a route is ever drawn, labelled or marked on
+the 3D mountain; the only things on the mountain are physical (a cairn on the summit, the tents
+at base camp).
+
+- **Guidebook** (`RouteSurvey`). Each mountain is surveyed for the lines a guidebook would print:
+  the *Normal Route* (the easiest way off: the generator's guaranteed corridor), a *Face Direct*
+  down the fall line (cliff bands abseiled), a *Snow line* (couloir or snowfield, the ski and
+  glissade line) and a *Rib* or *Spur* off to one side. Lines come from A* over a 4 m terrain
+  grid with a cost per style; near-duplicates are dropped. The printed guide has the normal and
+  direct lines; the others are hut-book notes, learnt once you have been on the mountain.
+- **Route card** (`RouteMetrics`, `RouteCard`). Every line is measured the way a guidebook author
+  would: a pitch-by-pitch topo with altitudes ("3155 → 3104 m · 108 m steep firm snow, 30-34°: a
+  slip here slides"; "Cliff band: one abseil of 18 m"), the abseils and the shortest rope that
+  makes them, crampon ground, exposure, an IFAS grade (F … ED) and a commitment grade (I-VI).
+- **Book times** come from the game's own movement model: Tobler pace on foot, the
+  downclimbing speed, the rope set-up and abseil timings, at a sustainable 85% pace. The plan tab
+  times your own line for your own pack (weight, rope, crampons).
+- **Grades** follow the usual angle bands: F up to ~30°, PD 30-35°, AD 35-45°, D 45-55°,
+  TD 55-70°, ED beyond, from the steepest *sustained* ~20 m. Long steep ground, abseils
+  (any abseil makes a line at least AD-), exposure and steep ice all raise the grade.
+- **The day plan**: start time, the book time home, sunset and the daylight to spare. A full
+  route adds the summit time and a **turnaround time**: if you are not on top by then, go down.
+- **Planning gear** (Navigation category). A *guidebook* lets you read the route card on the map
+  during the run. Without a *topo map* there is nothing to pull out on the mountain. A *compass*
+  cuts your position uncertainty in cloud. An *altimeter* gives your height to the metre; the
+  topos are in metres, so the altimeter is how you find yourself on the route card. Without one,
+  the HUD and the map estimate your height to the nearest 50 m contour.
+
 ### Phase 3: Descent Execution (Real-Time Tension)
 
 Continuous time movement downhill where:
@@ -74,6 +104,8 @@ Continuous time movement downhill where:
 - Arrest slide
 - Rappel
 - Traverse
+- Ski or ride (if carried; fast on snow, carried over rock)
+- Change footwear: crampons on or off, skis on or off (each costs time)
 - Rest (rare, dangerous if misused)
 
 **Design Note:** Not about button mashing—it's about judgment under fatigue.
@@ -224,6 +256,19 @@ Controlled descent → Marginal control → Accelerating instability → Loss of
 | **Mid-Level** | Recognizes safe slope bands, begins planning |
 | **Veteran** | Chains slides, uses terrain to scrub speed, only slides when exit guaranteed |
 
+### Implemented Model
+
+- A slide's velocity lives on the slope plane: gravity along the plane, kinetic friction from
+  the surface (soft snow about 0.42, firm about 0.22, ice about 0.06), drag about 0.008 v².
+  Collisions are real.
+- Brake (S): the heels and axe spike add friction. That is plenty on soft snow, holds speed on
+  35° firm snow, and does nothing on ice. With crampons on, a heel can catch and flip you.
+- Self-arrest (Space): a roll onto the axe (0.45 s and up: longer when tumbling, tired or on
+  skis), then arrest friction (firm snow about 1.25, ice about 0.3). The pick is torn out above
+  about 9 m/s on firm snow, about 5 m/s on ice.
+- A slip, a ski crash or a tumble after a fall starts an *uncontrolled* slide: lower control at
+  first, and a longer arrest delay.
+
 ### Sliding Interactions
 
 | System | Effect |
@@ -253,6 +298,21 @@ Controlled descent → Marginal control → Accelerating instability → Loss of
 **Sometimes:** Best move is no rope. Sometimes it's non-negotiable.
 
 **Result:** Ropes feel like real tools, not abilities.
+
+### Implemented Sequence
+
+1. **R** at the top of steep ground. The climber picks an anchor within reach: a horn, boulder
+   or crack on rock; screws or a V-thread in ice (anchor kit); a picket in snow (anchor kit), or
+   a slow cut bollard without one.
+2. Build it, weight-test it and thread the rope: 30-45 s, longer tired, cold-handed or in wind.
+   A failed test means another anchor, or none.
+3. Rappel on the doubled rope, so half its length reaches down. Push down the face for about
+   1 m/s, add Space to let it run fast, let go to brake. The rappel ends on standable ground,
+   with R on a ledge, or with R at the knots to build the next anchor.
+4. Pull the rope down after you. It can snag and stay up there.
+
+Hidden anchor quality drives the weight test and a per-second failure hazard that grows with
+speed and shock loading. Jams are per metre of rope run, more over rock edges.
 
 ### UI Expression
 
@@ -957,7 +1017,49 @@ Deaths shouldn't feel random. They should feel:
 - Key moments highlighted: slide starts, rope placements, fatigue thresholds
 - Minimal text: "You were moving fast when you needed margin."
 
-**No score screen. No medals.**
+No medals. The run ends with a logbook entry instead.
+
+### Route Scoring (implemented)
+
+`RouteScorer` scores the line you actually travelled, measured with the same yardstick the
+guidebook uses:
+
+    points = line points × outcome × style × pace × plan × on-sight × daylight
+
+| Factor | Rule |
+|--------|------|
+| Line points | 100 × 1.22^grade × (vertical under control / 300 m)^0.8, per leg |
+| Outcome | clean ×1.0, injured ×0.6, bivy ×0.35, rescue ×0.1, fatality ×0 |
+| Style | starts at 1.0, minus each incident (fall −0.10, uncontrolled slide −0.08, self-arrest −0.03, anchor failure −0.10 …), capped per type, floor 0.4: Clean / Tidy / Scrappy / Epic |
+| Pace | 1 + 0.5 ln(book time / time taken), 0.75-1.25, against the book time of the same line for your pack |
+| Plan | 0.9 + 0.2 × share of the path within 25 m of the planned line |
+| On-sight | ×1.10 for a return on your first visit to the mountain |
+| Benighted | ×0.9 for finishing after dark |
+
+**What counts as climbing.** The run records how each stretch was covered (on foot, climbing,
+on the rope, gliding, out of control). Ground crossed out of control (a fall, a tumbling slide)
+or by a teleport earns no difficulty, and only abseils actually made count as abseils, so falling
+down a cliff band never scores as a hard route. The scorer names the guidebook line followed
+(most of the path within 20 m of it) and ticks it off in the logbook.
+
+**Logbook.** Each mountain keeps its best descent score, its best full-route score and the last
+25 entries (line, grade, style, time, score). The resolution screen shows the line, style and
+score; the post-game screen shows the breakdown.
+
+### Full Route (unlock)
+
+Come down **The Long Way Down** alive and the *full route* opens on every mountain: start at base
+camp at an alpine start (05:00), fresh, climb to the summit, then get home.
+
+- Planning has two legs (ascent and descent), each with its own line and route card. Lines with
+  an abseil pitch cannot be climbed on foot and say so.
+- The summit is a cairn and a string of prayer flags, with no label or beacon. Standing on top
+  marks the summit and the way home begins.
+- Base camp ends the run only once the summit is reached. Walk back into camp without it and
+  the run ends as a **retreat**: home safe, the summit will wait, a fraction of the ascent's
+  points.
+- The HUD's "Descended" and "Base camp" rows read "Climbed" and "Summit" on the way up.
+- Scoring scores both legs as lines; the commitment grade comes from the whole day's book time.
 
 ---
 

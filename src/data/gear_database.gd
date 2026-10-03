@@ -58,13 +58,23 @@ const CATEGORY_PROTECTION := "Protection"
 const CATEGORY_TECHNICAL := "Technical"
 const CATEGORY_CLOTHING := "Clothing"
 const CATEGORY_SURVIVAL := "Survival"
+const CATEGORY_DESCENT := "Ski & Board"
+const CATEGORY_NAVIGATION := "Navigation"
 
 const CATEGORY_ORDER := [
 	CATEGORY_PROTECTION,
 	CATEGORY_TECHNICAL,
+	CATEGORY_DESCENT,
+	CATEGORY_NAVIGATION,
 	CATEGORY_CLOTHING,
 	CATEGORY_SURVIVAL
 ]
+
+## Gear that cannot be carried together (one way down on the snow)
+const EXCLUSIVE_GEAR := {
+	GameEnums.GearType.SKIS: GameEnums.GearType.SNOWBOARD,
+	GameEnums.GearType.SNOWBOARD: GameEnums.GearType.SKIS,
+}
 
 # =============================================================================
 # STATE
@@ -176,6 +186,63 @@ func _load_gear_data() -> void:
 		{"name": "Long (70cm)", "weight": 0.6, "length": 70}
 	])
 
+	# Ski & board category
+	_add_item(GearItemInfo.new(
+		GameEnums.GearType.SKIS,
+		"Touring Skis",
+		CATEGORY_DESCENT,
+		"Skis and touring bindings on the pack. T to step in on snow. The fastest way down snow, and the fastest way to get hurt on it. Useless on rock.",
+		3.2,
+		false
+	))
+
+	_add_item(GearItemInfo.new(
+		GameEnums.GearType.SNOWBOARD,
+		"Splitboard",
+		CATEGORY_DESCENT,
+		"A splitboard in ride mode. Floats in powder, holds less on ice, and you walk the flats.",
+		3.5,
+		false
+	))
+
+	# Navigation category: planning happens on paper, at the hut; these carry
+	# it onto the mountain (nothing is ever marked on the mountain itself)
+	_add_item(GearItemInfo.new(
+		GameEnums.GearType.GUIDEBOOK,
+		"Guidebook",
+		CATEGORY_NAVIGATION,
+		"Route descriptions and pitch-by-pitch topos, graded and timed. Carried, its topos can be read on the map (M) during the descent.",
+		0.25,
+		false
+	))
+
+	_add_item(GearItemInfo.new(
+		GameEnums.GearType.TOPO_MAP,
+		"Topo Map",
+		CATEGORY_NAVIGATION,
+		"The paper map with your planned line pencilled on. Without it there is nothing to pull out (M) on the mountain.",
+		0.1,
+		false
+	))
+
+	_add_item(GearItemInfo.new(
+		GameEnums.GearType.COMPASS,
+		"Compass",
+		CATEGORY_NAVIGATION,
+		"Orients the map and holds a bearing in cloud: your position on the map is far less uncertain in poor visibility.",
+		0.05,
+		false
+	))
+
+	_add_item(GearItemInfo.new(
+		GameEnums.GearType.ALTIMETER,
+		"Altimeter",
+		CATEGORY_NAVIGATION,
+		"Your height to the metre. The guidebook's topos are given in metres; without it you estimate to the nearest contour.",
+		0.05,
+		false
+	))
+
 	# Clothing Category
 	_add_item(GearItemInfo.new(
 		GameEnums.GearType.LAYERS,
@@ -283,7 +350,7 @@ func get_item_name(type: GameEnums.GearType) -> String:
 # =============================================================================
 
 func get_preset_names() -> Array[String]:
-	return ["Light & Fast", "Standard", "Heavy & Safe", "Custom"]
+	return ["Light & Fast", "Standard", "Heavy & Safe", "Ski Descent", "Custom"]
 
 
 func get_preset_description(preset_name: String) -> String:
@@ -294,6 +361,8 @@ func get_preset_description(preset_name: String) -> String:
 			return "Balanced loadout suitable for most descents."
 		"Heavy & Safe":
 			return "Full gear including bivy. Slower but prepared."
+		"Ski Descent":
+			return "Skis on the pack, light technical kit, a 40 m rope. Fast on snow, carried over rock."
 		"Custom":
 			return "Build your own loadout."
 		_:
@@ -308,6 +377,8 @@ func create_preset_loadout(preset_name: String) -> GearState:
 			return GearState.create_standard_loadout()
 		"Heavy & Safe":
 			return GearState.create_heavy_loadout()
+		"Ski Descent":
+			return GearState.create_ski_loadout()
 		_:
 			return GearState.new()
 
@@ -361,6 +432,11 @@ func check_requirements(
 	if mountain.estimated_time > 360:  # 6 hours
 		if mountain.bivy_possible and not loadout.has_item(GameEnums.GearType.BIVY_GEAR):
 			result["warnings"].append("Bivy gear recommended for long descent")
+
+	# Skis carried over rock are dead weight
+	if loadout.has_item(GameEnums.GearType.SKIS) or loadout.has_item(GameEnums.GearType.SNOWBOARD):
+		if mountain.cliff_exposure > 0.6:
+			result["warnings"].append("Expect to carry the skis over rock bands")
 
 	# Technical sections warnings
 	if mountain.technical_sections > 2:

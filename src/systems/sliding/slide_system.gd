@@ -1,7 +1,16 @@
 class_name SlideSystem
 extends Node
-## Core sliding physics system
-## Handles the terrifying, high-skill descent mechanic
+## Core sliding physics: deliberate glissades, and the slides that follow a
+## slip, a crash on skis or a tumble after a fall
+##
+## The slide lives in the player's velocity on the slope plane. Each tick
+## (driven by PlayerMovement, so it always runs before move_and_slide) it adds
+## gravity along the plane, kinetic friction against the motion, drag, the
+## player's lean, and either the brake (heels and axe spike) or a self-arrest.
+## move_and_slide then collides, so a boulder really stops you and a lip
+## really launches you. Coefficients come from TractionModel: a soft-snow
+## glissade is controllable, hard snow runs away, nothing brakes on ice, and
+## an axe arrest bites in snow but skates on ice.
 ##
 ## Design Philosophy:
 ## - Sliding is never fully safe
@@ -20,6 +29,25 @@ signal slide_ended(outcome: GameEnums.SlideOutcome, final_speed: float)
 signal exit_zone_approached(distance: float, quality: float)
 signal terminal_velocity_warning()
 signal point_of_no_return()
+signal self_arrest_started()
+signal self_arrest_engaged()
+signal self_arrest_failed(reason: String)
+
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+
+## Seconds a fall into a slide spends tumbling before the body can be steered
+const TUMBLE_DURATION := 0.8
+## Slides that start from rest get a push down the fall line (scooting off)
+const GLISSADE_PUSH_SPEED := 1.5
+## Arrest input is ignored this long after the slide starts (the same press)
+const ARREST_INPUT_GRACE := 0.3
+## Below this speed for this long the slide is over
+const STOP_SPEED := 0.3
+const STOP_HOLD_TIME := 0.3
+## Faces steeper than this turn a slide into a fall
+const FALL_FACE_SLOPE := 60.0
 
 # =============================================================================
 # CONFIGURATION
@@ -28,27 +56,21 @@ signal point_of_no_return()
 @export_group("Physics")
 ## Gravity constant
 @export var gravity: float = 9.8
-## Base friction on snow
-@export var base_friction: float = 0.15
-## Air resistance coefficient
-@export var air_resistance: float = 0.02
-## Maximum slide speed before terminal
+## Air and snow drag on the body (1/m)
+@export var air_resistance: float = TractionModel.BODY_DRAG
+## Hard cap on slide speed (m/s)
 @export var terminal_speed: float = 25.0
 ## Speed at which control is nearly lost
-@export var critical_speed: float = 18.0
+@export var critical_speed: float = 15.0
 
 @export_group("Control")
-## How much lean affects trajectory (0-1)
-@export var lean_influence: float = 0.3
-## How much edge engagement affects friction
-@export var edge_friction_bonus: float = 0.15
-## Control degradation rate with speed
-@export var speed_control_decay: float = 0.04
+## Control lost per m/s above 5 m/s
+@export var speed_control_decay: float = 0.035
 ## Minimum control at high speed
 @export var min_control: float = 0.1
 
 @export_group("Terrain")
-## Slope angle for minimum slide speed
+## Slope angle below which a slide is a runout (kept for tuning tools)
 @export var min_slide_slope: float = 25.0
 ## Slope angle for maximum acceleration
 @export var max_slide_slope: float = 45.0
@@ -89,6 +111,22 @@ var terminal_warning_emitted: bool = false
 ## Has emitted point of no return
 var point_of_no_return_emitted: bool = false
 
+## Fell into this slide rather than sat down into it
+var is_uncontrolled: bool = false
+
+## Seconds tumbling since the slide (or the last upset) began
+var tumble_time: float = 0.0
+
+## What started this slide ("glissade", "slip", "ski_crash", ...)
+var slide_cause: String = ""
+
+## Self-arrest: rolling onto the axe, then the pick biting
+var is_arresting: bool = false
+var arrest_engaged: bool = false
+var arrest_timer: float = 0.0
+var arrest_delay: float = 0.5
+var arrest_cooldown: float = 0.0
+
 ## Slide controller for input handling
 var controller: SlideController
 
@@ -100,6 +138,12 @@ var state_manager: SlideStateManager
 
 ## Feedback system for audio/visual
 var feedback: SlideFeedback
+
+var _pending_uncontrolled: bool = false
+var _pending_cause: String = "glissade"
+var _stopped_by_arrest: bool = false
+var _still_time: float = 0.0
+var _warned_crampons: bool = false
 
 
 # =============================================================================
@@ -119,7 +163,7 @@ class SlideState:
 	var slope_direction: Vector3 = Vector3.ZERO
 	## Current surface type
 	var surface_type: GameEnums.SurfaceType = GameEnums.SurfaceType.SNOW_FIRM
-	## Current surface friction
+	## Current surface friction (effective, including brake or arrest)
 	var friction: float = 0.3
 	## Control level (0-1)
 	var control: float = 1.0
@@ -131,6 +175,8 @@ class SlideState:
 	var exit_zone_quality: float = 0.0
 	## Distance to cliff
 	var cliff_distance: float = 100.0
+	## Direction to the nearest cliff
+	var cliff_direction: Vector3 = Vector3.ZERO
 	## Current risk level (0-1)
 	var risk: float = 0.0
 	## Is in transition zone (slope changing)
@@ -173,6 +219,7 @@ func _ready() -> void:
 
 	# Start/stop sliding physics when the player state machine enters/leaves SLIDING
 	EventBus.player_movement_changed.connect(_on_player_movement_changed)
+	EventBus.descent_ready.connect(_on_descent_ready)
 
 	# Register service
 	ServiceLocator.register_service("SlideSystem", self)
@@ -190,17 +237,33 @@ func _on_terrain_ready(service: Object) -> void:
 	print("[SlideSystem] Connected to TerrainService")
 
 
+## A new descent: forget the last one's one-off warnings
+func _on_descent_ready() -> void:
+	_warned_crampons = false
+	_pending_uncontrolled = false
+	_pending_cause = "glissade"
+
+
 func _on_player_movement_changed(old_state: GameEnums.PlayerMovementState, new_state: GameEnums.PlayerMovementState) -> void:
 	if new_state == GameEnums.PlayerMovementState.SLIDING:
 		begin_slide()
 	elif old_state == GameEnums.PlayerMovementState.SLIDING and is_sliding:
-		# State machine exited the slide on its own (e.g. flat terrain, exit zone)
-		end_slide(GameEnums.SlideOutcome.CLEAN_STOP)
+		# Something else took over (a fall off an edge, the run ending)
+		var outcome := GameEnums.SlideOutcome.CLEAN_STOP
+		if new_state == GameEnums.PlayerMovementState.FALLING:
+			outcome = GameEnums.SlideOutcome.COMPOUND_SLIDE
+		end_slide(outcome, false)
 
 
 # =============================================================================
 # SLIDE LIFECYCLE
 # =============================================================================
+
+## Describe the next slide before the player enters SLIDING
+func prepare_entry(uncontrolled: bool, cause: String) -> void:
+	_pending_uncontrolled = uncontrolled
+	_pending_cause = cause
+
 
 ## Begin a slide
 func begin_slide() -> void:
@@ -214,32 +277,52 @@ func begin_slide() -> void:
 	terminal_warning_emitted = false
 	point_of_no_return_emitted = false
 	last_control_level = GameEnums.SlideControlLevel.CONTROLLED
+	is_uncontrolled = _pending_uncontrolled
+	slide_cause = _pending_cause
+	_pending_uncontrolled = false
+	_pending_cause = "glissade"
+	tumble_time = 0.0
+	is_arresting = false
+	arrest_engaged = false
+	arrest_timer = 0.0
+	arrest_cooldown = 0.0
+	_stopped_by_arrest = false
+	_still_time = 0.0
 
 	# Initialize state from current conditions
 	_initialize_slide_state()
+
+	if not is_uncontrolled and player.footwear == GameEnums.Footwear.CRAMPONS and not _warned_crampons:
+		_warned_crampons = true
+		player.say("Crampons still on. Keep your heels up.", 2.5)
 
 	# Record decision
 	EventBus.record_decision("slide_initiated", {
 		"position": start_position,
 		"slope": current_state.slope_angle,
 		"entry_speed": current_state.speed,
-		"surface": GameEnums.SurfaceType.keys()[current_state.surface_type]
+		"surface": GameEnums.SurfaceType.keys()[current_state.surface_type],
+		"cause": slide_cause,
+		"uncontrolled": is_uncontrolled
 	})
 
 	slide_started.emit(current_state.speed, current_state.slope_angle)
 	EventBus.slide_started.emit(current_state.speed, current_state.slope_angle)
 
-	print("[SlideSystem] Slide started at %.1f°, speed %.1f" % [
-		current_state.slope_angle, current_state.speed
+	print("[SlideSystem] Slide started (%s) at %.1f°, speed %.1f" % [
+		slide_cause, current_state.slope_angle, current_state.speed
 	])
 
 
-## End the slide
-func end_slide(outcome: GameEnums.SlideOutcome) -> void:
+## End the slide. change_player_state: pick the player's next state from the
+## outcome (false when another system already moved the player on)
+func end_slide(outcome: GameEnums.SlideOutcome, change_player_state: bool = true) -> void:
 	if not is_sliding:
 		return
 
 	is_sliding = false
+	is_arresting = false
+	arrest_engaged = false
 
 	# Record outcome
 	EventBus.record_incident("slide_ended", {
@@ -247,7 +330,8 @@ func end_slide(outcome: GameEnums.SlideOutcome) -> void:
 		"final_speed": current_state.speed,
 		"distance": slide_distance,
 		"duration": slide_time,
-		"end_position": player.global_position
+		"end_position": player.global_position,
+		"arrested": _stopped_by_arrest
 	})
 
 	slide_ended.emit(outcome, current_state.speed)
@@ -259,8 +343,8 @@ func end_slide(outcome: GameEnums.SlideOutcome) -> void:
 		slide_time
 	])
 
-	# Transition player state based on outcome
-	_handle_slide_outcome(outcome)
+	if change_player_state:
+		_handle_slide_outcome(outcome)
 
 
 ## Abort slide (emergency)
@@ -272,30 +356,41 @@ func abort_slide() -> void:
 # PHYSICS UPDATE
 # =============================================================================
 
-func _physics_process(delta: float) -> void:
+## One tick of slide physics; called by PlayerMovement before move_and_slide
+func physics_step(delta: float) -> void:
 	if not is_sliding or player == null or terrain_service == null:
 		return
 
 	slide_time += delta
+	tumble_time += delta
+	arrest_cooldown = maxf(0.0, arrest_cooldown - delta)
 
 	# Update terrain data
 	_update_terrain_data()
 
-	# Calculate forces
-	var forces := _calculate_forces(delta)
+	# Arrest progress (rolling over, the pick biting)
+	_update_arrest(delta)
 
-	# Apply player influence
-	forces += controller.get_influence_force(delta)
+	var velocity := player.velocity
+	if player.is_on_floor():
+		var normal := player.get_floor_normal()
+		velocity = TractionModel.onto_slope_plane(velocity, normal)
+		velocity = _integrate_on_slope(velocity, normal, delta)
+	else:
+		# Airborne over a lip: PlayerController adds gravity, the air drags
+		var speed := velocity.length()
+		if speed > 0.01:
+			velocity -= velocity / speed * minf(air_resistance * speed * speed * delta, speed)
 
-	# Update velocity
-	current_state.velocity += forces * delta
-
-	# Apply friction and drag
-	_apply_friction_and_drag(delta)
-
-	# Update position via player
-	player.velocity = current_state.velocity
+	player.velocity = velocity
+	current_state.velocity = velocity
+	current_state.speed = velocity.length()
 	current_state.position = player.global_position
+	_face_travel(delta)
+
+	# Hazards of the ride itself
+	_check_crampon_catch(delta)
+	_check_rock_impacts(delta)
 
 	# Update state calculations
 	_update_state_calculations()
@@ -322,22 +417,27 @@ func _physics_process(delta: float) -> void:
 	_check_control_level_change()
 
 	# Check for automatic outcomes
-	_check_automatic_outcomes()
+	_check_automatic_outcomes(delta)
 
 
 func _initialize_slide_state() -> void:
 	current_state.position = player.global_position
-	current_state.velocity = player.velocity
+	var velocity := player.velocity
 
-	# Add initial push in slope direction if starting slow
-	if current_state.velocity.length() < 2.0:
-		var cell := terrain_service.get_cell_at(player.global_position)
-		if cell:
-			current_state.velocity = cell.slope_direction * 2.0
-			current_state.velocity.y = -1.0
+	var cell: TerrainCell = null
+	if terrain_service != null:
+		cell = terrain_service.get_cell_at(player.global_position)
+	if cell != null:
+		velocity -= cell.normal * velocity.dot(cell.normal)
+		# Scoot off down the fall line when sitting down from a standstill
+		if velocity.length() < GLISSADE_PUSH_SPEED and cell.slope_direction.length_squared() > 0.01:
+			var fall_line := cell.slope_direction - cell.normal * cell.slope_direction.dot(cell.normal)
+			velocity = fall_line.normalized() * GLISSADE_PUSH_SPEED
 
-	current_state.speed = current_state.velocity.length()
-	current_state.control = 1.0
+	player.velocity = velocity
+	current_state.velocity = velocity
+	current_state.speed = velocity.length()
+	current_state.control = 0.3 if is_uncontrolled else 1.0
 	current_state.risk = 0.0
 
 	_update_terrain_data()
@@ -351,8 +451,8 @@ func _update_terrain_data() -> void:
 	current_state.slope_angle = cell.slope_angle
 	current_state.slope_direction = cell.slope_direction
 	current_state.surface_type = cell.surface_type
-	current_state.friction = cell.friction
 	current_state.cliff_distance = cell.distance_to_cliff
+	current_state.cliff_direction = cell.cliff_direction
 
 	# Check for exit zone
 	if cell.is_exit_zone:
@@ -368,55 +468,73 @@ func _update_terrain_data() -> void:
 			current_state.exit_zone_quality = 0.0
 
 
-func _calculate_forces(delta: float) -> Vector3:
-	var forces := Vector3.ZERO
+## Gravity along the slope plane, friction against the motion, drag, lean
+func _integrate_on_slope(velocity: Vector3, normal: Vector3, delta: float) -> Vector3:
+	var gravity_vec := Vector3.DOWN * gravity
+	var along_plane := gravity_vec - normal * gravity_vec.dot(normal)
+	var normal_accel := gravity * maxf(normal.y, 0.05)
+	var mu := _current_friction()
+	current_state.friction = mu
 
-	# Gravity component along slope
-	var slope_rad := deg_to_rad(current_state.slope_angle)
-	var gravity_force := gravity * sin(slope_rad)
+	var speed := velocity.length()
+	if speed < 0.05:
+		# At rest, static friction holds unless the slope beats it
+		if along_plane.length() <= (mu + TractionModel.BODY_STATIC_EXTRA) * normal_accel:
+			return Vector3.ZERO
+		var start_dir := along_plane.normalized()
+		return start_dir * maxf(along_plane.length() - mu * normal_accel, 0.0) * delta
 
-	# Apply in slope direction
-	forces += current_state.slope_direction * gravity_force
+	var lateral := controller.get_influence_force(delta)
+	lateral -= normal * lateral.dot(normal)
 
-	# Downward gravity component (into slope)
-	forces.y -= gravity * cos(slope_rad) * 0.1
+	velocity += (along_plane + lateral) * delta
 
-	return forces
+	# Friction and drag oppose the motion and can stop it, never reverse it
+	var drag := air_resistance * (0.8 if controller.is_tucked() else 1.0)
+	var new_speed := velocity.length()
+	var loss := (mu * normal_accel + drag * new_speed * new_speed) * delta
+	if loss >= new_speed:
+		return Vector3.ZERO
+	velocity -= velocity / new_speed * loss
+
+	if velocity.length() > terminal_speed:
+		velocity = velocity.normalized() * terminal_speed
+	return velocity
 
 
-func _apply_friction_and_drag(delta: float) -> void:
-	var speed := current_state.velocity.length()
-	if speed < 0.01:
+## Kinetic friction now: the glide, plus the brake, or the arrest once it bites
+func _current_friction() -> float:
+	var surface := current_state.surface_type
+	var glide := TractionModel.glide_friction(surface)
+	if controller.is_tucked() and not is_uncontrolled:
+		glide = maxf(glide - 0.03, 0.02)
+
+	var has_axe := player.has_ice_axe()
+	if arrest_engaged:
+		var arrest := TractionModel.arrest_friction(surface, has_axe)
+		var technique := 1.0
+		if player.body_state:
+			technique = lerpf(0.6, 1.0, player.body_state.get_slide_control_modifier())
+		return maxf(glide, arrest * technique)
+
+	if is_uncontrolled and tumble_time < TUMBLE_DURATION:
+		return glide + 0.08  # A tumbling body grinds
+
+	var brake := controller.get_brake_level() * TractionModel.brake_friction(surface, has_axe)
+	if player.footwear == GameEnums.Footwear.CRAMPONS:
+		brake *= 1.15  # The points bite (and catch: see _check_crampon_catch)
+	brake *= lerpf(0.5, 1.0, current_state.control)
+	return glide + brake
+
+
+## Feet first, facing down the line of travel
+func _face_travel(delta: float) -> void:
+	var horizontal := Vector3(current_state.velocity.x, 0.0, current_state.velocity.z)
+	if horizontal.length() < 0.5:
 		return
-
-	# Surface friction
-	var friction_force := current_state.friction * gravity * cos(deg_to_rad(current_state.slope_angle))
-
-	# Edge engagement bonus from player
-	friction_force += controller.get_edge_friction_bonus()
-
-	# Apply friction (opposes motion)
-	var friction_decel := friction_force * delta
-	var velocity_dir := current_state.velocity.normalized()
-
-	if friction_decel > speed:
-		current_state.velocity = Vector3.ZERO
-	else:
-		current_state.velocity -= velocity_dir * friction_decel
-
-	# Air resistance (quadratic with speed)
-	var drag := air_resistance * speed * speed * delta
-	if drag > current_state.velocity.length():
-		current_state.velocity *= 0.5
-	else:
-		current_state.velocity -= velocity_dir * drag
-
-	# Terminal speed clamp
-	speed = current_state.velocity.length()
-	if speed > terminal_speed:
-		current_state.velocity = current_state.velocity.normalized() * terminal_speed
-
-	current_state.speed = current_state.velocity.length()
+	var target := PlayerMovement.yaw_facing(horizontal)
+	var diff := wrapf(target - player.rotation.y, -PI, PI)
+	player.rotation.y += signf(diff) * minf(absf(diff), 4.0 * delta)
 
 
 func _update_state_calculations() -> void:
@@ -433,16 +551,21 @@ func _update_state_calculations() -> void:
 		GameEnums.SurfaceType.ICE:
 			control *= 0.4
 		GameEnums.SurfaceType.SNOW_POWDER:
-			control *= 0.7
+			control *= 0.8
 		GameEnums.SurfaceType.SCREE:
 			control *= 0.6
+		GameEnums.SurfaceType.MIXED:
+			control *= 0.5
+		GameEnums.SurfaceType.ROCK, GameEnums.SurfaceType.ROCK_DRY, GameEnums.SurfaceType.ROCK_WET:
+			control *= 0.3
 
 	# Body state affects control
 	if player.body_state:
 		control *= player.body_state.get_slide_control_modifier()
 
-	# Stability affects control
-	control *= player.stability
+	# A fall into a slide starts out of control
+	if is_uncontrolled and tumble_time < TUMBLE_DURATION * 2.0:
+		control *= lerpf(0.35, 1.0, clampf(tumble_time / (TUMBLE_DURATION * 2.0), 0.0, 1.0))
 
 	# Edge engagement improves control
 	control += controller.get_control_bonus()
@@ -492,26 +615,34 @@ func _check_control_level_change() -> void:
 		last_control_level = current_state.control_level
 
 
-func _check_automatic_outcomes() -> void:
-	# Cliff collision
-	if current_state.cliff_distance < 2.0:
-		_trigger_terminal_outcome()
+func _check_automatic_outcomes(delta: float) -> void:
+	# Over the edge of a cliff band at speed: there is no coming back
+	if current_state.cliff_distance < 2.0 and current_state.speed > 8.0:
+		var toward := current_state.velocity.normalized().dot(current_state.cliff_direction)
+		if toward > 0.3:
+			_trigger_terminal_outcome()
+			return
+
+	# Onto a face too steep to slide on: it becomes a fall
+	if current_state.slope_angle >= FALL_FACE_SLOPE and not TractionModel.is_snow(current_state.surface_type):
+		_launch_into_fall()
 		return
 
-	# Stopped naturally
-	if current_state.speed < 0.5 and current_state.slope_angle < 20.0:
-		end_slide(GameEnums.SlideOutcome.CLEAN_STOP)
+	# Came to rest
+	if current_state.speed < STOP_SPEED:
+		_still_time += delta
+	else:
+		_still_time = 0.0
+	if _still_time >= STOP_HOLD_TIME:
+		var outcome := GameEnums.SlideOutcome.CLEAN_STOP
+		if is_uncontrolled and not _stopped_by_arrest and slide_distance > 8.0:
+			outcome = GameEnums.SlideOutcome.TUMBLE_STOP
+		end_slide(outcome)
 		return
 
-	# In exit zone at low speed
-	if current_state.exit_zone_distance < 3.0 and current_state.speed < 3.0:
+	# Rolled out onto a flat at walking pace
+	if current_state.exit_zone_distance < 3.0 and current_state.speed < 1.5 and current_state.slope_angle < 15.0:
 		end_slide(GameEnums.SlideOutcome.CLEAN_STOP)
-		return
-
-	# Terrain too flat to continue
-	if current_state.slope_angle < min_slide_slope and current_state.speed < 5.0:
-		end_slide(GameEnums.SlideOutcome.CLEAN_STOP)
-		return
 
 
 func _trigger_terminal_outcome() -> void:
@@ -524,26 +655,35 @@ func _trigger_terminal_outcome() -> void:
 	end_slide(GameEnums.SlideOutcome.TERMINAL_RUNOUT)
 
 
+## The slope fell away: let gravity have the climber
+func _launch_into_fall() -> void:
+	end_slide(GameEnums.SlideOutcome.COMPOUND_SLIDE, false)
+	player.change_state(GameEnums.PlayerMovementState.FALLING)
+
+
 func _handle_slide_outcome(outcome: GameEnums.SlideOutcome) -> void:
 	match outcome:
-		GameEnums.SlideOutcome.CLEAN_STOP:
-			player.change_state(GameEnums.PlayerMovementState.STANDING)
-
 		GameEnums.SlideOutcome.TUMBLE_STOP:
 			_apply_tumble_effects()
-			player.change_state(GameEnums.PlayerMovementState.STANDING)
-
 		GameEnums.SlideOutcome.TERRAIN_CATCH:
 			_apply_terrain_catch_effects()
-			player.change_state(GameEnums.PlayerMovementState.STANDING)
-
 		GameEnums.SlideOutcome.COMPOUND_SLIDE:
 			# Stay in slide but reset some state
 			terminal_warning_emitted = false
-
+			return
 		GameEnums.SlideOutcome.TERMINAL_RUNOUT:
 			_apply_terminal_effects()
 			player.change_state(GameEnums.PlayerMovementState.FALLING)
+			return
+
+	if _stopped_by_arrest:
+		player.change_state(GameEnums.PlayerMovementState.ARRESTED)
+	elif player.is_on_skis():
+		player.change_state(GameEnums.PlayerMovementState.SKIING)
+	elif current_state.slope_angle > PlayerController.DOWNCLIMB_ENTER_SLOPE:
+		player.change_state(GameEnums.PlayerMovementState.DOWNCLIMBING)
+	else:
+		player.change_state(GameEnums.PlayerMovementState.STANDING)
 
 
 func _apply_tumble_effects() -> void:
@@ -578,7 +718,7 @@ func _apply_terminal_effects() -> void:
 	_apply_slide_injury(0.8 + randf() * 0.2)
 
 
-func _apply_slide_injury(severity: float) -> void:
+func _apply_slide_injury(severity: float, location_pool: Array = []) -> void:
 	if player.body_state == null:
 		return
 
@@ -590,107 +730,183 @@ func _apply_slide_injury(severity: float) -> void:
 	if severity > 0.9:
 		injury_type = GameEnums.InjuryType.FRACTURE
 
-	var locations := [
-		GameEnums.BodyPart.LEFT_LEG,
-		GameEnums.BodyPart.RIGHT_LEG,
-		GameEnums.BodyPart.LEFT_ARM,
-		GameEnums.BodyPart.RIGHT_ARM
-	]
+	var locations := location_pool
+	if locations.is_empty():
+		locations = [
+			GameEnums.BodyPart.LEFT_LEG,
+			GameEnums.BodyPart.RIGHT_LEG,
+			GameEnums.BodyPart.LEFT_ARM,
+			GameEnums.BodyPart.RIGHT_ARM
+		]
 	var location: GameEnums.BodyPart = locations[randi() % locations.size()]
 
 	var injury := Injury.new(injury_type, severity, location, slide_time)
 	player.body_state.add_injury(injury)
 
 	EventBus.injury_occurred.emit(injury)
+	EventBus.body_state_updated.emit(player.body_state)
+
+# =============================================================================
+# HAZARDS OF THE RIDE
+# =============================================================================
+
+## Digging heels in with crampons on: a point catches and flips you
+func _check_crampon_catch(delta: float) -> void:
+	if player.footwear != GameEnums.Footwear.CRAMPONS or arrest_engaged:
+		return
+	var brake := controller.get_brake_level()
+	if brake < 0.3 or current_state.speed < 3.0:
+		return
+	if not TractionModel.is_snow(current_state.surface_type):
+		return
+	var rate := 0.35 * brake * (current_state.speed / 8.0)
+	if randf() >= rate * delta:
+		return
+
+	_upset("crampon_catch")
+	player.say("A crampon point catches and flips you.", 2.5)
+	if randf() < 0.5:
+		_apply_slide_injury(randf_range(0.2, 0.45), [GameEnums.BodyPart.LEFT_FOOT, GameEnums.BodyPart.RIGHT_FOOT])
+
+
+## Tumbling over rock and scree: every few metres something hits back
+func _check_rock_impacts(delta: float) -> void:
+	var surface := current_state.surface_type
+	if not (TractionModel.is_rock(surface) or surface == GameEnums.SurfaceType.SCREE or surface == GameEnums.SurfaceType.MIXED):
+		return
+	var speed := current_state.speed
+	if speed < 3.0 or not player.is_on_floor():
+		return
+	var rate := 0.4 * pow(speed / 6.0, 2.0)
+	if randf() >= rate * delta:
+		return
+
+	# Each blow scrubs speed and leaves a mark
+	player.velocity *= 0.7
+	current_state.velocity = player.velocity
+	var parts: Array = [
+		GameEnums.BodyPart.LEFT_LEG, GameEnums.BodyPart.RIGHT_LEG,
+		GameEnums.BodyPart.LEFT_ARM, GameEnums.BodyPart.RIGHT_ARM,
+		GameEnums.BodyPart.TORSO,
+	]
+	var helmet := player.gear_state != null and player.gear_state.has_item(GameEnums.GearType.HELMET)
+	if not helmet:
+		parts.append(GameEnums.BodyPart.HEAD)
+	_apply_slide_injury(clampf(0.1 + speed / 25.0, 0.1, 0.95), parts)
+	EventBus.record_incident("slide_impact", {"speed": speed, "surface": GameEnums.SurfaceType.keys()[surface]})
+
+
+## Landing after a lip while sliding
+func on_landed(impact: float) -> void:
+	if not is_sliding or impact < 6.0:
+		return
+	_upset("hard_landing")
+	if randf() < clampf((impact - 6.0) / 6.0, 0.0, 1.0):
+		_apply_slide_injury(clampf(0.15 + (impact - 6.0) / 10.0, 0.15, 0.8))
+
+
+## Knocked out of control mid-slide: tumbling again, any arrest undone
+func _upset(cause: String) -> void:
+	is_uncontrolled = true
+	tumble_time = 0.0
+	is_arresting = false
+	arrest_engaged = false
+	arrest_cooldown = 0.6
+	current_state.control *= 0.4
+	EventBus.record_incident("slide_upset", {"cause": cause, "speed": current_state.speed})
 
 
 # =============================================================================
 # SELF-ARREST
 # =============================================================================
 
-## Attempt self-arrest
+## Attempt self-arrest: roll onto the axe (or dig in hands and toes). The pick
+## bites after a moment that grows with speed, tumbling, tiredness and skis
+## on your feet; once it bites, the arrest friction does the stopping. At too
+## high a speed the pick is torn out of your hands.
 func attempt_self_arrest() -> bool:
-	if not is_sliding:
+	if not is_sliding or is_arresting or arrest_cooldown > 0.0:
+		return false
+	# The press that sat the climber down is not an arrest; a slip or a crash
+	# had no press, so a quick reaction there counts
+	if slide_time < ARREST_INPUT_GRACE and not is_uncontrolled:
 		return false
 
-	# Check if player has ice axe
-	var has_axe := player.gear_state and player.gear_state.has_ice_axe()
-	var axe_effectiveness := 0.0
-	if has_axe:
-		axe_effectiveness = player.gear_state.get_ice_axe_effectiveness()
+	is_arresting = true
+	arrest_engaged = false
+	arrest_timer = 0.0
 
-	# Calculate arrest success probability
-	var success_chance := _calculate_arrest_chance(axe_effectiveness)
+	var fatigue := player.get_fatigue()
+	arrest_delay = 0.45 + 0.35 * (1.0 - current_state.control) + 0.25 * fatigue
+	if is_uncontrolled and tumble_time < TUMBLE_DURATION:
+		arrest_delay += 0.4  # Get the feet downhill first
+	if player.is_on_skis():
+		arrest_delay += 0.3  # Skis in the way
+	if not player.has_ice_axe():
+		arrest_delay *= 0.8  # Nothing to roll onto: just dig in
 
-	if randf() < success_chance:
-		# Successful arrest
-		_execute_arrest()
-		return true
-	else:
-		# Failed arrest
-		_fail_arrest()
-		return false
-
-
-func _calculate_arrest_chance(axe_effectiveness: float) -> float:
-	var chance := 0.5
-
-	# Axe helps significantly
-	chance += axe_effectiveness * 0.4
-
-	# Speed reduces chance
-	chance -= (current_state.speed / terminal_speed) * 0.5
-
-	# Surface affects arrest
-	var surface_bonus := 0.0
-	match current_state.surface_type:
-		GameEnums.SurfaceType.SNOW_FIRM:
-			surface_bonus = 0.3
-		GameEnums.SurfaceType.SNOW_SOFT:
-			surface_bonus = 0.2
-		GameEnums.SurfaceType.ICE:
-			surface_bonus = -0.2
-		GameEnums.SurfaceType.SCREE:
-			surface_bonus = -0.3
-
-	chance += surface_bonus
-
-	# Control level affects chance
-	chance += (current_state.control - 0.5) * 0.3
-
-	return clampf(chance, 0.05, 0.95)
-
-
-func _execute_arrest() -> void:
-	# Gradual slowdown
-	current_state.velocity *= 0.3
-
-	EventBus.record_incident("self_arrest_success", {
-		"speed_before": current_state.speed,
-		"position": player.global_position
+	EventBus.record_decision("self_arrest_attempt", {
+		"speed": current_state.speed,
+		"surface": GameEnums.SurfaceType.keys()[current_state.surface_type],
+		"has_axe": player.has_ice_axe(),
+		"slope": current_state.slope_angle
 	})
-
-	# End the slide, then transition directly to ARRESTED.
-	# We use end_slide which goes through _handle_slide_outcome (CLEAN_STOP ->
-	# STANDING), so override to ARRESTED afterward. This is acceptable because
-	# STANDING entry/exit is lightweight and the final state is correct.
-	end_slide(GameEnums.SlideOutcome.CLEAN_STOP)
-	player.change_state(GameEnums.PlayerMovementState.ARRESTED)
+	self_arrest_started.emit()
+	return true
 
 
-func _fail_arrest() -> void:
-	# Arrest failure - tumble
-	current_state.control *= 0.5
-	player.set_stability(player.stability - 0.2)
+func _update_arrest(delta: float) -> void:
+	if not is_arresting:
+		return
+	arrest_timer += delta
+
+	if not arrest_engaged and arrest_timer >= arrest_delay:
+		var has_axe := player.has_ice_axe()
+		if has_axe:
+			var hold := TractionModel.arrest_hold_speed(current_state.surface_type)
+			hold *= lerpf(0.75, 1.0, player.get_ice_axe_effectiveness())
+			if current_state.speed > hold:
+				var rip := clampf((current_state.speed - hold) / 6.0, 0.0, 0.9)
+				if randf() < rip:
+					_axe_torn_out()
+					return
+		arrest_engaged = true
+		self_arrest_engaged.emit()
+		if has_axe:
+			player.say("You roll onto the axe and drive the pick in.", 2.0)
+		else:
+			player.say("No axe. Hands and toes into the snow.", 2.0)
+
+	if arrest_engaged and current_state.speed < STOP_SPEED:
+		_stopped_by_arrest = true
+		EventBus.record_incident("self_arrest_success", {
+			"position": player.global_position,
+			"distance": slide_distance,
+			"surface": GameEnums.SurfaceType.keys()[current_state.surface_type]
+		})
+		end_slide(GameEnums.SlideOutcome.CLEAN_STOP)
+
+
+func _axe_torn_out() -> void:
+	is_arresting = false
+	arrest_engaged = false
+	arrest_cooldown = 1.2
+	_upset("axe_torn_out")
+
+	var lost := randf() < 0.25
+	if player.gear_state != null:
+		if lost:
+			player.gear_state.remove_item(GameEnums.GearType.ICE_AXE)
+		else:
+			player.gear_state.damage_item(GameEnums.GearType.ICE_AXE, 0.3)
+	player.say("The axe is torn out of your hands." if not lost else "The axe is gone.", 2.5)
 
 	EventBus.record_incident("self_arrest_failed", {
 		"speed": current_state.speed,
-		"position": player.global_position
+		"position": player.global_position,
+		"axe_lost": lost
 	})
-
-	# May trigger tumble
-	if randf() < 0.5:
-		end_slide(GameEnums.SlideOutcome.TUMBLE_STOP)
+	self_arrest_failed.emit("axe_torn_out")
 
 
 # =============================================================================
@@ -734,11 +950,17 @@ func is_dangerous() -> bool:
 func get_debug_info() -> Dictionary:
 	return {
 		"is_sliding": is_sliding,
+		"cause": slide_cause,
+		"uncontrolled": is_uncontrolled,
 		"speed": current_state.speed,
 		"control": current_state.control,
 		"control_level": GameEnums.SlideControlLevel.keys()[current_state.control_level],
 		"slope": current_state.slope_angle,
 		"surface": GameEnums.SurfaceType.keys()[current_state.surface_type],
+		"friction": current_state.friction,
+		"brake": controller.get_brake_level(),
+		"arresting": is_arresting,
+		"arrest_engaged": arrest_engaged,
 		"risk": current_state.risk,
 		"cliff_distance": current_state.cliff_distance,
 		"exit_distance": current_state.exit_zone_distance,

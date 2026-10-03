@@ -32,8 +32,11 @@ signal scanning_complete(anchors: Array[AnchorPoint])
 ## Maximum anchors to track
 @export var max_tracked: int = 5
 
-## Range for "in reach" detection
-@export var reach_range: float = 2.0
+## Range for "in reach" detection (an anchor you can rig from where you stand)
+@export var reach_range: float = 3.5
+
+## Carrying screws, pickets and nuts (set by RopeService from the loadout)
+var has_anchor_kit: bool = true
 
 
 # =============================================================================
@@ -178,98 +181,141 @@ func _scan_terrain_for_anchors(center: Vector3) -> Array[AnchorPoint]:
 				continue
 
 			# Check for anchor potential based on terrain
-			var anchor := _evaluate_anchor_potential(scan_pos, cell)
+			var anchor := anchor_at_cell(cell, has_anchor_kit)
 			if anchor:
 				anchors.append(anchor)
 
 	return anchors
 
 
-func _evaluate_anchor_potential(pos: Vector3, cell: TerrainCell) -> AnchorPoint:
-	# Different surfaces provide different anchor types
+## The best anchor within reach of a stance, or null. A natural feature
+## (horn, boulder) beats building one; with an anchor kit a crack takes a nut
+## or cam, ice takes screws or a V-thread, snow takes a buried picket; without
+## one, snow can still be cut into a bollard. Quality is never shown.
+func find_anchor(center: Vector3, with_kit: bool, exclude: Array = []) -> AnchorPoint:
+	if terrain_service == null:
+		return null
+	var best: AnchorPoint = null
+	var best_score := -INF
+	var steps := int(ceil(reach_range / 2.0))
+	for x in range(-steps, steps + 1):
+		for z in range(-steps, steps + 1):
+			var at := center + Vector3(x * 2.0, 0.0, z * 2.0)
+			var cell := terrain_service.get_cell_at(at)
+			if cell == null:
+				continue
+			var anchor := anchor_at_cell(cell, with_kit)
+			if anchor == null or _is_excluded(anchor, exclude):
+				continue
+			var distance := Vector2(anchor.position.x - center.x, anchor.position.z - center.z).length()
+			if distance > reach_range + 1.0:
+				continue
+			# A climber picks what looks solid and is quick to rig, close by
+			var score := anchor.get_effective_quality() - 0.08 * distance - 0.1 * anchor.get_placement_difficulty()
+			if score > best_score:
+				best_score = score
+				best = anchor
+	return best
 
-	# Rock surfaces
-	if cell.surface_type == GameEnums.SurfaceType.ROCK:
-		# Steep rock may have horns or cracks
-		if cell.slope_angle > 40.0:
-			if randf() < 0.3:  # Not every rock is suitable
-				return _create_rock_anchor(pos, cell)
 
-	# Ice surfaces
-	if cell.surface_type == GameEnums.SurfaceType.ICE:
-		# Thick ice can take screws
-		if randf() < 0.2:
-			return _create_ice_anchor(pos, cell)
+## Anchor a terrain cell offers. Deterministic per cell so the same ledge
+## offers the same horn every time you look at it
+func anchor_at_cell(cell: TerrainCell, with_kit: bool) -> AnchorPoint:
+	var roll_a := _cell_roll(cell, 17)
+	var roll_b := _cell_roll(cell, 53)
+	var roll_q := _cell_roll(cell, 91)
+	var pos := cell.position
 
-	# Firm snow
-	if cell.surface_type == GameEnums.SurfaceType.SNOW_FIRM:
-		# Can place snow stakes
-		if cell.slope_angle > 30.0 and randf() < 0.15:
-			return _create_snow_anchor(pos, cell)
+	match cell.surface_type:
+		GameEnums.SurfaceType.ROCK, GameEnums.SurfaceType.ROCK_DRY, GameEnums.SurfaceType.ROCK_WET, GameEnums.SurfaceType.MIXED:
+			if cell.slope_angle < 20.0:
+				return null
+			var anchor: AnchorPoint = null
+			if roll_a < 0.35:
+				anchor = AnchorPoint.new()
+				anchor.anchor_type = AnchorPoint.AnchorType.ROCK_HORN if (cell.slope_angle > 45.0 or roll_b < 0.6) else AnchorPoint.AnchorType.BOULDER
+				anchor.base_quality = 0.7 + 0.25 * roll_q
+			elif with_kit and roll_b < 0.65:
+				anchor = AnchorPoint.new()
+				anchor.anchor_type = AnchorPoint.AnchorType.ROCK_CRACK
+				anchor.base_quality = 0.55 + 0.3 * roll_q
+			if anchor == null:
+				return null
+			anchor.position = pos
+			anchor.rock_type_modifier = _get_rock_type_modifier(cell)
+			if cell.surface_type == GameEnums.SurfaceType.ROCK_WET:
+				anchor.weather_modifier = 0.85
+			elif cell.surface_type == GameEnums.SurfaceType.MIXED:
+				anchor.ice_coverage_modifier = 0.85
+			if cell.slope_angle > 75.0:
+				anchor.angle_modifier = 0.85
+			anchor.load_direction = _load_direction(cell, 0.3)
+			return anchor
 
-	# Check for fixed anchors (pre-placed bolts on popular routes)
-	if _is_on_route(pos) and randf() < 0.05:
-		return AnchorPoint.create_fixed(pos)
+		GameEnums.SurfaceType.ICE:
+			if not with_kit:
+				return null
+			var ice: AnchorPoint
+			if roll_a < 0.5:
+				ice = AnchorPoint.create_ice_placement(pos, 0.65 + 0.25 * roll_q)
+			else:
+				ice = AnchorPoint.new()
+				ice.position = pos
+				ice.anchor_type = AnchorPoint.AnchorType.V_THREAD
+				ice.base_quality = 0.7 + 0.2 * roll_q
+			ice.load_direction = _load_direction(cell, 0.2)
+			return ice
+
+		GameEnums.SurfaceType.SNOW_FIRM, GameEnums.SurfaceType.SNOW_PACKED, GameEnums.SurfaceType.SNOW_SOFT, GameEnums.SurfaceType.SNOW_POWDER:
+			var snow := AnchorPoint.new()
+			snow.position = pos
+			snow.load_direction = Vector3.DOWN
+			var firmness := 1.0
+			match cell.surface_type:
+				GameEnums.SurfaceType.SNOW_SOFT:
+					firmness = 0.75
+				GameEnums.SurfaceType.SNOW_POWDER:
+					firmness = 0.45
+			if with_kit:
+				snow.anchor_type = AnchorPoint.AnchorType.SNOW_STAKE
+				snow.base_quality = (0.6 + 0.25 * roll_q) * firmness
+			else:
+				snow.anchor_type = AnchorPoint.AnchorType.SNOW_BOLLARD
+				snow.base_quality = (0.5 + 0.25 * roll_q) * firmness
+			return snow
+
+		GameEnums.SurfaceType.SCREE:
+			if roll_a < 0.15:
+				var boulder := AnchorPoint.new()
+				boulder.position = pos
+				boulder.anchor_type = AnchorPoint.AnchorType.BOULDER
+				boulder.base_quality = 0.4 + 0.3 * roll_q  # Loose ground
+				boulder.load_direction = _load_direction(cell, 0.3)
+				return boulder
 
 	return null
 
 
-func _create_rock_anchor(pos: Vector3, cell: TerrainCell) -> AnchorPoint:
-	var anchor := AnchorPoint.new()
-	anchor.position = pos
+## Repeatable 0-1 value for a cell
+func _cell_roll(cell: TerrainCell, salt: int) -> float:
+	var h := hash(Vector3i(cell.grid_coords.x, cell.grid_coords.y, salt) + Vector3i(int(cell.position.x), 0, int(cell.position.z)))
+	return float(absi(h) % 10000) / 10000.0
 
-	# Determine type based on terrain
-	var type_roll := randf()
-	if type_roll < 0.4:
-		anchor.anchor_type = AnchorPoint.AnchorType.ROCK_HORN
-		anchor.base_quality = 0.7 + randf() * 0.2
-	elif type_roll < 0.7:
-		anchor.anchor_type = AnchorPoint.AnchorType.ROCK_CRACK
-		anchor.base_quality = 0.5 + randf() * 0.3
-	else:
-		anchor.anchor_type = AnchorPoint.AnchorType.BOULDER
-		anchor.base_quality = 0.6 + randf() * 0.3
 
-	# Set load direction (generally downward with slope influence)
-	anchor.load_direction = Vector3(
-		-cell.slope_direction.x * 0.3,
+func _load_direction(cell: TerrainCell, slope_lean: float) -> Vector3:
+	return Vector3(
+		-cell.slope_direction.x * slope_lean,
 		-0.9,
-		-cell.slope_direction.z * 0.3
+		-cell.slope_direction.z * slope_lean
 	).normalized()
 
-	# Apply rock type modifier
-	anchor.rock_type_modifier = _get_rock_type_modifier(cell)
 
-	# Apply angle modifier (overhangs are worse)
-	if cell.slope_angle > 60.0:
-		anchor.angle_modifier = 0.7
-	elif cell.slope_angle > 45.0:
-		anchor.angle_modifier = 0.85
-
-	return anchor
-
-
-func _create_ice_anchor(pos: Vector3, cell: TerrainCell) -> AnchorPoint:
-	var anchor := AnchorPoint.create_ice_placement(pos, 0.6 + randf() * 0.3)
-
-	# Adjust for slope
-	anchor.load_direction = Vector3(
-		-cell.slope_direction.x * 0.2,
-		-0.95,
-		-cell.slope_direction.z * 0.2
-	).normalized()
-
-	return anchor
-
-
-func _create_snow_anchor(pos: Vector3, cell: TerrainCell) -> AnchorPoint:
-	var anchor := AnchorPoint.new()
-	anchor.position = pos
-	anchor.anchor_type = AnchorPoint.AnchorType.SNOW_STAKE
-	anchor.base_quality = 0.4 + randf() * 0.3  # Snow is unreliable
-	anchor.load_direction = Vector3.DOWN
-
-	return anchor
+func _is_excluded(anchor: AnchorPoint, exclude: Array) -> bool:
+	for other in exclude:
+		var other_anchor := other as AnchorPoint
+		if other_anchor != null and other_anchor.position.distance_to(anchor.position) < 0.5:
+			return true
+	return false
 
 
 func _get_rock_type_modifier(cell: TerrainCell) -> float:
@@ -278,13 +324,6 @@ func _get_rock_type_modifier(cell: TerrainCell) -> float:
 	# For now, use a simple heuristic based on position
 	var noise_val := sin(cell.position.x * 0.1) * cos(cell.position.z * 0.1)
 	return 0.8 + noise_val * 0.2  # Range 0.6-1.0
-
-
-func _is_on_route(pos: Vector3) -> bool:
-	# Check if position is on a common route
-	# Would integrate with route system
-	# For now, simple probability
-	return false
 
 
 func _is_anchor_known(anchor: AnchorPoint) -> bool:

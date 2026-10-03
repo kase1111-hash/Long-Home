@@ -19,6 +19,9 @@ signal run_started(run_context: RunContext)
 ## Emitted when a run ends
 signal run_ended(run_context: RunContext, outcome: GameEnums.ResolutionType)
 
+## Full route: the climber reached the summit (the descent begins)
+signal summit_reached(run_context: RunContext)
+
 ## Emitted when game is paused/unpaused
 signal pause_state_changed(is_paused: bool)
 
@@ -49,6 +52,9 @@ signal self_check_started()
 
 ## Emitted when player finishes checking themselves
 signal self_check_completed(body_state: BodyState)
+
+## Emitted when what is on the climber's feet changes (crampons, skis, board)
+signal footwear_changed(old_footwear: GameEnums.Footwear, new_footwear: GameEnums.Footwear)
 
 # =============================================================================
 # SLIDING SIGNALS

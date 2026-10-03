@@ -92,6 +92,9 @@ var route_overlay: Control
 var compass_indicator: Control
 var condition_overlay: ColorRect
 var info_label: Label
+## Guidebook route card beside the map (only with the guidebook in the pack)
+var route_card_panel: PanelContainer
+var route_card: VBoxContainer
 
 # =============================================================================
 # LIFECYCLE
@@ -218,6 +221,32 @@ func _build_ui() -> void:
 	info_label.add_theme_color_override("font_color", Color(0.3, 0.25, 0.2))
 	map_container.add_child(info_label)
 
+	# Guidebook page clipped beside the map
+	route_card_panel = PanelContainer.new()
+	route_card_panel.name = "RouteCardPanel"
+	route_card_panel.position = Vector2(512, 0)
+	route_card_panel.custom_minimum_size = Vector2(300, 400)
+	var card_style := StyleBoxFlat.new()
+	card_style.bg_color = Color(0.93, 0.9, 0.82)
+	card_style.border_width_left = 2
+	card_style.border_width_right = 2
+	card_style.border_width_top = 2
+	card_style.border_width_bottom = 2
+	card_style.border_color = Color(0.6, 0.55, 0.45)
+	card_style.content_margin_left = 12
+	card_style.content_margin_right = 12
+	card_style.content_margin_top = 10
+	card_style.content_margin_bottom = 10
+	card_style.shadow_size = 6
+	card_style.shadow_color = Color(0, 0, 0, 0.25)
+	route_card_panel.add_theme_stylebox_override("panel", card_style)
+	route_card_panel.visible = false
+	map_container.add_child(route_card_panel)
+	route_card = VBoxContainer.new()
+	route_card.name = "RouteCard"
+	route_card.add_theme_constant_override("separation", 3)
+	route_card_panel.add_child(route_card)
+
 
 func _connect_signals() -> void:
 	EventBus.weather_changed.connect(_on_weather_changed)
@@ -304,6 +333,18 @@ func _calculate_uncertainty() -> void:
 		uncertainty_radius *= 2.0
 	elif run_context.is_getting_dark():
 		uncertainty_radius *= 1.3
+
+	# A compass orients the map and holds a bearing when nothing can be seen;
+	# an altimeter pins which contour you are on
+	if _has_gear(GameEnums.GearType.COMPASS):
+		uncertainty_radius = UNCERTAINTY_BASE + (uncertainty_radius - UNCERTAINTY_BASE) * 0.4
+	if _has_gear(GameEnums.GearType.ALTIMETER):
+		uncertainty_radius *= 0.85
+
+
+## True when the run's pack holds the given item
+func _has_gear(type: GameEnums.GearType) -> bool:
+	return run_context != null and run_context.gear_state != null and run_context.gear_state.has_item(type)
 
 
 func _world_to_map(world_pos: Vector2) -> Vector2:
@@ -399,6 +440,15 @@ func _on_route_overlay_draw() -> void:
 	if run_context == null or map_data == null:
 		return
 
+	# Full route: the pencilled line up, fainter once it is behind you
+	var planned_ascent = run_context.get_meta("planned_ascent", PackedVector3Array())
+	if run_context.is_full_route() and planned_ascent.size() >= 2:
+		var up_points := PackedVector2Array()
+		for wp in planned_ascent:
+			up_points.append(_world_to_map(Vector2(wp.x, wp.z)))
+		var up_alpha := 0.25 if run_context.summit_reached else 0.55
+		route_overlay.draw_polyline(up_points, Color(0.15, 0.4, 0.3, up_alpha), 2.0)
+
 	# Draw planned route
 	var planned_route = run_context.get_meta("planned_route", PackedVector3Array())
 	if planned_route.size() >= 2:
@@ -421,6 +471,9 @@ func _on_route_overlay_draw() -> void:
 
 
 func _on_compass_draw() -> void:
+	# The map's north arrow is printed; the needle needs a compass
+	if not _has_gear(GameEnums.GearType.COMPASS):
+		return
 	var center := Vector2(20, 20)
 	var radius := 15.0
 
@@ -452,7 +505,29 @@ func _update_info_label() -> void:
 	if uncertainty_radius > UNCERTAINTY_BASE * 1.5:
 		uncertainty_str = " (position uncertain)"
 
-	info_label.text = "Elevation: %.0fm  |  Time: %s%s" % [elevation, time_str, uncertainty_str]
+	var elevation_str := "%.0fm" % elevation
+	if not _has_gear(GameEnums.GearType.ALTIMETER):
+		elevation_str = "about %.0fm" % (roundf(elevation / 50.0) * 50.0)
+	info_label.text = "Elevation: %s  |  Time: %s%s" % [elevation_str, time_str, uncertainty_str]
+
+
+## The guidebook page for the leg in hand (needs the guidebook in the pack)
+func _update_route_card() -> void:
+	if route_card_panel == null:
+		return
+	route_card_panel.visible = false
+	if not _has_gear(GameEnums.GearType.GUIDEBOOK):
+		return
+	var card := RouteCard.for_run(run_context, terrain_service)
+	if card.is_empty():
+		return
+	RouteCard.fill(route_card, card["title"], card["metrics"], {
+		"on_paper": true,
+		"ascending": card["ascending"],
+		"max_pitches": 12,
+		"font_size": 11,
+	})
+	route_card_panel.visible = true
 
 
 # =============================================================================
@@ -493,6 +568,12 @@ func open_map() -> void:
 	if is_open or is_transitioning:
 		return
 
+	# No map in the pack: nothing to pull out
+	var run := GameStateManager.get_current_run()
+	if run != null and run.gear_state != null and not run.gear_state.has_item(GameEnums.GearType.TOPO_MAP):
+		EventBus.diegetic_message.emit("You left the map at the hut.", 2.5)
+		return
+
 	is_transitioning = true
 	visible = true
 
@@ -505,6 +586,7 @@ func open_map() -> void:
 	run_context = GameStateManager.get_current_run()
 	_update_player_position()
 	_update_condition_overlay()
+	_update_route_card()
 
 	# Animate opening - slide up from bottom
 	map_container.scale = Vector2(0.8, 0.0)

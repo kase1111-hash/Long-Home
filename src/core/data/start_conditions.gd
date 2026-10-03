@@ -58,6 +58,9 @@ extends Resource
 ## Player's familiarity with this mountain
 @export var knowledge_level: GameEnums.KnowledgeLevel = GameEnums.KnowledgeLevel.UNKNOWN
 
+## Descent only, or the full route (base camp to summit and back)
+@export var route_mode: GameEnums.RouteMode = GameEnums.RouteMode.DESCENT
+
 ## Known routes from previous descents
 @export var known_routes: Array[PackedVector3Array] = []
 
@@ -123,6 +126,18 @@ static func create_moderate() -> StartConditions:
 	conditions.gear_state = GearState.create_standard_loadout()
 
 	return conditions
+
+
+## Shape the day for a route mode: a full route leaves base camp fresh at an
+## alpine start (05:00); a descent starts on the summit after the climb
+func apply_route_mode(mode: GameEnums.RouteMode) -> void:
+	route_mode = mode
+	if mode == GameEnums.RouteMode.FULL_ROUTE:
+		time_of_day = 5.0
+		daylight_remaining = 13.0
+		if body_state != null:
+			body_state.fatigue = 0.05
+			body_state.hydration = 1.0
 
 
 ## Create hard conditions
@@ -309,6 +324,7 @@ func duplicate_conditions() -> StartConditions:
 	copy.temperature = temperature
 	copy.mountain_id = mountain_id
 	copy.knowledge_level = knowledge_level
+	copy.route_mode = route_mode
 	copy.known_routes = known_routes.duplicate()
 	copy.known_hazards = known_hazards.duplicate()
 	copy.body_state = body_state.duplicate_state()

@@ -179,6 +179,7 @@ func abandon_rope() -> void:
 		return
 
 	var rope := deployed_rope
+	deployed_rope = null
 	remove_rope(rope)
 	rope_lost.emit(rope)
 
@@ -234,6 +235,23 @@ func get_summary() -> Dictionary:
 # =============================================================================
 # FACTORY
 # =============================================================================
+
+## The rope actually in the pack: one rope of the loadout's length and
+## condition, or none at all
+static func create_from_gear(gear: GearState) -> RopeInventory:
+	var inventory := RopeInventory.new()
+	if gear == null or not gear.has_item(GameEnums.GearType.ROPE):
+		return inventory
+	var item := gear.get_item(GameEnums.GearType.ROPE)
+	var rope := Rope.create_standard()
+	var length: float = item.properties.get("length", 60.0)
+	rope.total_length = length
+	rope.available_length = length
+	rope.condition = item.condition_value
+	rope.base_weight = item.weight
+	inventory.add_rope(rope)
+	return inventory
+
 
 static func create_standard_loadout() -> RopeInventory:
 	var inventory := RopeInventory.new()

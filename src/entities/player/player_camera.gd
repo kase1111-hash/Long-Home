@@ -230,6 +230,12 @@ func _update_distance(delta: float) -> void:
 	match player.current_state:
 		GameEnums.PlayerMovementState.SLIDING:
 			target_distance = default_distance * 1.3  # Pull back during slide
+		GameEnums.PlayerMovementState.SKIING:
+			# Further back the faster you go, to see the line ahead
+			var speed := player.smooth_velocity.length()
+			target_distance = default_distance * lerpf(1.1, 1.6, clampf(speed / 20.0, 0.0, 1.0))
+		GameEnums.PlayerMovementState.ROPING:
+			target_distance = default_distance * 1.25  # Room to see the face below
 		GameEnums.PlayerMovementState.DOWNCLIMBING:
 			target_distance = default_distance * 0.8  # Closer during downclimb
 		_:
@@ -343,7 +349,10 @@ func _on_stability_changed(stability: float, _posture: GameEnums.PostureState) -
 
 ## Get slide camera adjustments
 func get_slide_camera_offset() -> Vector3:
-	if player == null or player.current_state != GameEnums.PlayerMovementState.SLIDING:
+	if player == null:
+		return Vector3.ZERO
+	if player.current_state != GameEnums.PlayerMovementState.SLIDING \
+			and player.current_state != GameEnums.PlayerMovementState.SKIING:
 		return Vector3.ZERO
 
 	# Lower camera during slide

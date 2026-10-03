@@ -1,8 +1,9 @@
 class_name PostGameScreen
 extends Control
 ## Post-game analysis screen
-## Shows topo replay with path and key moments highlighted
-## No scores, no medals - just clarity about what happened
+## Shows topo replay with path and key moments highlighted, and the logbook
+## entry: how the line was graded and how the score was built (RouteScorer)
+## No medals - just clarity about what happened
 
 # =============================================================================
 # SIGNALS
@@ -263,6 +264,49 @@ func _build_moments_list() -> void:
 	for child in moments_container.get_children():
 		child.queue_free()
 
+	# Logbook entry: the line, its grade and how the score was built
+	var score: RouteScorer.RouteScore = (run_context.route_score as RouteScorer.RouteScore) if run_context != null else null
+	if score != null:
+		var log_header := Label.new()
+		log_header.text = "Logbook"
+		log_header.add_theme_font_size_override("font_size", 18)
+		log_header.add_theme_color_override("font_color", Color(0.8, 0.8, 0.82))
+		moments_container.add_child(log_header)
+
+		var title := Label.new()
+		title.text = score.get_title()
+		title.add_theme_font_size_override("font_size", 14)
+		title.add_theme_color_override("font_color", AlpineGrade.grade_color(score.grade_value).lightened(0.25))
+		moments_container.add_child(title)
+
+		for line in score.lines:
+			var row := HBoxContainer.new()
+			var label := Label.new()
+			label.text = str(line.get("label", ""))
+			label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			label.add_theme_font_size_override("font_size", 12)
+			label.add_theme_color_override("font_color", Color(0.7, 0.72, 0.76))
+			row.add_child(label)
+			var value := Label.new()
+			value.text = str(line.get("value", ""))
+			value.add_theme_font_size_override("font_size", 12)
+			value.add_theme_color_override("font_color", Color(0.85, 0.85, 0.88))
+			row.add_child(value)
+			moments_container.add_child(row)
+
+		var total := Label.new()
+		total.text = "Score: %d pts" % score.total
+		if run_context.get_meta("score_is_best", false) and score.total > 0:
+			total.text += "  (best on this mountain)"
+		total.add_theme_font_size_override("font_size", 16)
+		total.add_theme_color_override("font_color", Color(0.95, 0.88, 0.6))
+		moments_container.add_child(total)
+
+		var gap := Control.new()
+		gap.custom_minimum_size = Vector2(0, 12)
+		moments_container.add_child(gap)
+
 	# Add header
 	var header := Label.new()
 	header.text = "Key Moments"
@@ -328,6 +372,10 @@ func _get_moment_text(moment: Dictionary) -> String:
 			return "[%s] Fatal incident" % time_str
 		"run_complete":
 			return ""  # Don't show this one
+		"summit_reached":
+			return "[%s] Summit" % time_str
+		"rappel_complete":
+			return "[%s] Abseiled" % time_str
 		_:
 			if moment.get("is_incident", false):
 				return "[%s] %s" % [time_str, moment_type.replace("_", " ").capitalize()]

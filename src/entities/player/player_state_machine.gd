@@ -11,7 +11,9 @@ extends Node
 var transitions: Dictionary = {
 	GameEnums.PlayerMovementState.STANDING: [
 		GameEnums.PlayerMovementState.WALKING,
+		GameEnums.PlayerMovementState.DOWNCLIMBING,
 		GameEnums.PlayerMovementState.SLIDING,
+		GameEnums.PlayerMovementState.SKIING,
 		GameEnums.PlayerMovementState.ROPING,
 		GameEnums.PlayerMovementState.FALLING,
 		GameEnums.PlayerMovementState.RESTING,
@@ -22,6 +24,7 @@ var transitions: Dictionary = {
 		GameEnums.PlayerMovementState.DOWNCLIMBING,
 		GameEnums.PlayerMovementState.TRAVERSING,
 		GameEnums.PlayerMovementState.SLIDING,
+		GameEnums.PlayerMovementState.SKIING,
 		GameEnums.PlayerMovementState.ROPING,
 		GameEnums.PlayerMovementState.FALLING,
 		GameEnums.PlayerMovementState.RESTING,
@@ -31,8 +34,11 @@ var transitions: Dictionary = {
 		GameEnums.PlayerMovementState.STANDING,
 		GameEnums.PlayerMovementState.WALKING,
 		GameEnums.PlayerMovementState.TRAVERSING,
+		GameEnums.PlayerMovementState.SLIDING,
+		GameEnums.PlayerMovementState.SKIING,
 		GameEnums.PlayerMovementState.ROPING,
 		GameEnums.PlayerMovementState.FALLING,
+		GameEnums.PlayerMovementState.RESTING,
 		GameEnums.PlayerMovementState.INCAPACITATED,
 	],
 	GameEnums.PlayerMovementState.TRAVERSING: [
@@ -46,34 +52,51 @@ var transitions: Dictionary = {
 	GameEnums.PlayerMovementState.SLIDING: [
 		GameEnums.PlayerMovementState.STANDING,
 		GameEnums.PlayerMovementState.WALKING,
+		GameEnums.PlayerMovementState.DOWNCLIMBING,
+		GameEnums.PlayerMovementState.SKIING,
 		GameEnums.PlayerMovementState.FALLING,
 		GameEnums.PlayerMovementState.ARRESTED,
 		GameEnums.PlayerMovementState.INCAPACITATED,
 	],
 	GameEnums.PlayerMovementState.ROPING: [
 		GameEnums.PlayerMovementState.STANDING,
+		GameEnums.PlayerMovementState.WALKING,
+		GameEnums.PlayerMovementState.DOWNCLIMBING,
 		GameEnums.PlayerMovementState.FALLING,
 		GameEnums.PlayerMovementState.INCAPACITATED,
 	],
 	GameEnums.PlayerMovementState.FALLING: [
 		GameEnums.PlayerMovementState.STANDING,
+		GameEnums.PlayerMovementState.DOWNCLIMBING,
 		GameEnums.PlayerMovementState.SLIDING,
+		GameEnums.PlayerMovementState.SKIING,
 		GameEnums.PlayerMovementState.ARRESTED,
 		GameEnums.PlayerMovementState.INCAPACITATED,
 	],
 	GameEnums.PlayerMovementState.ARRESTED: [
 		GameEnums.PlayerMovementState.STANDING,
+		GameEnums.PlayerMovementState.DOWNCLIMBING,
+		GameEnums.PlayerMovementState.SKIING,
 		GameEnums.PlayerMovementState.SLIDING,
 		GameEnums.PlayerMovementState.FALLING,
 		GameEnums.PlayerMovementState.INCAPACITATED,
 	],
 	GameEnums.PlayerMovementState.RESTING: [
 		GameEnums.PlayerMovementState.STANDING,
+		GameEnums.PlayerMovementState.SLIDING,
 		GameEnums.PlayerMovementState.FALLING,
 		GameEnums.PlayerMovementState.INCAPACITATED,
 	],
 	GameEnums.PlayerMovementState.INCAPACITATED: [
 		# Can only be rescued or die from incapacitated
+	],
+	GameEnums.PlayerMovementState.SKIING: [
+		GameEnums.PlayerMovementState.STANDING,
+		GameEnums.PlayerMovementState.DOWNCLIMBING,
+		GameEnums.PlayerMovementState.SLIDING,
+		GameEnums.PlayerMovementState.FALLING,
+		GameEnums.PlayerMovementState.RESTING,
+		GameEnums.PlayerMovementState.INCAPACITATED,
 	],
 }
 
@@ -114,6 +137,7 @@ func _create_states() -> void:
 	states[GameEnums.PlayerMovementState.ARRESTED] = ArrestedState.new(player)
 	states[GameEnums.PlayerMovementState.RESTING] = RestingState.new(player)
 	states[GameEnums.PlayerMovementState.INCAPACITATED] = IncapacitatedState.new(player)
+	states[GameEnums.PlayerMovementState.SKIING] = SkiingState.new(player)
 
 	# Set initial state
 	current_state = states[GameEnums.PlayerMovementState.STANDING]
@@ -164,6 +188,17 @@ func transition_to(new_state: GameEnums.PlayerMovementState) -> void:
 	current_state.enter()
 
 
+## Where a climber ends up when an activity stops: on skis, clinging to a
+## steep face, or standing
+static func _back_on_feet(climber: PlayerController) -> GameEnums.PlayerMovementState:
+	if climber.is_on_skis():
+		return GameEnums.PlayerMovementState.SKIING
+	var cell := climber.current_cell
+	if cell != null and cell.slope_angle > PlayerController.DOWNCLIMB_ENTER_SLOPE:
+		return GameEnums.PlayerMovementState.DOWNCLIMBING
+	return GameEnums.PlayerMovementState.STANDING
+
+
 # =============================================================================
 # BASE STATE CLASS
 # =============================================================================
@@ -197,24 +232,35 @@ class StandingState extends PlayerState:
 		EventBus.emit_camera_signal(GameEnums.CameraSignal.SPEED_CHANGE, 0.3)
 
 	func check_transitions() -> GameEnums.PlayerMovementState:
+		if player.is_on_skis():
+			return GameEnums.PlayerMovementState.SKIING
+
+		# Too steep to stand facing out: turn in and hold on
+		var cell := player.current_cell
+		if cell != null and cell.slope_angle > PlayerController.DOWNCLIMB_ENTER_SLOPE:
+			return GameEnums.PlayerMovementState.DOWNCLIMBING
+
+		if player.input_handler == null:
+			return GameEnums.PlayerMovementState.STANDING
+
 		# Check for movement input
-		if player.input_handler and player.input_handler.has_active_input():
+		if player.input_handler.has_active_input():
 			return GameEnums.PlayerMovementState.WALKING
 
 		# Check for rest input
-		if player.input_handler and player.input_handler.is_action_just_pressed("check_self"):
+		if player.input_handler.is_action_just_pressed("check_self"):
 			return GameEnums.PlayerMovementState.RESTING
 
 		# Sitting down into a slide from a standstill is allowed too
-		if player.input_handler and player.input_handler.is_action_just_pressed("slide_initiate"):
+		if player.input_handler.is_action_just_pressed("slide_initiate"):
 			if player.can_initiate_slide():
-				return GameEnums.PlayerMovementState.SLIDING
+				player.start_slide(false, "glissade")
+				return player.current_state
 
-		# Check for rope deployment
-		if player.input_handler and player.input_handler.is_action_just_pressed("rope_deploy"):
-			var cell := player.current_cell
-			if player.needs_rope() or (cell != null and cell.slope_angle > 40):
-				return GameEnums.PlayerMovementState.ROPING
+		# Rope: the rope system decides whether there is anything to rope down
+		if player.input_handler.is_action_just_pressed("rope_deploy"):
+			player.request_rope()
+			return player.current_state
 
 		return GameEnums.PlayerMovementState.STANDING
 
@@ -228,20 +274,27 @@ class WalkingState extends PlayerState:
 		EventBus.emit_camera_signal(GameEnums.CameraSignal.SPEED_CHANGE, 0.5)
 
 	func check_transitions() -> GameEnums.PlayerMovementState:
+		if player.is_on_skis():
+			return GameEnums.PlayerMovementState.SKIING
+
 		# No input -> standing
 		if player.input_handler == null or not player.input_handler.has_active_input():
 			return GameEnums.PlayerMovementState.STANDING
 
-		# Steep terrain -> downclimbing
+		# Steep terrain -> turn to the slope and downclimb
 		var cell := player.current_cell
-		if cell != null:
-			if cell.slope_angle > 35 and not cell.is_slideable:
-				return GameEnums.PlayerMovementState.DOWNCLIMBING
+		if cell != null and cell.slope_angle > PlayerController.DOWNCLIMB_ENTER_SLOPE:
+			return GameEnums.PlayerMovementState.DOWNCLIMBING
 
 		# Slide initiation
-		if player.input_handler and player.input_handler.is_action_just_pressed("slide_initiate"):
+		if player.input_handler.is_action_just_pressed("slide_initiate"):
 			if player.can_initiate_slide():
-				return GameEnums.PlayerMovementState.SLIDING
+				player.start_slide(false, "glissade")
+				return player.current_state
+
+		if player.input_handler.is_action_just_pressed("rope_deploy"):
+			player.request_rope()
+			return player.current_state
 
 		return GameEnums.PlayerMovementState.WALKING
 
@@ -255,18 +308,35 @@ class DownclimbingState extends PlayerState:
 		EventBus.emit_camera_signal(GameEnums.CameraSignal.SLOPE_CHANGE, 0.7)
 		var cell := player.current_cell
 		EventBus.record_decision("start_downclimb", {
-			"slope": cell.slope_angle if cell != null else 0.0
+			"slope": cell.slope_angle if cell != null else 0.0,
+			"surface": GameEnums.SurfaceType.keys()[cell.surface_type] if cell != null else "unknown",
+			"footwear": GameEnums.Footwear.keys()[player.footwear]
 		})
 
 	func check_transitions() -> GameEnums.PlayerMovementState:
-		# Moderate terrain -> walking
+		if player.is_on_skis():
+			return GameEnums.PlayerMovementState.SKIING
+
+		# Easier ground -> face out and walk
 		var cell := player.current_cell
-		if cell != null and cell.slope_angle < 30:
-			return GameEnums.PlayerMovementState.WALKING
+		if cell != null and cell.slope_angle < PlayerController.DOWNCLIMB_EXIT_SLOPE:
+			if player.input_handler != null and player.input_handler.has_active_input():
+				return GameEnums.PlayerMovementState.WALKING
+			return GameEnums.PlayerMovementState.STANDING
+
+		if player.input_handler == null:
+			return GameEnums.PlayerMovementState.DOWNCLIMBING
 
 		# Rope deployment
-		if player.input_handler and player.input_handler.is_action_just_pressed("rope_deploy"):
-			return GameEnums.PlayerMovementState.ROPING
+		if player.input_handler.is_action_just_pressed("rope_deploy"):
+			player.request_rope()
+			return player.current_state
+
+		# Sit down and glissade the snow below
+		if player.input_handler.is_action_just_pressed("slide_initiate"):
+			if player.can_initiate_slide():
+				player.start_slide(false, "glissade")
+				return player.current_state
 
 		return GameEnums.PlayerMovementState.DOWNCLIMBING
 
@@ -320,25 +390,11 @@ class SlidingState extends PlayerState:
 		pass
 
 	func check_transitions() -> GameEnums.PlayerMovementState:
-		if player == null:
-			return GameEnums.PlayerMovementState.SLIDING
-		var cell := player.current_cell
-		var is_slow := player.smooth_velocity.length() < 2.0 if player.smooth_velocity else true
-
-		# Exit slide when slope decreases and speed low
-		if cell != null:
-			var is_flat := cell.slope_angle < 20
-
-			if is_flat and is_slow:
-				return GameEnums.PlayerMovementState.STANDING
-
-			# Check for exit zone
-			if cell.is_exit_zone and is_slow:
-				return GameEnums.PlayerMovementState.STANDING
-		elif is_slow:
-			# No terrain data but moving slowly - exit slide
-			return GameEnums.PlayerMovementState.STANDING
-
+		# SlideSystem ends the slide (stop, arrest, fall) and picks the next state;
+		# if it is not running one, never leave the climber stuck sliding
+		var slides := player.get_slide_system()
+		if (slides == null or not slides.is_sliding) and player.state_time > 0.5:
+			return PlayerStateMachine._back_on_feet(player)
 		return GameEnums.PlayerMovementState.SLIDING
 
 
@@ -362,9 +418,16 @@ class RopingState extends PlayerState:
 		# Rope deployment logic handled by RopeSystem
 
 	func check_transitions() -> GameEnums.PlayerMovementState:
-		# Roping completes -> standing (at bottom of rope)
-		# This would be controlled by RopeSystem
-		return GameEnums.PlayerMovementState.ROPING
+		# R again: strip the anchor, unclip on a ledge, or build the next one
+		if player.input_handler and player.input_handler.is_action_just_pressed("rope_deploy"):
+			player.request_rope()
+		# RopeService ends the rope work (off rope, cancelled, anchor failure);
+		# with no rope work going on, step off the rope
+		var rope := ServiceLocator.get_service("RopeService") as RopeService
+		if (rope == null or rope.phase == RopeService.RopePhase.NONE) and player.state_time > 1.0 \
+				and player.current_state == GameEnums.PlayerMovementState.ROPING:
+			return PlayerStateMachine._back_on_feet(player)
+		return player.current_state
 
 
 # =============================================================================
@@ -380,10 +443,7 @@ class FallingState extends PlayerState:
 		})
 
 	func check_transitions() -> GameEnums.PlayerMovementState:
-		# Landing handled by PlayerMovement
-		if player.is_grounded:
-			return GameEnums.PlayerMovementState.STANDING
-
+		# PlayerController resolves the landing (impact, injury, where you end up)
 		return GameEnums.PlayerMovementState.FALLING
 
 
@@ -392,36 +452,31 @@ class FallingState extends PlayerState:
 # =============================================================================
 
 class ArrestedState extends PlayerState:
+	## Seconds spent hanging on the axe before getting back on your feet
+	const HOLD_TIME := 1.2
+
 	var arrest_time: float = 0.0
 
 	func enter() -> void:
 		arrest_time = 0.0
-		var speed := player.smooth_velocity.length() if player and player.smooth_velocity else 0.0
 		EventBus.record_incident("self_arrest", {
 			"position": player.global_position if player else Vector3.ZERO,
-			"speed": speed
+			"slope": player.current_cell.slope_angle if player and player.current_cell else 0.0
 		})
 
 	func update(delta: float) -> void:
 		arrest_time += delta
-		# Gradually stop
 
 	func check_transitions() -> GameEnums.PlayerMovementState:
-		if player == null:
+		if player == null or arrest_time < HOLD_TIME:
 			return GameEnums.PlayerMovementState.ARRESTED
-		var current_speed := player.smooth_velocity.length() if player.smooth_velocity else 0.0
-		if current_speed < 0.5:
-			return GameEnums.PlayerMovementState.STANDING
-
-		# Failed arrest -> continue sliding or falling
-		if arrest_time > 3.0:
-			var cell := player.current_cell
-			if cell != null and cell.is_slideable:
-				return GameEnums.PlayerMovementState.SLIDING
-			else:
-				return GameEnums.PlayerMovementState.FALLING
-
-		return GameEnums.PlayerMovementState.ARRESTED
+		# Kick in, stand up (or stay facing in if it is steep)
+		if player.is_on_skis():
+			return GameEnums.PlayerMovementState.SKIING
+		var cell := player.current_cell
+		if cell != null and cell.slope_angle > PlayerController.DOWNCLIMB_EXIT_SLOPE:
+			return GameEnums.PlayerMovementState.DOWNCLIMBING
+		return GameEnums.PlayerMovementState.STANDING
 
 
 # =============================================================================
@@ -459,3 +514,27 @@ class IncapacitatedState extends PlayerState:
 	func check_transitions() -> GameEnums.PlayerMovementState:
 		# Cannot transition out on own - requires rescue or ends run
 		return GameEnums.PlayerMovementState.INCAPACITATED
+
+
+# =============================================================================
+# SKIING STATE
+# =============================================================================
+
+class SkiingState extends PlayerState:
+	func enter() -> void:
+		EventBus.emit_camera_signal(GameEnums.CameraSignal.SPEED_CHANGE, 0.6)
+		EventBus.record_decision("start_skiing", {
+			"position": player.global_position,
+			"footwear": GameEnums.Footwear.keys()[player.footwear]
+		})
+
+	func check_transitions() -> GameEnums.PlayerMovementState:
+		# SkiPhysics turns crashes into slides and falls
+		if not player.is_on_skis():
+			return GameEnums.PlayerMovementState.STANDING
+		if player.input_handler != null and player.input_handler.is_action_just_pressed("check_self"):
+			if player.smooth_velocity.length() < 0.5:
+				return GameEnums.PlayerMovementState.RESTING
+		if player.input_handler != null and player.input_handler.is_action_just_pressed("rope_deploy"):
+			player.say("Take your skis off before you rope up.")
+		return GameEnums.PlayerMovementState.SKIING

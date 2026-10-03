@@ -42,7 +42,16 @@ enum PlayerMovementState {
 	FALLING,
 	ARRESTED,
 	RESTING,
-	INCAPACITATED
+	INCAPACITATED,
+	SKIING         # On skis or a splitboard (always appended: saves store indices)
+}
+
+## What is on the climber's feet. Decides traction (see TractionModel)
+enum Footwear {
+	BOOTS,         # Mountaineering boots, crampons stowed
+	CRAMPONS,      # Crampons strapped on
+	SKIS,          # Touring skis
+	SNOWBOARD      # Splitboard in ride mode
 }
 
 enum PostureState {
@@ -167,7 +176,13 @@ enum GearType {
 	BIVY_GEAR,
 	LAYERS,
 	GLOVES,
-	GOGGLES
+	GOGGLES,
+	SKIS,          # Touring skis (appended: saves store indices)
+	SNOWBOARD,     # Splitboard
+	GUIDEBOOK,     # Route descriptions and topos (navigation, appended)
+	TOPO_MAP,      # Paper map for the descent
+	COMPASS,       # Orienting the map, holding a bearing in cloud
+	ALTIMETER      # Knowing your height (the guidebook's topos are in metres)
 }
 
 enum GearCondition {
@@ -285,6 +300,20 @@ enum KnowledgeLevel {
 	FAMILIAR,      # Completed once
 	EXPERIENCED,   # Multiple completions
 	MASTERED       # Consistent clean returns
+}
+
+# =============================================================================
+# ROUTE MODES
+# =============================================================================
+
+enum RouteMode {
+	DESCENT,       # Start on the summit, get home
+	FULL_ROUTE     # Start at base camp: climb to the summit, then get home
+}
+
+enum RunPhase {
+	ASCENT,        # Full route: on the way up
+	DESCENT        # On the way down
 }
 
 # =============================================================================
