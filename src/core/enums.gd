@@ -43,7 +43,8 @@ enum PlayerMovementState {
 	ARRESTED,
 	RESTING,
 	INCAPACITATED,
-	SKIING         # On skis or a splitboard (always appended: saves store indices)
+	SKIING,        # On skis or a splitboard (always appended: saves store indices)
+	CAUGHT         # Carried or buried by an avalanche (AvalancheSystem holds the body)
 }
 
 ## What is on the climber's feet. Decides traction (see TractionModel)
@@ -182,7 +183,10 @@ enum GearType {
 	GUIDEBOOK,     # Route descriptions and topos (navigation, appended)
 	TOPO_MAP,      # Paper map for the descent
 	COMPASS,       # Orienting the map, holding a bearing in cloud
-	ALTIMETER      # Knowing your height (the guidebook's topos are in metres)
+	ALTIMETER,     # Knowing your height (the guidebook's topos are in metres)
+	TRANSCEIVER,   # Avalanche transceiver (appended): rescuers can find you if buried
+	SHOVEL_PROBE,  # Avalanche shovel and probe: dig a snow pit, dig yourself out, probe
+	AIRBAG         # Avalanche airbag pack: pull it when caught to stay near the surface
 }
 
 enum GearCondition {

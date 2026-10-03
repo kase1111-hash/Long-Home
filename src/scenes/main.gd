@@ -163,6 +163,7 @@ func _bootstrap_core_services() -> void:
 	_bootstrap_service("GearDatabase", GearDatabase, self)
 	_bootstrap_service("SaveManager", SaveManager, self)
 	_bootstrap_service("PlanningService", PlanningService, self)
+	_bootstrap_service("AvalancheService", AvalancheService, self)
 
 	# Audio stack - AudioInitializer creates AudioService and all managers
 	if not ServiceLocator.has_service("AudioService"):
@@ -197,6 +198,7 @@ func _bootstrap_descent_systems() -> void:
 	_bootstrap_service("SlideSystem", SlideSystem, world)
 	_bootstrap_service("RopeService", RopeService, world)
 	_bootstrap_service("CrevasseSystem", CrevasseSystem, world)
+	_bootstrap_service("AvalancheSystem", AvalancheSystem, world)
 	_bootstrap_service("RiskDetectionService", RiskDetectionService, world)
 	_bootstrap_service("FatalEventManager", FatalEventManager, world)
 	_bootstrap_service("FatalityDetector", FatalityDetector, world)
@@ -245,6 +247,14 @@ func _debug_quick_start() -> void:
 	# Create test conditions
 	var conditions := StartConditions.create_moderate()
 	conditions.mountain_id = mountain_id
+	# Today's snowpack; --avalanche=N picks a day with that danger (0: none)
+	var avalanches := ServiceLocator.get_service("AvalancheService") as AvalancheService
+	if avalanches != null:
+		var level := int(_get_user_arg_value("--avalanche", "-1"))
+		if level > 0:
+			conditions.avalanche = avalanches.generate_with_danger(mountain_id, clampi(level, 1, 5), randi())
+		elif level < 0:
+			conditions.avalanche = avalanches.today(mountain_id)
 	if _has_user_arg("--full-route") and mountain_db != null:
 		# Developer shortcut: the full route without beating the game first
 		mountain_db.full_route_override = true
@@ -520,6 +530,10 @@ func _on_planning_complete(route: PackedVector3Array) -> void:
 	conditions.mountain_id = mountain.id
 	conditions.knowledge_level = mountain_db.get_knowledge_level(mountain.id)
 	_apply_route_mode(conditions)
+	# The snowpack the bulletin at the hut described
+	var avalanches := ServiceLocator.get_service("AvalancheService") as AvalancheService
+	if avalanches != null:
+		conditions.avalanche = avalanches.today(mountain.id)
 
 	# Start run with planned route
 	var run := GameStateManager.start_run(mountain.id, conditions)
@@ -611,7 +625,9 @@ func _ensure_terrain_loaded(mountain_id: String) -> void:
 		terrain_service.name = "TerrainService"
 		world.add_child(terrain_service)
 
-	if terrain_service.current_mountain != mountain_id:
+	# A new day on a mountain whose snow or ice was changed last time (an
+	# avalanche's debris, an opened crevasse) starts from the fresh mountain
+	if terrain_service.current_mountain != mountain_id or terrain_service.modified:
 		terrain_service.load_terrain(mountain_id)
 
 

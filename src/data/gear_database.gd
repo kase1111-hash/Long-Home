@@ -60,12 +60,14 @@ const CATEGORY_CLOTHING := "Clothing"
 const CATEGORY_SURVIVAL := "Survival"
 const CATEGORY_DESCENT := "Ski & Board"
 const CATEGORY_NAVIGATION := "Navigation"
+const CATEGORY_AVALANCHE := "Avalanche"
 
 const CATEGORY_ORDER := [
 	CATEGORY_PROTECTION,
 	CATEGORY_TECHNICAL,
 	CATEGORY_DESCENT,
 	CATEGORY_NAVIGATION,
+	CATEGORY_AVALANCHE,
 	CATEGORY_CLOTHING,
 	CATEGORY_SURVIVAL
 ]
@@ -240,6 +242,35 @@ func _load_gear_data() -> void:
 		CATEGORY_NAVIGATION,
 		"Your height to the metre. The guidebook's topos are given in metres; without it you estimate to the nearest contour.",
 		0.05,
+		false
+	))
+
+	# Avalanche category: none of it stops an avalanche; it changes what
+	# happens after one
+	_add_item(GearItemInfo.new(
+		GameEnums.GearType.TRANSCEIVER,
+		"Avalanche Transceiver",
+		CATEGORY_AVALANCHE,
+		"Transmits from under the snow. If someone saw you go, they can find you in minutes instead of hours.",
+		0.25,
+		false
+	))
+
+	_add_item(GearItemInfo.new(
+		GameEnums.GearType.SHOVEL_PROBE,
+		"Shovel & Probe",
+		CATEGORY_AVALANCHE,
+		"Dig a snow pit to test the snowpack (V), dig yourself free faster when your arms are clear, and probe for crevasses (G).",
+		0.95,
+		false
+	))
+
+	_add_item(GearItemInfo.new(
+		GameEnums.GearType.AIRBAG,
+		"Avalanche Airbag",
+		CATEGORY_AVALANCHE,
+		"A balloon pack. Pull the handle (Space) the moment you are caught: a big volume rises in moving snow, and you with it.",
+		2.6,
 		false
 	))
 
@@ -444,6 +475,14 @@ func check_requirements(
 			result["warnings"].append("Glacier on this mountain: without an axe you cannot probe or climb out of a crevasse")
 		elif not loadout.has_item(GameEnums.GearType.CRAMPONS):
 			result["warnings"].append("Glacier on this mountain: crampons for its bare ice and its crevasse walls")
+
+	# Today's avalanche bulletin
+	var avalanches := ServiceLocator.get_service("AvalancheService") as AvalancheService
+	if avalanches != null:
+		var today := avalanches.today(mountain.id)
+		if today != null and today.get_max_danger() >= 3:
+			if not loadout.has_item(GameEnums.GearType.TRANSCEIVER) or not loadout.has_item(GameEnums.GearType.SHOVEL_PROBE):
+				result["warnings"].append("%s avalanche danger today: carry a transceiver, shovel and probe" % AvalancheConditions.LEVEL_NAMES[today.get_max_danger()])
 
 	# Technical sections warnings
 	if mountain.technical_sections > 2:

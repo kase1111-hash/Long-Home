@@ -46,7 +46,7 @@ signal waypoint_removed(index: int)
 @export var selection_color: Color = Color(1.0, 1.0, 1.0, 0.3)
 
 @export_group("Overlays")
-## Show slope shading
+## Show slope-angle shading (30/35/40/45 deg classes)
 @export var show_slope_shading: bool = true
 ## Show cliff hazards
 @export var show_cliff_zones: bool = true
@@ -189,6 +189,15 @@ func _generate_map() -> void:
 	queue_redraw()
 
 
+## Slope-angle classes, as avalanche maps print them (lower bound, colour)
+const SLOPE_CLASSES := [
+	{"min": 30.0, "color": Color(1.0, 0.9, 0.2), "label": "30°"},
+	{"min": 35.0, "color": Color(1.0, 0.58, 0.1), "label": "35°"},
+	{"min": 40.0, "color": Color(0.92, 0.18, 0.12), "label": "40°"},
+	{"min": 45.0, "color": Color(0.58, 0.25, 0.78), "label": "45°+"},
+]
+
+
 func _generate_slope_overlay() -> void:
 	if terrain_service == null:
 		return
@@ -208,11 +217,6 @@ func _generate_slope_overlay() -> void:
 	var image := Image.create(cells_x, cells_z, false, Image.FORMAT_RGBA8)
 	image.fill(Color(0, 0, 0, 0))
 
-	var steep_color := _get_slope_color(30.0)
-	var downclimb_color := _get_slope_color(40.0)
-	var rappel_color := _get_slope_color(60.0)
-	var cliff_color := _get_slope_color(80.0)
-
 	for chunk in chunks.values():
 		var origin_x := int(round((chunk.world_origin.x - world_bounds_min.x) / cell_size))
 		var origin_z := int(round((chunk.world_origin.z - world_bounds_min.y) / cell_size))
@@ -229,32 +233,20 @@ func _generate_slope_overlay() -> void:
 				if pz < 0 or pz >= cells_z:
 					continue
 				var cell: TerrainCell = column[z]
-				var slope: float = cell.slope_angle
-				if slope < 25.0:
-					continue  # Walkable - no overlay
-				var color := steep_color
-				if slope >= 70.0:
-					color = cliff_color
-				elif slope >= 50.0:
-					color = rappel_color
-				elif slope >= 35.0:
-					color = downclimb_color
-				image.set_pixel(px, pz, color)
+				var color := _get_slope_color(cell.slope_angle)
+				if color.a > 0.0:
+					image.set_pixel(px, pz, color)
 
 	slope_overlay_texture = ImageTexture.create_from_image(image)
 
 
+## The slope-angle class colour of a slope (transparent under 30 deg)
 func _get_slope_color(slope_angle: float) -> Color:
-	if slope_angle < 25:
-		return Color(0, 0, 0, 0)  # Walkable - no overlay
-	elif slope_angle < 35:
-		return Color(0.9, 0.9, 0.2, 0.15)  # Steep - yellow tint
-	elif slope_angle < 50:
-		return Color(0.9, 0.5, 0.2, 0.25)  # Downclimb - orange tint
-	elif slope_angle < 70:
-		return Color(0.9, 0.2, 0.2, 0.35)  # Rappel required - red tint
-	else:
-		return Color(0.3, 0.0, 0.0, 0.5)  # Cliff - dark red
+	var color := Color(0, 0, 0, 0)
+	for band in SLOPE_CLASSES:
+		if slope_angle >= float(band.min):
+			color = Color(band.color, 0.32)
+	return color
 
 
 func _generate_hazard_overlay() -> void:

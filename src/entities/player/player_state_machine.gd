@@ -18,6 +18,7 @@ var transitions: Dictionary = {
 		GameEnums.PlayerMovementState.FALLING,
 		GameEnums.PlayerMovementState.RESTING,
 		GameEnums.PlayerMovementState.INCAPACITATED,
+		GameEnums.PlayerMovementState.CAUGHT,
 	],
 	GameEnums.PlayerMovementState.WALKING: [
 		GameEnums.PlayerMovementState.STANDING,
@@ -29,6 +30,7 @@ var transitions: Dictionary = {
 		GameEnums.PlayerMovementState.FALLING,
 		GameEnums.PlayerMovementState.RESTING,
 		GameEnums.PlayerMovementState.INCAPACITATED,
+		GameEnums.PlayerMovementState.CAUGHT,
 	],
 	GameEnums.PlayerMovementState.DOWNCLIMBING: [
 		GameEnums.PlayerMovementState.STANDING,
@@ -40,6 +42,7 @@ var transitions: Dictionary = {
 		GameEnums.PlayerMovementState.FALLING,
 		GameEnums.PlayerMovementState.RESTING,
 		GameEnums.PlayerMovementState.INCAPACITATED,
+		GameEnums.PlayerMovementState.CAUGHT,
 	],
 	GameEnums.PlayerMovementState.TRAVERSING: [
 		GameEnums.PlayerMovementState.STANDING,
@@ -48,6 +51,7 @@ var transitions: Dictionary = {
 		GameEnums.PlayerMovementState.SLIDING,
 		GameEnums.PlayerMovementState.FALLING,
 		GameEnums.PlayerMovementState.INCAPACITATED,
+		GameEnums.PlayerMovementState.CAUGHT,
 	],
 	GameEnums.PlayerMovementState.SLIDING: [
 		GameEnums.PlayerMovementState.STANDING,
@@ -57,6 +61,7 @@ var transitions: Dictionary = {
 		GameEnums.PlayerMovementState.FALLING,
 		GameEnums.PlayerMovementState.ARRESTED,
 		GameEnums.PlayerMovementState.INCAPACITATED,
+		GameEnums.PlayerMovementState.CAUGHT,
 	],
 	GameEnums.PlayerMovementState.ROPING: [
 		GameEnums.PlayerMovementState.STANDING,
@@ -64,6 +69,7 @@ var transitions: Dictionary = {
 		GameEnums.PlayerMovementState.DOWNCLIMBING,
 		GameEnums.PlayerMovementState.FALLING,
 		GameEnums.PlayerMovementState.INCAPACITATED,
+		GameEnums.PlayerMovementState.CAUGHT,
 	],
 	GameEnums.PlayerMovementState.FALLING: [
 		GameEnums.PlayerMovementState.STANDING,
@@ -72,6 +78,7 @@ var transitions: Dictionary = {
 		GameEnums.PlayerMovementState.SKIING,
 		GameEnums.PlayerMovementState.ARRESTED,
 		GameEnums.PlayerMovementState.INCAPACITATED,
+		GameEnums.PlayerMovementState.CAUGHT,
 	],
 	GameEnums.PlayerMovementState.ARRESTED: [
 		GameEnums.PlayerMovementState.STANDING,
@@ -80,15 +87,25 @@ var transitions: Dictionary = {
 		GameEnums.PlayerMovementState.SLIDING,
 		GameEnums.PlayerMovementState.FALLING,
 		GameEnums.PlayerMovementState.INCAPACITATED,
+		GameEnums.PlayerMovementState.CAUGHT,
 	],
 	GameEnums.PlayerMovementState.RESTING: [
 		GameEnums.PlayerMovementState.STANDING,
 		GameEnums.PlayerMovementState.SLIDING,
 		GameEnums.PlayerMovementState.FALLING,
 		GameEnums.PlayerMovementState.INCAPACITATED,
+		GameEnums.PlayerMovementState.CAUGHT,
 	],
 	GameEnums.PlayerMovementState.INCAPACITATED: [
 		# Can only be rescued or die from incapacitated
+	],
+	GameEnums.PlayerMovementState.CAUGHT: [
+		# AvalancheSystem lets go when the climber is free (or rescued)
+		GameEnums.PlayerMovementState.STANDING,
+		GameEnums.PlayerMovementState.DOWNCLIMBING,
+		GameEnums.PlayerMovementState.SKIING,
+		GameEnums.PlayerMovementState.SLIDING,
+		GameEnums.PlayerMovementState.INCAPACITATED,
 	],
 	GameEnums.PlayerMovementState.SKIING: [
 		GameEnums.PlayerMovementState.STANDING,
@@ -97,6 +114,7 @@ var transitions: Dictionary = {
 		GameEnums.PlayerMovementState.FALLING,
 		GameEnums.PlayerMovementState.RESTING,
 		GameEnums.PlayerMovementState.INCAPACITATED,
+		GameEnums.PlayerMovementState.CAUGHT,
 	],
 }
 
@@ -138,6 +156,7 @@ func _create_states() -> void:
 	states[GameEnums.PlayerMovementState.RESTING] = RestingState.new(player)
 	states[GameEnums.PlayerMovementState.INCAPACITATED] = IncapacitatedState.new(player)
 	states[GameEnums.PlayerMovementState.SKIING] = SkiingState.new(player)
+	states[GameEnums.PlayerMovementState.CAUGHT] = CaughtState.new(player)
 
 	# Set initial state
 	current_state = states[GameEnums.PlayerMovementState.STANDING]
@@ -514,6 +533,18 @@ class IncapacitatedState extends PlayerState:
 	func check_transitions() -> GameEnums.PlayerMovementState:
 		# Cannot transition out on own - requires rescue or ends run
 		return GameEnums.PlayerMovementState.INCAPACITATED
+
+
+# =============================================================================
+# CAUGHT STATE
+# =============================================================================
+
+## Swept away or buried by an avalanche. AvalancheSystem holds the body
+## (PlayerController.held_by) and moves it with the snow; it picks the next
+## state when it lets go.
+class CaughtState extends PlayerState:
+	func check_transitions() -> GameEnums.PlayerMovementState:
+		return GameEnums.PlayerMovementState.CAUGHT
 
 
 # =============================================================================

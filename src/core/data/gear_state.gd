@@ -158,6 +158,9 @@ static func create_ski_loadout() -> GearState:
 	state.add_item(GearItem.new(GameEnums.GearType.TOPO_MAP, 1.0, 0.1))
 	state.add_item(GearItem.new(GameEnums.GearType.COMPASS, 1.0, 0.05))
 	state.add_item(GearItem.new(GameEnums.GearType.ALTIMETER, 1.0, 0.05))
+	# Ski tourers carry the avalanche kit
+	state.add_item(GearItem.new(GameEnums.GearType.TRANSCEIVER, 1.0, 0.25))
+	state.add_item(GearItem.new(GameEnums.GearType.SHOVEL_PROBE, 1.0, 0.95))
 
 	return state
 
@@ -174,6 +177,9 @@ static func create_heavy_loadout() -> GearState:
 	state.add_item(GearItem.new(GameEnums.GearType.CARABINERS, 1.0, 0.5))
 	state.add_item(GearItem.new(GameEnums.GearType.ANCHOR_KIT, 1.0, 1.2))
 	state.add_item(GearItem.new(GameEnums.GearType.BIVY_GEAR, 1.0, 2.5))
+	state.add_item(GearItem.new(GameEnums.GearType.TRANSCEIVER, 1.0, 0.25))
+	state.add_item(GearItem.new(GameEnums.GearType.SHOVEL_PROBE, 1.0, 0.95))
+	state.add_item(GearItem.new(GameEnums.GearType.AIRBAG, 1.0, 2.6))
 	state.add_item(GearItem.new(GameEnums.GearType.LAYERS, 1.0, 2.5))
 	state.add_item(GearItem.new(GameEnums.GearType.GLOVES, 1.0, 0.3))
 	state.add_item(GearItem.new(GameEnums.GearType.GOGGLES, 1.0, 0.15))

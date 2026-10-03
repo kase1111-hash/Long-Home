@@ -66,6 +66,8 @@ src/
 │   │                   # boulders: placement, MultiMesh, colliders) + ScatterMeshes (low-poly builders);
 │   │                   # GlacierField (glacier coverage, moraines, crevasses)
 │   ├── glacier/        # CrevasseSystem: bridge collapse, falls into the slot, climbing out, probing
+│   ├── avalanche/      # AvalancheConditions (day + bulletin), AvalancheService, AvalancheField,
+│   │                   # AvalancheFlow (Voellmy), AvalancheSystem (triggers, caught, burial), ReductionMethod
 │   ├── sliding/        # Slide physics (5 files)
 │   ├── rope/           # Rope and rappelling (7 files)
 │   ├── environment/    # Weather, time, temperature, sky/clouds/ranges/fog/precipitation visuals (8 files)
@@ -84,12 +86,12 @@ src/
 └── scenes/             # Scene management (1 file)
 tests/                  # Godot-native checks (check_scripts, smoke_goal, ui_tour,
                         # screenshot_tour, test_route_scoring, smoke_full_route, test_scatter,
-                        # test_glacier) + Python validators
+                        # test_glacier, test_avalanche) + Python validators
 ```
 
 ## Key Systems
 
-### 18 Major Systems
+### 19 Major Systems
 
 1. **Terrain** - Chunked loading, 11 surface types, 6 terrain zones by slope angle
 2. **Sliding** - Slope-plane glissade physics, braking, physical self-arrest; control spectrum (CONTROLLED → MARGINAL → UNSTABLE → LOST)
@@ -109,6 +111,7 @@ tests/                  # Godot-native checks (check_scripts, smoke_goal, ui_tou
 16. **Mountain Database** - Mountain metadata, progress, logbook, full-route unlock
 17. **Planning & Scoring** - Guidebook lines per mountain, alpine grades, book times, logbook scoring, full route
 18. **Glaciers & Crevasses** - Glacier tongues with icefalls and moraines, open and snow-bridged crevasses, probing, bridge collapse, climbing out
+19. **Avalanches** - Daily snowpack and bulletin, release field, Voellmy flows with entrainment and debris, warning signs, caught/buried/airbag/rescue, snow pits, ATES and the reduction method
 
 ### State Machines
 
@@ -122,6 +125,7 @@ STANDING ↔ WALKING ↔ DOWNCLIMBING ↔ TRAVERSING
     ↓
 SLIDING ↔ ARRESTED ↔ FALLING → INCAPACITATED (→ rescue after 5 s)
 SKIING (while skis/board are on; crashes → SLIDING)
+CAUGHT (AvalancheSystem holds the body: carried, then buried or free)
 (ROPING and RESTING as parallel states)
 ```
 
@@ -166,6 +170,31 @@ cost style; decisions `probe` and `crevasse_climbed_out` reach the post-game mom
 `RouteMetrics` and `RouteSurvey` count glacier metres (slower book pace, grade bump, cost;
 `ICEFALL_COST` keeps every line off glacier steeper than 30°).
 
+### Avalanches (who owns what)
+
+`AvalancheService` (core service) draws each mountain's day on first ask
+(`AvalancheConditions.generate`: snow, wind, weak layer, warmth → problems → danger per band)
+and keeps it until a run ends. `Main._on_planning_complete` puts it on
+`StartConditions.avalanche` (copied by reference in `duplicate_conditions`); a run without one
+(tests building their own conditions) has no avalanches. Quick start takes `--avalanche=N`.
+On `descent_ready`, `AvalancheSystem` sets `TemperatureSystem.base_temperature` from the day,
+builds `AvalancheField` (4 m grid: dry/wet instability, slab "pack", problem per cell, start
+and icefall cells) and runs the last day's naturals to the end (`_place_recent_avalanches`).
+Each physics tick (priority 11): human trigger hazard `TRIGGER_RATE × inst² × load`, warning
+signs (`warning`, remote triggers), naturals by danger and warmth, serac falls; flows step in
+1/30 s substeps. `AvalancheFlow` is pure data (parcels, Voellmy step, entrainment, deposit,
+`lost_volume` off the map, an edge apron for the unmapped valley). A finished flow becomes one
+`TerrainService.apply_height_deltas` call (vertex keys → metres: bed −depth, debris +depth),
+which re-analyses only the touched vertices and queues chunk mesh rebuilds
+(`defer_meshes`, a few per frame, the climber's chunk first; `flush_pending_meshes` for tests).
+`TerrainCell.debris_depth` / `avalanche_bed` drive the surface (packed / firm snow), and an edit
+never turns snow into rock. Caught: `PlayerController.held_by = AvalancheSystem`, state CAUGHT
+(travel mode ADRIFT); `_bury` → dig strokes, air timer (game minutes), deep burial →
+witnessed? transceiver? `burial_survival` → RESCUE, else `FatalEventManager.trigger_avalanche`.
+`terrain_service.modified` makes the next run reload the mountain fresh.
+`RouteMetrics` measures avalanche terrain (30-50° open snow, aspects, runout below) and ATES;
+`ReductionMethod.evaluate(conditions, metrics)` prints the plan's check.
+
 ### Planning and scoring (who owns what)
 
 `RouteMetrics.measure(line, terrain, options)` is the one yardstick: it resamples a line every
@@ -188,7 +217,8 @@ godot --editor project.godot
 # Run game directly
 godot --path .
 
-# Skip the menus (developer shortcut; add --full-route for the up-and-down mode)
+# Skip the menus (developer shortcut; add --full-route for the up-and-down mode,
+# --avalanche=N for a day with that avalanche danger, 0 for none)
 godot --path . -- --quick-start --mountain=north_face
 
 # Tests (run these before every commit; all need a Godot 4.2.x binary)
@@ -202,6 +232,7 @@ godot --headless --audio-driver Dummy --path . -s res://tests/smoke_rappel.gd --
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_ski.gd        # skis (add -- --board)
 godot --headless --audio-driver Dummy --path . -s res://tests/test_scatter.gd        # trees, boulders, impacts, anchors
 godot --headless --audio-driver Dummy --path . -s res://tests/test_glacier.gd        # glaciers, crevasses, probe, collapse
+godot --headless --audio-driver Dummy --path . -s res://tests/test_avalanche.gd      # bulletin, flows, caught, burial, pits
 godot --headless --audio-driver Dummy --path . -s res://tests/test_route_scoring.gd  # grades, guidebook, scoring
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_full_route.gd    # full route + retreat
 xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-driver opengl3 \

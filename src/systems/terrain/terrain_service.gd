@@ -78,6 +78,15 @@ var scatter: TerrainScatter
 ## The glacier and its crevasses (procedural terrain only; null when none)
 var glacier: GlacierField = null
 
+## The heights were changed after loading (a crevasse opened, an avalanche
+## ran): the next run reloads the mountain fresh
+var modified: bool = false
+
+## Chunk meshes waiting to be rebuilt after a deferred edit (a few a frame,
+## nearest the climber first)
+var _pending_meshes: Dictionary = {}
+const MESH_REBUILDS_PER_FRAME := 2
+
 ## How far round an opened crevasse the cliff distances are refreshed (metres)
 const CLIFF_UPDATE_RADIUS := 45.0
 
@@ -151,6 +160,8 @@ func load_terrain(mountain_id: String) -> bool:
 	corridor.clear()
 	procedural_result = null
 	glacier = null
+	modified = false
+	_pending_meshes.clear()
 	_chunk_origin = Vector2.ZERO
 	_cached_cell = null
 	_cached_position = Vector3.INF
@@ -587,33 +598,13 @@ func _classify_cell(cell: TerrainCell) -> void:
 	cell.surface_type = classifier.classify_surface(cell)
 	if glacier != null:
 		_apply_glacier_surface(cell)
+	# Avalanche debris sets hard and lumpy; a slab's bed is the old, firm surface
+	if cell.debris_depth >= 0.05:
+		cell.surface_type = GameEnums.SurfaceType.SNOW_PACKED
+	elif cell.avalanche_bed:
+		cell.surface_type = GameEnums.SurfaceType.SNOW_FIRM
 	cell.surface_firmness = classifier.get_firmness(cell.surface_type)
 	cell.friction = classifier.get_friction(cell.surface_type)
-
-
-## New cliff cells (a crevasse just opened) bring the nearest cliff closer for
-## the cells around them; cells further than radius keep what they had
-func _update_cliff_distances_near(chunk_set: Dictionary, center: Vector2, radius: float, new_cliffs: Array[Vector3]) -> void:
-	for coords in chunk_set:
-		if not chunks.has(coords):
-			continue
-		var chunk: TerrainChunk = chunks[coords]
-		for x in range(chunk.resolution):
-			var column: Array = chunk.cells[x]
-			for z in range(chunk.resolution):
-				var cell: TerrainCell = column[z]
-				var flat := Vector2(cell.position.x, cell.position.z)
-				if flat.distance_to(center) > radius:
-					continue
-				var best := cell.distance_to_cliff
-				var best_position := Vector3.INF
-				for cliff in new_cliffs:
-					var d := flat.distance_to(Vector2(cliff.x, cliff.z))
-					if d < best:
-						best = d
-						best_position = cliff
-				if best_position != Vector3.INF:
-					chunk.set_cliff_reference(cell, best_position, true)
 
 
 ## Ice where the glacier is bare (below the equilibrium line, in crevasse
@@ -640,95 +631,233 @@ func _apply_glacier_surface(cell: TerrainCell) -> void:
 ## down to the debris it leaves (floor_depth below the surface), then redo
 ## the analysis, surfaces, meshes and colliders of the chunks it touched
 func carve_crevasse_section(crevasse: GlacierField.Crevasse, center: Vector2, floor_depth: float) -> void:
-	var started := Time.get_ticks_msec()
 	var previous := crevasse.collapsed.duplicate()
 	crevasse.collapsed.append(center)
 	var half_length := GlacierField.SECTION_HALF_LENGTH
 	var half_width := maxf(crevasse.width * 0.5, 1.1)
 	var along_dir := crevasse.direction_at(center)
 	var radius := half_length + half_width + 4.0
+	var cut_at := func(p: Vector2) -> float:
+		# Already open from an earlier fall
+		for c in previous:
+			if c.distance_to(p) < half_length:
+				return 0.0
+		var across := crevasse.distance_to(p)
+		var along := absf((p - center).dot(along_dir))
+		var cut := floor_depth * (1.0 - smoothstep(half_width - 0.3, half_width + 1.0, across))
+		cut *= 1.0 - smoothstep(half_length - 0.5, half_length + 1.5, along)
+		return -cut
+	edit_heights(center, radius, cut_at, Callable(), "Crevasse %d opened" % crevasse.id)
+
+
+## Change the terrain inside a circle. delta_at(p: Vector2) -> float gives
+## the metres added at each vertex (negative cuts); mark(cell: TerrainCell,
+## delta: float), when given, is called for every changed vertex so callers
+## can flag it for the surface classification. Returns the vertices changed.
+func edit_heights(center: Vector2, radius: float, delta_at: Callable, mark: Callable = Callable(), label: String = "Terrain edit", defer_meshes: bool = false) -> int:
+	var deltas := {}
+	var cell_size := chunk_size / float(chunk_resolution)
+	var lo := vertex_key(center - Vector2.ONE * radius)
+	var hi := vertex_key(center + Vector2.ONE * radius)
+	for kz in range(lo.y, hi.y + 1):
+		for kx in range(lo.x, hi.x + 1):
+			var key := Vector2i(kx, kz)
+			var p := _chunk_origin + Vector2(key) * cell_size
+			if p.distance_to(center) > radius:
+				continue
+			var delta: float = delta_at.call(p)
+			if absf(delta) >= 0.01:
+				deltas[key] = delta
+	return apply_height_deltas(deltas, mark, label, defer_meshes)
+
+
+## The world vertex grid key nearest a point (see apply_height_deltas)
+func vertex_key(p: Vector2) -> Vector2i:
+	var cell_size := chunk_size / float(chunk_resolution)
+	return Vector2i(roundi((p.x - _chunk_origin.x) / cell_size), roundi((p.y - _chunk_origin.y) / cell_size))
+
+
+## World position (xz) of a vertex grid key
+func vertex_position(key: Vector2i) -> Vector2:
+	return _chunk_origin + Vector2(key) * (chunk_size / float(chunk_resolution))
+
+
+## Add height to individual vertices: deltas maps world vertex keys
+## (vertex_key) to metres. Then redo the slopes, surfaces, cliff distances,
+## meshes and colliders around them. defer_meshes: rebuild the chunks away
+## from the climber over the next frames instead of now.
+func apply_height_deltas(deltas: Dictionary, mark: Callable = Callable(), label: String = "Terrain edit", defer_meshes: bool = false) -> int:
+	if deltas.is_empty():
+		return 0
+	var started := Time.get_ticks_msec()
+	var res := chunk_resolution
 	var mesh_set := {}
 	var analyse_set := {}
-	for key in chunks:
-		var coords: Vector2i = key
-		var chunk: TerrainChunk = chunks[coords]
-		var lo := Vector2(chunk.world_origin.x, chunk.world_origin.z)
-		var hi := lo + Vector2.ONE * chunk.chunk_size
-		if center.x + radius < lo.x or center.x - radius > hi.x or center.y + radius < lo.y or center.y - radius > hi.y:
+	var changed_cells: Array[TerrainCell] = []
+	var changed_keys: Array[Vector2i] = []
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for k in deltas:
+		var key: Vector2i = k
+		var coords := Vector2i(floori(float(key.x) / float(res)), floori(float(key.y) / float(res)))
+		var chunk: TerrainChunk = chunks.get(coords, null)
+		if chunk == null:
 			continue
-		var changed := false
-		for z in range(chunk.resolution):
-			for x in range(chunk.resolution):
-				var p := lo + Vector2(x, z) * chunk.cell_size
-				if p.distance_to(center) > radius:
-					continue
-				# Already open from an earlier fall
-				var already := false
-				for c in previous:
-					if c.distance_to(p) < half_length:
-						already = true
-				if already:
-					continue
-				var across := crevasse.distance_to(p)
-				var along := absf((p - center).dot(along_dir))
-				var cut := floor_depth * (1.0 - smoothstep(half_width - 0.3, half_width + 1.0, across))
-				cut *= 1.0 - smoothstep(half_length - 0.5, half_length + 1.5, along)
-				if cut < 0.01:
-					continue
-				var index := z * chunk.resolution + x
-				chunk.heightmap[index] -= cut
-				var cell: TerrainCell = chunk.cells[x][z]
-				cell.elevation = chunk.heightmap[index]
-				cell.position.y = cell.elevation
-				changed = true
-				# The neighbours' meshes use this chunk's first row and column
-				if x == 0:
-					mesh_set[coords + Vector2i(-1, 0)] = true
-				if z == 0:
-					mesh_set[coords + Vector2i(0, -1)] = true
-				if x == 0 and z == 0:
-					mesh_set[coords + Vector2i(-1, -1)] = true
-		if changed:
-			mesh_set[coords] = true
-			for dz in range(-1, 2):
-				for dx in range(-1, 2):
-					analyse_set[coords + Vector2i(dx, dz)] = true
+		var x := key.x - coords.x * res
+		var z := key.y - coords.y * res
+		var delta: float = deltas[k]
+		var index := z * res + x
+		chunk.heightmap[index] += delta
+		var cell: TerrainCell = chunk.cells[x][z]
+		cell.elevation = chunk.heightmap[index]
+		cell.position.y = cell.elevation
+		if mark.is_valid():
+			mark.call(cell, delta)
+		changed_cells.append(cell)
+		changed_keys.append(key)
+		lo = Vector2(minf(lo.x, cell.position.x), minf(lo.y, cell.position.z))
+		hi = Vector2(maxf(hi.x, cell.position.x), maxf(hi.y, cell.position.z))
+		mesh_set[coords] = true
+		analyse_set[coords] = true
+		# Edge vertices: the neighbours' meshes share them, and their slopes
+		# sample across the seam
+		if x == 0:
+			mesh_set[coords + Vector2i(-1, 0)] = true
+			analyse_set[coords + Vector2i(-1, 0)] = true
+		elif x == res - 1:
+			analyse_set[coords + Vector2i(1, 0)] = true
+		if z == 0:
+			mesh_set[coords + Vector2i(0, -1)] = true
+			analyse_set[coords + Vector2i(0, -1)] = true
+		elif z == res - 1:
+			analyse_set[coords + Vector2i(0, 1)] = true
+		if x == 0 and z == 0:
+			mesh_set[coords + Vector2i(-1, -1)] = true
+	if changed_cells.is_empty():
+		return 0
+	modified = true
+	var heights_ms := Time.get_ticks_msec() - started
 
-	# Slopes for the chunks around the cut; surfaces and cliff distances only
-	# change near it (new cliffs appear only inside the opened section)
+	# Slopes for the chunks touched
 	for coords in analyse_set:
 		if chunks.has(coords):
 			chunks[coords].analyze(false)
-	var near := radius + 3.0
+	var analysed_ms := Time.get_ticks_msec() - started
+
+	# Surfaces where the slope can have changed: the changed vertices and
+	# their neighbours; new cliffs appear only there
+	var reclassify := {}
+	for key in changed_keys:
+		for dz in range(-1, 2):
+			for dx in range(-1, 2):
+				reclassify[key + Vector2i(dx, dz)] = true
 	var new_cliffs: Array[Vector3] = []
-	for coords in analyse_set:
-		if not chunks.has(coords):
+	for k in reclassify:
+		var key: Vector2i = k
+		var coords := Vector2i(floori(float(key.x) / float(res)), floori(float(key.y) / float(res)))
+		var chunk: TerrainChunk = chunks.get(coords, null)
+		if chunk == null:
 			continue
-		var chunk: TerrainChunk = chunks[coords]
-		for x in range(chunk.resolution):
-			var column: Array = chunk.cells[x]
-			for z in range(chunk.resolution):
-				var cell: TerrainCell = column[z]
-				if Vector2(cell.position.x, cell.position.z).distance_to(center) > near:
-					continue
-				_classify_cell(cell)
-				if cell.is_cliff:
-					new_cliffs.append(cell.position)
+		var cell: TerrainCell = chunk.cells[key.x - coords.x * res][key.y - coords.y * res]
+		var was_cliff := cell.is_cliff
+		var was_snow := TractionModel.is_snow(cell.surface_type)
+		_classify_cell(cell)
+		# A crown step or a debris edge is still snow, not rock
+		if was_snow and not TractionModel.is_snow(cell.surface_type) and cell.surface_type != GameEnums.SurfaceType.ICE:
+			cell.surface_type = GameEnums.SurfaceType.SNOW_FIRM
+			cell.surface_firmness = surface_classifier.get_firmness(cell.surface_type)
+			cell.friction = surface_classifier.get_friction(cell.surface_type)
+		if cell.is_cliff and not was_cliff:
+			new_cliffs.append(cell.position)
+	var classified_ms := Time.get_ticks_msec() - started
 	if not new_cliffs.is_empty():
-		_update_cliff_distances_near(analyse_set, center, CLIFF_UPDATE_RADIUS, new_cliffs)
+		_update_cliff_distances_around(new_cliffs, CLIFF_UPDATE_RADIUS)
+	var cliffs_ms := Time.get_ticks_msec() - started
 	for coords in analyse_set:
 		if chunks.has(coords):
 			chunks[coords].finalize_analysis()
+	var derived_ms := Time.get_ticks_msec() - started
+
+	var rebuilt := 0
 	if generator != null:
+		var focus := _focus_chunk()
 		for coords in mesh_set:
-			if chunks.has(coords):
-				generator.rebuild_chunk(coords)
+			if not chunks.has(coords):
+				continue
+			var c: Vector2i = coords
+			# Big edits: the ground under the climber now, the rest over the next frames
+			if defer_meshes and (absi(c.x - focus.x) > 1 or absi(c.y - focus.y) > 1):
+				_pending_meshes[c] = true
+			else:
+				generator.rebuild_chunk(c)
+				_pending_meshes.erase(c)
+				rebuilt += 1
 	_cached_cell = null
 	_cached_position = Vector3.INF
-	print("[TerrainService] Crevasse %d opened at %s (%d chunks rebuilt in %d ms)" % [
-		crevasse.id, str(center), mesh_set.size(), Time.get_ticks_msec() - started
+	print("[TerrainService] %s at %s: %d vertices, %d chunks rebuilt (%d queued) in %d ms (heights %d, slopes %d, surfaces %d, cliffs %d (%d new), derived %d)" % [
+		label, str(((lo + hi) * 0.5).round()), changed_cells.size(), rebuilt, mesh_set.size() - rebuilt, Time.get_ticks_msec() - started,
+		heights_ms, analysed_ms - heights_ms, classified_ms - analysed_ms, cliffs_ms - classified_ms, new_cliffs.size(), derived_ms - cliffs_ms
 	])
 	terrain_updated.emit()
+	return changed_cells.size()
+
+
+## New cliff cells bring the nearest cliff closer for the cells within
+## radius of them (each new cliff updates its own neighbourhood)
+func _update_cliff_distances_around(new_cliffs: Array[Vector3], radius: float) -> void:
+	var res := chunk_resolution
+	var cell_size := chunk_size / float(res)
+	var reach := int(ceil(radius / cell_size))
+	for cliff in new_cliffs:
+		var centre := vertex_key(Vector2(cliff.x, cliff.z))
+		for dz in range(-reach, reach + 1):
+			for dx in range(-reach, reach + 1):
+				var d := sqrt(float(dx * dx + dz * dz)) * cell_size
+				if d > radius:
+					continue
+				var key := centre + Vector2i(dx, dz)
+				var coords := Vector2i(floori(float(key.x) / float(res)), floori(float(key.y) / float(res)))
+				var chunk: TerrainChunk = chunks.get(coords, null)
+				if chunk == null:
+					continue
+				var cell: TerrainCell = chunk.cells[key.x - coords.x * res][key.y - coords.y * res]
+				if d < cell.distance_to_cliff:
+					chunk.set_cliff_reference(cell, cliff, true)
+
+
+## Chunk coordinates under the climber (or far away when there is none)
+func _focus_chunk() -> Vector2i:
+	var player := ServiceLocator.get_service("PlayerController") as Node3D
+	if player == null or not player.is_inside_tree():
+		return Vector2i(1 << 20, 1 << 20)
+	var chunk := get_chunk_at(player.global_position)
+	return chunk.chunk_coords if chunk != null else Vector2i(1 << 20, 1 << 20)
+
+
+func _process(_delta: float) -> void:
+	if _pending_meshes.is_empty() or generator == null:
+		return
+	var focus := _focus_chunk()
+	var queue: Array = _pending_meshes.keys()
+	queue.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return (a - focus).length_squared() < (b - focus).length_squared())
+	for k in range(mini(MESH_REBUILDS_PER_FRAME, queue.size())):
+		var coords: Vector2i = queue[k]
+		_pending_meshes.erase(coords)
+		if chunks.has(coords):
+			generator.rebuild_chunk(coords)
+
+
+## Rebuild every queued chunk mesh now (tests, screenshots)
+func flush_pending_meshes() -> void:
+	for coords in _pending_meshes.keys():
+		if chunks.has(coords) and generator != null:
+			generator.rebuild_chunk(coords)
+	_pending_meshes.clear()
+
+
+func has_pending_meshes() -> bool:
+	return not _pending_meshes.is_empty()
 
 
 ## Chamfer distance transform over the whole chunk grid so cliff distances and

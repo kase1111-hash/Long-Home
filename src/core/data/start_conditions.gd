@@ -67,6 +67,10 @@ extends Resource
 ## Known hazard locations
 @export var known_hazards: Array[Vector3] = []
 
+## The day's snowpack and avalanche bulletin (AvalancheService). null runs
+## without avalanches (tests and tools that build their own conditions)
+var avalanche: AvalancheConditions = null
+
 # =============================================================================
 # INITIALIZATION
 # =============================================================================
@@ -329,6 +333,7 @@ func duplicate_conditions() -> StartConditions:
 	copy.known_hazards = known_hazards.duplicate()
 	copy.body_state = body_state.duplicate_state()
 	copy.gear_state = gear_state.duplicate_state()
+	copy.avalanche = avalanche  # The day itself is shared, not copied
 	return copy
 
 

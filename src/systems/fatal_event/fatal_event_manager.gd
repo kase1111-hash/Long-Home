@@ -254,6 +254,29 @@ func check_exposure_fatal(cold_level: float) -> void:
 		_trigger_fatal(FatalTrigger.EXPOSURE, last_known_position)
 
 
+## What the run's resolution says happened
+func get_cause_text() -> String:
+	match active_trigger:
+		FatalTrigger.FALL:
+			return "Fell to their death"
+		FatalTrigger.TERMINAL_SLIDE:
+			return "A slide with no way to stop"
+		FatalTrigger.EXPOSURE:
+			return "Died of exposure"
+		FatalTrigger.ACCUMULATED_INJURY:
+			return "Died of their injuries"
+		FatalTrigger.AVALANCHE:
+			return "Buried in avalanche debris"
+		FatalTrigger.CREVASSE:
+			return "Died in a crevasse"
+	return "Fatal incident"
+
+
+## Buried beyond rescue in avalanche debris
+func trigger_avalanche(position: Vector3) -> void:
+	_trigger_fatal(FatalTrigger.AVALANCHE, position)
+
+
 ## Detect injury fatality
 func check_injury_fatal(total_severity: float) -> void:
 	if total_severity >= fatal_injury_threshold:

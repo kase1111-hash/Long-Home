@@ -55,13 +55,14 @@ As a first-person mountain survival experience, Long-Home combines realistic ter
 
 ## Features
 
-### 18 Major Systems
+### 19 Major Systems
 
 | System | Status | Description |
 |--------|--------|-------------|
 | **Terrain & World** | Complete | Procedural 640 m mountains per peak (DEM loading optional), rendered meshes + collision, slope analysis, 11 surface types, 6 terrain zones; low-poly forests, krummholz, snags, boulders and talus placed from the terrain, with colliders; glaciers with icefalls, moraines and open or snow-bridged crevasses |
 | **Footing & Movement** | Complete | One traction model for boots, crampons, axe and hands: Tobler walking pace, grip-margin slips, slow face-in downclimbing, timed crampon changes, landing impacts |
 | **Glaciers & Crevasses** | Complete | Probing ahead with the axe, snow bridges that give way under load and warmth, falls into the slot carved into the terrain, front-pointing out or waiting for a rescue |
+| **Avalanches** | Complete | A daily snowpack and bulletin (five-level danger, avalanche problems by aspect and elevation), human-triggered and natural slabs, sluffs, wet slides and serac falls run as Voellmy flows over the terrain, crowns and debris carved in, being caught, the airbag, burial and digging out, snow pits |
 | **Sliding Mechanics** | Complete | Slope-plane glissade physics with braking, crampon catches and rock impacts; physical self-arrest; snow spray or dust trails the climber |
 | **Rope System** | Complete | Anchor building and testing, doubled-rope rappels under brake-hand control, re-anchoring, rope pulls that can snag |
 | **Skiing & Snowboarding** | Complete | Touring skis or a splitboard: carving, skidding, hockey stops, crashes into slides, rock damage |
@@ -121,6 +122,8 @@ godot --path . -- --quick-start --mountain=north_face
 ```
 
 Mountain ids: `knife_edge`, `north_face`, `the_couloir`, `storm_peak`, `long_way_down`.
+The quick start draws today's snowpack; `--avalanche=4` picks a day with that danger (1-5), and
+`--avalanche=0` runs without avalanches.
 Add `--full-route` to start a full route (up from base camp, then down) without beating the
 game first.
 
@@ -161,6 +164,12 @@ godot --headless --audio-driver Dummy --path . -s res://tests/test_scatter.gd
 # walkable bridges, maps and grades, and in a live descent: probe, a bridge collapse, climbing
 # out with axe and crampons, and a rescue without them
 godot --headless --audio-driver Dummy --path . -s res://tests/test_glacier.gd
+
+# Avalanches: the bulletin's rules, where slopes can release, Voellmy runout and mass, the bed
+# and debris carved in, the planning tools; and in a live descent at High danger: naturals, a
+# serac fall, a whumpf, a snow pit, a slope released underfoot, the airbag, digging out, and a
+# burial nobody digs out
+godot --headless --audio-driver Dummy --path . -s res://tests/test_avalanche.gd
 
 # Alpine grades, guidebook lines on every mountain, book times, route scoring and the logbook
 godot --headless --audio-driver Dummy --path . -s res://tests/test_route_scoring.gd
@@ -216,7 +225,11 @@ descend), on the rope (push down the face to let rope run) and on skis (`A`/`D` 
 | Let the rope run fast while rappelling | hold `Space` |
 | Strap crampons on / take them off (timed) | `F` |
 | Step into skis or a splitboard / step out (timed, on snow, ≤ 38°) | `T` |
-| Probe the snow ahead with the axe shaft or a ski pole (on a glacier) | `G` |
+| Probe the snow ahead with the axe shaft, a ski pole or an avalanche probe (on a glacier) | `G` |
+| Dig a snow pit and run an extended column test (with a shovel, standing still on snow) | `V` |
+| Caught in an avalanche: pull the airbag (first seconds), then swim; as it slows, a hand up for an air pocket | `Space` |
+| Caught: fight across the flow toward its edge | push sideways |
+| Buried: dig | `Space` (again and again) |
 | On skis: turn, skid to slow or stop, tuck or pole | `A`/`D`, `S`, `W` |
 | Check Self (Body Status) | `C` |
 | Open Map (needs the topo map in your pack) | `M` |
@@ -316,6 +329,51 @@ it is bare ice; above it, snow lies on top.
   and notes "crosses the glacier (probe ahead)". The normal route keeps off the ice, and every
   guidebook line goes round the icefalls.
 
+### Avalanches
+
+Every day on a mountain has its own snowpack (`src/systems/avalanche/`). It is drawn from the
+mountain's climate: the snow of the last three days, the wind that moved it, whether a weak
+layer is buried, and how warm the afternoon will be. The run's temperatures follow that day.
+
+- **The bulletin** (Planning screen, *Avalanche* tab) is printed the way avalanche services print
+  theirs:
+  - the danger for the lower, middle and upper mountain on the five-level scale (Low, Moderate,
+    Considerable, High, Very High), in the bulletin colours
+  - the avalanche problems: storm slab, wind slab, persistent slab, loose dry, wet loose and wet
+    slab. Each has an aspect-and-elevation rose and its likelihood, size and depth.
+  - the snowpack, the freezing level, seracs where there is a glacier, and travel advice
+  The mountain select screen gives the day's danger, and the gear check asks for the avalanche
+  kit when it is Considerable or worse.
+- **Where it can go.** Slabs release on open snow of about 30° and steeper, most readily at
+  35-45°, on the aspects and elevations the problems name. Convex rolls are more sensitive, and
+  dense forest anchors the snow. The snowpack also varies from slope to slope, so two slopes that
+  look the same rarely are. The normal route keeps off the start zones.
+- **Triggering.** Every step on an unstable slope loads it. A walker or a kicked step loads it
+  more than a skier, and a crash or a hard landing most of all. Slabs give warning first: a
+  *whumpf* as the snowpack collapses underfoot, or cracks shooting out from your feet. A collapse
+  can release a steep slope nearby. Natural avalanches follow the danger: none at Low, several an
+  hour at High, and wet snow in the afternoon warmth. Icefalls shed seracs. Before you arrive,
+  the last day's avalanches have already run, and their crowns and debris are there to read.
+- **The flow.** Each avalanche runs over the real terrain under the Voellmy friction law that
+  avalanche engineers use. Small ones stop sooner, wet snow is slow, and ice blocks bounce. The
+  snow follows gullies, spills over cliffs and picks up snow along its track. Where it stops,
+  the debris is carved into the terrain as hard, lumpy snow, and the slab's bed is left firm
+  under a white crown wall. Runout angles come out at 20-35°, as avalanche atlases give them.
+- **Caught.** You are carried with the snow:
+  - Space in the first seconds pulls the airbag (if you carry one), and after that you swim.
+  - Pushing across the flow fights toward its edge.
+  - Trees, rocks and cliffs on the way hurt.
+  - As it slows, Space thrusts a hand up and makes an air pocket.
+  - Where the snow stops decides the burial. You may end up on top, buried to the waist (dig
+    out), or with your head under, where you must dig before the air runs out. Deeper than a
+    metre, only rescuers can help: a party that saw it go, homing on your transceiver, or a slow
+    probe line without one.
+- **Avalanche gear** (new *Avalanche* category): a *transceiver*, a *shovel & probe* (snow pits,
+  faster digging, probing crevasses) and an *airbag* pack. The ski preset carries the transceiver
+  and shovel, and Heavy & Safe carries all three.
+- **Snow pit (V).** With a shovel, dig in and run an extended column test. "ECTP 8: the crack
+  runs clean across, 45 cm down" is the snowpack telling you to go elsewhere.
+
 ### Planning, the guidebook and the logbook
 
 Planning happens at the hut, on paper. Nothing about a route is ever drawn, labelled or marked
@@ -332,6 +390,12 @@ on the mountain itself.
   set-up and abseil times), so they are what a competent party actually takes. The *Plan* tab
   times your own line for your own pack, and sets out the day: start, back by, sunset, daylight
   to spare. A full route adds a turnaround time.
+- **Avalanche terrain.** Every guidebook line has an ATES class: Simple, Challenging or Complex,
+  from how much of it lies on or below open 30-50° snow slopes (and crevassed glacier). Its card
+  also gives the aspects of those slopes. The map's *Slope angle* toggle shades the classes
+  avalanche maps print (30°, 35°, 40°, 45°+). The *Plan* tab checks your line against today's
+  bulletin: the metres on the aspects it names, and the reduction method after Werner Munter
+  (danger potential ÷ the steepest slope's factor ÷ the aspect factor; 1 or less is acceptable).
 - **Navigation gear** (new *Navigation* category): a *guidebook* puts the route card beside your
   map on the mountain; without a *topo map* there is nothing to pull out; a *compass* steadies
   your position in cloud; an *altimeter* gives your height to the metre, which is how you find
@@ -394,6 +458,8 @@ Long-Home/
 │   │   │                             # trees and boulders (terrain_scatter, scatter_meshes),
 │   │   │                             # glacier and crevasse data (glacier_field)
 │   │   ├── glacier/                  # Crevasse falls, bridge collapse, climbing out, probing
+│   │   ├── avalanche/                # Snowpack + bulletin, release field, Voellmy flow, caught/buried,
+│   │   │                             # snow pits, reduction method
 │   │   ├── environment/              # Weather, time, sky/clouds/ranges/fog/precipitation visuals (8 files)
 │   │   ├── descent_goal.gd           # Base camp marker + run completion
 │   │   ├── risk/                     # Risk detection (5 files)
@@ -431,7 +497,7 @@ Long-Home/
 │
 ├── tests/                            # Godot-native checks (check_scripts, smoke_goal, ui_tour,
 │                                     # screenshot_tour, test_route_scoring, smoke_full_route,
-│                                     # test_scatter, test_glacier)
+│                                     # test_scatter, test_glacier, test_avalanche)
 │                                     # and Python regex validators
 ├── SPEC-SHEET.md                     # Complete game specification
 ├── PROGRAMMING-ROADMAP.md            # Implementation guide
@@ -593,6 +659,8 @@ All feedback is diegetic - no numerical displays.
 - [x] OBS/streaming integration
 - [x] Replay and analysis tools
 - [x] Risk detection system
+- [x] Trees and boulders, glaciers and crevasses
+- [x] Avalanches: daily snowpack and bulletin, triggered and natural releases, burial and rescue
 
 ### Partial / Structural
 
@@ -602,8 +670,6 @@ All feedback is diegetic - no numerical displays.
 
 ### Planned
 
-- [ ] Avalanche system
-- [ ] Crevasse detection and traversal
 - [ ] Advanced rescue mechanics
 - [ ] More complex weather generation
 - [ ] Gear damage system

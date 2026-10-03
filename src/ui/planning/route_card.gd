@@ -52,6 +52,10 @@ static func fill(container: Control, title: String, metrics: RouteMetrics.Result
 	if not gear.is_empty():
 		container.add_child(_label(gear, body_size, dim))
 
+	var avalanche := _label(RouteMetrics.avalanche_line(metrics), body_size, dim)
+	avalanche.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	container.add_child(avalanche)
+
 	var max_pitches: int = options.get("max_pitches", 99)
 	var shown := 0
 	for pitch in metrics.pitches:

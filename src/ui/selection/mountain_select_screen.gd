@@ -436,6 +436,10 @@ func _update_detail_panel(mountain_id: String) -> void:
 	elif mountain.glacier_extent > 0.0:
 		glacier_text = "Small, crevassed"
 	_add_stat_row(detail_content, "Glacier", glacier_text)
+	var avalanches := ServiceLocator.get_service("AvalancheService") as AvalancheService
+	if avalanches != null:
+		var today := avalanches.today(mountain.id)
+		_add_stat_row(detail_content, "Avalanche", "%s today" % AvalancheConditions.LEVEL_NAMES[today.get_max_danger()])
 
 	# Gear requirements
 	var gear_sep := HSeparator.new()

@@ -7,6 +7,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (avalanches)
+
+- **A snowpack for every day.** `AvalancheConditions` draws each attempt's day from the
+  mountain's climate:
+  - the last three days' snow, the wind that moved it, a buried weak layer, and the afternoon
+    warmth (the run's temperatures follow it)
+  - the avalanche problems that result: storm slab, wind slab on the lee aspects, persistent
+    slab, loose dry, wet loose and wet slab
+  - a danger rating per elevation band on the five-level scale, following the EAWS matrix idea
+  `AvalancheService` keeps the day until the run ends.
+- **The avalanche bulletin** (Planning, new *Avalanche* tab):
+  - danger by band in the bulletin colours, a headline, and each problem with an
+    aspect-and-elevation rose, likelihood, size and depth
+  - the snowpack, the freezing level, seracs, and travel advice
+  - the mountain select screen shows the day's danger, and the gear check asks for the avalanche
+    kit at Considerable and above
+- **Where slopes release.** `AvalancheField` lays the problems over the terrain on a 4 m grid.
+  - Slabs start on open snow of about 30° and up, most readily at 35-45°, on the problems'
+    aspects and elevations.
+  - Convex rolls are more sensitive, dense forest anchors the snow, and a noise field gives
+    slope-to-slope variability.
+  - The normal route stays off the start zones.
+- **Triggering, with warnings first.** The trigger hazard grows with the instability squared and
+  the load: a walker or kicked steps more than a skier, a crash or a hard landing most. Slabs
+  first give *whumpfs* and shooting cracks, and a collapse can release a steep slope nearby.
+- **Natural releases and seracs.** Naturals follow the danger (none at Low, several an hour at
+  High) and afternoon warmth (wet snow). Icefalls shed seracs. The last day's naturals have
+  already run when the descent starts, so their crowns and debris lie on the mountain.
+- **Avalanche flow.** `AvalancheFlow` runs snow parcels over the heightfield under the
+  Voellmy-Salm friction law, with size- and wetness-dependent friction.
+  - The track's snow is entrained into the flow.
+  - Debris is deposited where the snow stops and compacted.
+  - Snow can run off the mapped mountain; an apron at the map edge stands for the valley floor
+    beyond.
+  - Runout angles come out at 20-35°.
+- **Terrain edits by vertex.** `TerrainService.apply_height_deltas`:
+  - Applies changes as explicit vertex deltas and re-analyses only the touched vertices and their
+    neighbours.
+  - Updates cliff distances around new cliffs only.
+  - Queues mesh rebuilds a few chunks per frame, nearest the climber first.
+  - An avalanche's bed and debris now cost about 50 ms. Crevasse carving uses the same path.
+  - An edit never turns snow into rock.
+  - `terrain_service.modified` makes the next run reload a fresh mountain.
+- **Caught, buried, dug out.**
+  - A new `CAUGHT` movement state; the system holds the climber and carries them with the snow.
+  - Space pulls an airbag (in the first seconds), then swims. Pushing across the flow fights for
+    the edge.
+  - Trees, rocks and cliffs on the way injure. As the snow slows, Space makes an air pocket.
+  - The burial depth decides what follows: free, dig out stroke by stroke, or dig before the air
+    runs out (game minutes).
+  - Below a metre: a rescue if someone saw it (faster with a transceiver), with survival from the
+    burial-time curve. Otherwise the fatal sequence; its cause now reads "Buried in avalanche
+    debris".
+- **Avalanche gear** (new category): transceiver, shovel & probe (snow pits, faster digging,
+  probing crevasses), airbag. Added to the ski and heavy presets.
+- **Snow pit (V).** An extended column test where you stand (ECTP/ECTN/ECTX, the layer depth),
+  from the local snowpack.
+- **Planning tools.**
+  - Guidebook lines get an ATES class (Simple / Challenging / Complex) and the aspects of their
+    30-50° slopes.
+  - The map's slope shading now prints the avalanche classes (30°, 35°, 40°, 45°+), with a toggle
+    and legend.
+  - The Plan tab checks the line against the bulletin and runs Werner Munter's reduction method.
+- **HUD, scoring, moments.**
+  - The activity line and hints cover being caught, buried and digging a pit, and "V snow pit"
+    joins the hints.
+  - Triggering, being caught and burial cost style.
+  - The post-game moments recall whumpfs, cracks, pits, airbags and burials.
+  - Quick start takes `--avalanche=N`.
+- `tests/test_avalanche.gd` (76 checks).
+
+### Fixed
+
+- Fatal runs said only "Fatal incident"; they now name what happened (a fall, exposure,
+  injuries, an avalanche).
+
 ### Added (glaciers and crevasses)
 
 - **A glacier on most mountains.** The generator lays a glacier tongue in the flank beside the
