@@ -45,7 +45,7 @@ Players begin at the summit with difficulty locked in beforehand via trade-offs:
 |--------|-------------|
 | **Time of Day** | Sun angle, shadows, freeze-thaw cycles |
 | **Weather Window** | Stable, deteriorating, whiteout risk |
-| **Gear Loadout** | Rope length, crampons, layers, emergency bivy |
+| **Gear Loadout** | Rope length, crampons, layers, emergency bivy, skis or a splitboard |
 | **Physical Condition** | Fatigue, hydration, minor injuries |
 | **Knowledge** | Route beta, topo familiarity, previous ascent experience |
 
@@ -74,6 +74,8 @@ Continuous time movement downhill where:
 - Arrest slide
 - Rappel
 - Traverse
+- Ski or ride (if carried; fast on snow, carried over rock)
+- Change footwear: crampons on or off, skis on or off (each costs time)
 - Rest (rare, dangerous if misused)
 
 **Design Note:** Not about button mashing—it's about judgment under fatigue.
@@ -224,6 +226,19 @@ Controlled descent → Marginal control → Accelerating instability → Loss of
 | **Mid-Level** | Recognizes safe slope bands, begins planning |
 | **Veteran** | Chains slides, uses terrain to scrub speed, only slides when exit guaranteed |
 
+### Implemented Model
+
+- A slide's velocity lives on the slope plane: gravity along the plane, kinetic friction from
+  the surface (soft snow about 0.42, firm about 0.22, ice about 0.06), drag about 0.008 v².
+  Collisions are real.
+- Brake (S): the heels and axe spike add friction. That is plenty on soft snow, holds speed on
+  35° firm snow, and does nothing on ice. With crampons on, a heel can catch and flip you.
+- Self-arrest (Space): a roll onto the axe (0.45 s and up: longer when tumbling, tired or on
+  skis), then arrest friction (firm snow about 1.25, ice about 0.3). The pick is torn out above
+  about 9 m/s on firm snow, about 5 m/s on ice.
+- A slip, a ski crash or a tumble after a fall starts an *uncontrolled* slide: lower control at
+  first, and a longer arrest delay.
+
 ### Sliding Interactions
 
 | System | Effect |
@@ -253,6 +268,21 @@ Controlled descent → Marginal control → Accelerating instability → Loss of
 **Sometimes:** Best move is no rope. Sometimes it's non-negotiable.
 
 **Result:** Ropes feel like real tools, not abilities.
+
+### Implemented Sequence
+
+1. **R** at the top of steep ground. The climber picks an anchor within reach: a horn, boulder
+   or crack on rock; screws or a V-thread in ice (anchor kit); a picket in snow (anchor kit), or
+   a slow cut bollard without one.
+2. Build it, weight-test it and thread the rope: 30-45 s, longer tired, cold-handed or in wind.
+   A failed test means another anchor, or none.
+3. Rappel on the doubled rope, so half its length reaches down. Push down the face for about
+   1 m/s, add Space to let it run fast, let go to brake. The rappel ends on standable ground,
+   with R on a ledge, or with R at the knots to build the next anchor.
+4. Pull the rope down after you. It can snag and stay up there.
+
+Hidden anchor quality drives the weight test and a per-second failure hazard that grows with
+speed and shock loading. Jams are per metre of rope run, more over rock edges.
 
 ### UI Expression
 
