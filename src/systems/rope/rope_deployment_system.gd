@@ -267,10 +267,11 @@ func _complete_test() -> void:
 		# Anchor holds, proceed
 		_transition_to(DeploymentState.THREADING)
 	else:
-		# Anchor failed test
-		deployment_failed.emit("Anchor failed test - find another")
+		# Anchor failed test: back to choosing, then say so (listeners may
+		# pick the next anchor straight away)
 		selected_anchor = null
 		_transition_to(DeploymentState.SELECTING)
+		deployment_failed.emit("Anchor failed test - find another")
 
 
 func _complete_threading() -> void:
@@ -345,21 +346,26 @@ func _get_condition_multiplier() -> float:
 		var fatigue: float = player.get_fatigue()
 		multiplier *= 1.0 + fatigue * (fatigue_multiplier - 1.0)
 
-	# Cold (would check body state)
-	# multiplier *= cold_multiplier based on hand warmth
+	# Cold, clumsy hands fumble knots and slings
+	var body: BodyState = player.get("body_state")
+	if body != null:
+		multiplier *= lerpf(cold_multiplier, 1.0, body.get_rope_handling_modifier())
 
-	# Wind (would check weather service)
-	# multiplier *= wind_multiplier based on wind strength
+	# Wind snatches at the rope and the slings
+	var weather := ServiceLocator.get_service("WeatherService") as WeatherService
+	if weather != null:
+		var wind := clampf(float(weather.current_wind_strength) / float(GameEnums.WindStrength.GALE), 0.0, 1.0)
+		multiplier *= lerpf(1.0, wind_multiplier, wind)
 
 	return multiplier
 
 
 func _calculate_deploy_length() -> float:
-	# Would calculate based on terrain below
-	# For now, use reasonable default or rope length
+	# Rappels run on a doubled rope (both strands through the anchor) so it
+	# can be pulled down afterwards: half the rope's length reaches the ground
 	if deploying_rope:
-		return minf(deploying_rope.available_length, 30.0)
-	return 30.0
+		return deploying_rope.available_length * 0.5
+	return 25.0
 
 
 # =============================================================================

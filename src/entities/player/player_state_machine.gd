@@ -403,8 +403,11 @@ class RopingState extends PlayerState:
 		# Rope deployment logic handled by RopeSystem
 
 	func check_transitions() -> GameEnums.PlayerMovementState:
+		# R again: strip the anchor, unclip on a ledge, or build the next one
+		if player.input_handler and player.input_handler.is_action_just_pressed("rope_deploy"):
+			player.request_rope()
 		# RopeService ends the rope work (off rope, cancelled, anchor failure)
-		return GameEnums.PlayerMovementState.ROPING
+		return player.current_state
 
 
 # =============================================================================

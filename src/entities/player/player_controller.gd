@@ -597,11 +597,14 @@ func start_slide(uncontrolled: bool, cause: String) -> void:
 
 ## Ask the rope system to set up a rappel here (it explains if it cannot)
 func request_rope() -> void:
-	var rope := ServiceLocator.get_service("RopeService")
-	if rope == null or not rope.has_method("request_rappel"):
+	var rope := ServiceLocator.get_service("RopeService") as RopeService
+	if rope == null:
 		say("You have no rope.")
 		return
-	rope.request_rappel(self)
+	if current_state == GameEnums.PlayerMovementState.ROPING:
+		rope.on_rope_key()
+	else:
+		rope.request_rappel(self)
 
 
 ## Holding onto the face: no gravity, movement follows the surface

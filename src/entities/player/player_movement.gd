@@ -187,6 +187,22 @@ func _get_world_move_direction(input: Vector2) -> Vector3:
 	return direction
 
 
+## Camera-relative input as a horizontal world direction (ZERO without input)
+func get_input_direction_world() -> Vector3:
+	var input := player.input_handler.move_input
+	if input.length() < 0.1:
+		return Vector3.ZERO
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return Vector3(input.x, 0.0, input.y).normalized()
+	var forward := -camera.global_transform.basis.z
+	var right := camera.global_transform.basis.x
+	forward.y = 0.0
+	right.y = 0.0
+	var direction := forward.normalized() * -input.y + right.normalized() * input.x
+	return direction.normalized() if direction.length_squared() > 0.0001 else Vector3.ZERO
+
+
 ## Walking pace on this slope in this direction: Tobler's hiking function on
 ## the grade along the path, slowed further by the side slope across it
 func _calculate_slope_factor() -> void:
