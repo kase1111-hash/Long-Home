@@ -7,6 +7,9 @@ extends Control
 ## - Stats tell your story
 ## - Progress is visible and meaningful
 ## - History informs future decisions
+##
+## Opened from the main menu ("Logbook"). Main shows it over the menu and
+## calls refresh() each time, so it always reads the save as it is now.
 
 # =============================================================================
 # SIGNALS
@@ -27,10 +30,19 @@ var is_built: bool = false
 # =============================================================================
 
 func _ready() -> void:
+	# Anchors and offsets: in the tree, set_anchors_preset() alone keeps the
+	# current (empty) rectangle
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	ServiceLocator.get_service_async("SaveManager", func(sm):
 		save_manager = sm
 		_build_ui()
 	)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if is_visible_in_tree() and event.is_action_pressed("ui_cancel"):
+		close_requested.emit()
+		get_viewport().set_input_as_handled()
 
 
 func _build_ui() -> void:
@@ -38,29 +50,26 @@ func _build_ui() -> void:
 		return
 	is_built = true
 
-	# Clear existing
+	# Clear existing (freed at the end of the frame: take them out of the tree
+	# now, so the old and the new screen are never both laid out)
 	for child in get_children():
+		remove_child(child)
 		child.queue_free()
 
 	# Background
 	var bg := ColorRect.new()
-	bg.color = Color(0.08, 0.09, 0.12, 0.95)
+	bg.color = Color(0.08, 0.09, 0.12)
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
 
-	# Main container
-	var main := VBoxContainer.new()
-	main.name = "Main"
-	main.set_anchors_preset(Control.PRESET_FULL_RECT)
-	main.add_theme_constant_override("separation", 20)
-	add_child(main)
-
 	var margin := MarginContainer.new()
+	margin.name = "Main"
+	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
 	margin.add_theme_constant_override("margin_left", 40)
 	margin.add_theme_constant_override("margin_right", 40)
 	margin.add_theme_constant_override("margin_top", 40)
 	margin.add_theme_constant_override("margin_bottom", 40)
-	main.add_child(margin)
+	add_child(margin)
 
 	var content := VBoxContainer.new()
 	content.add_theme_constant_override("separation", 20)
@@ -81,8 +90,10 @@ func _build_ui() -> void:
 
 	# Close button
 	var close := Button.new()
+	close.name = "CloseButton"
 	close.text = "Close"
-	close.custom_minimum_size = Vector2(120, 40)
+	close.custom_minimum_size = Vector2(160, 40)
+	close.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	close.pressed.connect(func(): close_requested.emit())
 	content.add_child(close)
 
@@ -92,7 +103,7 @@ func _create_header(parent: Control) -> void:
 	parent.add_child(header)
 
 	var title := Label.new()
-	title.text = "Your Journey"
+	title.text = "Logbook"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 36)
 	title.add_theme_color_override("font_color", Color(0.95, 0.93, 0.88))
@@ -101,10 +112,11 @@ func _create_header(parent: Control) -> void:
 	var profile := save_manager.get_profile()
 	if profile:
 		var subtitle := Label.new()
-		subtitle.text = "%s | %s | %d runs" % [
+		subtitle.text = "%s | %s | %d run%s" % [
 			profile.display_name,
 			profile.get_experience_level(),
-			profile.total_runs
+			profile.total_runs,
+			"" if profile.total_runs == 1 else "s"
 		]
 		subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		subtitle.add_theme_font_size_override("font_size", 16)
@@ -113,10 +125,7 @@ func _create_header(parent: Control) -> void:
 
 
 func _create_lifetime_stats(parent: Control) -> void:
-	var panel := _create_panel("Lifetime Statistics")
-	parent.add_child(panel)
-
-	var content := panel.get_node("Content")
+	var content := _create_panel(parent, "Lifetime Statistics")
 	var profile := save_manager.get_profile()
 
 	if profile == null:
@@ -135,12 +144,40 @@ func _create_lifetime_stats(parent: Control) -> void:
 	_add_stat_row(content, "Current Streak", str(profile.current_streak))
 	_add_stat_row(content, "Mountains Completed", str(profile.mountains_completed.size()))
 
+	_create_mountains(content)
+
+
+## Each mountain attempted: how often, and the best score in its logbook
+func _create_mountains(content: Control) -> void:
+	var database := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
+	if database == null:
+		return
+	var listed := 0
+	for mountain in database.get_all_mountains():
+		var progress := database.get_progress(mountain.id)
+		if progress == null or progress.attempts <= 0:
+			continue
+		if listed == 0:
+			_add_stat_row(content, "", "")
+			var heading := Label.new()
+			heading.text = "Mountains"
+			heading.add_theme_font_size_override("font_size", 15)
+			heading.add_theme_color_override("font_color", Color(0.95, 0.93, 0.88))
+			content.add_child(heading)
+		listed += 1
+		var attempts := "%d attempt%s" % [progress.attempts, "" if progress.attempts == 1 else "s"]
+		var best := "no score yet"
+		if progress.best_score > 0 and progress.best_full_score > 0:
+			best = "best %d pts, full route %d pts" % [progress.best_score, progress.best_full_score]
+		elif progress.best_full_score > 0:
+			best = "full route %d pts" % progress.best_full_score
+		elif progress.best_score > 0:
+			best = "best %d pts" % progress.best_score
+		_add_stat_row(content, mountain.name, "%s, %s" % [attempts, best])
+
 
 func _create_recent_runs(parent: Control) -> void:
-	var panel := _create_panel("Recent Runs")
-	parent.add_child(panel)
-
-	var content := panel.get_node("Content")
+	var content := _create_panel(parent, "Recent Runs")
 	var history := save_manager.get_history()
 
 	if history == null:
@@ -163,6 +200,7 @@ func _create_recent_runs(parent: Control) -> void:
 		# Outcome indicator
 		var indicator := ColorRect.new()
 		indicator.custom_minimum_size = Vector2(8, 8)
+		indicator.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		match entry.outcome:
 			GameEnums.ResolutionType.CLEAN_RETURN:
 				indicator.color = Color(0.3, 0.8, 0.4)
@@ -176,9 +214,10 @@ func _create_recent_runs(parent: Control) -> void:
 				indicator.color = Color(0.6, 0.3, 0.3)
 		row.add_child(indicator)
 
-		# Mountain name
+		# Mountain name and how the day ended
 		var mountain := Label.new()
-		mountain.text = entry.mountain_id
+		mountain.text = "%s, %s" % [_mountain_name(entry.mountain_id), _outcome_text(entry.outcome)]
+		mountain.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		mountain.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		mountain.add_theme_font_size_override("font_size", 13)
 		mountain.add_theme_color_override("font_color", Color(0.85, 0.83, 0.8))
@@ -187,17 +226,14 @@ func _create_recent_runs(parent: Control) -> void:
 		# Duration
 		var duration := Label.new()
 		var minutes := int(entry.duration / 60)
-		duration.text = "%dm" % minutes
+		duration.text = "%dm" % minutes if minutes >= 1 else "<1m"
 		duration.add_theme_font_size_override("font_size", 12)
 		duration.add_theme_color_override("font_color", Color(0.6, 0.6, 0.65))
 		row.add_child(duration)
 
 
 func _create_achievements(parent: Control) -> void:
-	var panel := _create_panel("Achievements")
-	parent.add_child(panel)
-
-	var content := panel.get_node("Content")
+	var content := _create_panel(parent, "Achievements")
 	var progression := save_manager.get_progression()
 
 	if progression == null:
@@ -224,19 +260,32 @@ func _create_achievements(parent: Control) -> void:
 		shown += 1
 
 		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
 		content.add_child(row)
 
-		var icon := Label.new()
-		icon.text = "★"
-		icon.add_theme_color_override("font_color", Color(0.9, 0.8, 0.3))
+		var icon := ColorRect.new()
+		icon.custom_minimum_size = Vector2(8, 8)
+		icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		icon.color = Color(0.9, 0.8, 0.3)
 		row.add_child(icon)
+
+		var text := VBoxContainer.new()
+		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		text.add_theme_constant_override("separation", 0)
+		row.add_child(text)
 
 		var name_label := Label.new()
 		name_label.text = achievement.name
-		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		name_label.add_theme_font_size_override("font_size", 13)
 		name_label.add_theme_color_override("font_color", Color(0.85, 0.83, 0.8))
-		row.add_child(name_label)
+		text.add_child(name_label)
+
+		var what := Label.new()
+		what.text = achievement.description
+		what.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		what.add_theme_font_size_override("font_size", 11)
+		what.add_theme_color_override("font_color", Color(0.6, 0.6, 0.65))
+		text.add_child(what)
 
 	# Show locked count
 	if progress["unlocked"] < progress["total"]:
@@ -247,10 +296,15 @@ func _create_achievements(parent: Control) -> void:
 		content.add_child(locked)
 
 
-func _create_panel(title: String) -> PanelContainer:
+## A titled, scrolling panel added to parent; returns the box to fill. (It
+## used to return the panel, and callers looked the box up as a child called
+## "Content": it is three levels down, so that lookup found nothing.)
+func _create_panel(parent: Control, title: String) -> VBoxContainer:
 	var panel := PanelContainer.new()
+	panel.name = title.replace(" ", "")
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	parent.add_child(panel)
 
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.12, 0.12, 0.15, 0.9)
@@ -268,10 +322,12 @@ func _create_panel(title: String) -> PanelContainer:
 	panel.add_child(margin)
 
 	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	margin.add_child(scroll)
 
 	var vbox := VBoxContainer.new()
 	vbox.name = "Content"
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_theme_constant_override("separation", 8)
 	scroll.add_child(vbox)
 
@@ -284,7 +340,31 @@ func _create_panel(title: String) -> PanelContainer:
 	var sep := HSeparator.new()
 	vbox.add_child(sep)
 
-	return panel
+	return vbox
+
+
+func _mountain_name(mountain_id: String) -> String:
+	var database := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
+	if database != null:
+		var mountain := database.get_mountain(mountain_id)
+		if mountain != null:
+			return mountain.name
+	return mountain_id.replace("_", " ").capitalize()
+
+
+func _outcome_text(outcome: GameEnums.ResolutionType) -> String:
+	match outcome:
+		GameEnums.ResolutionType.CLEAN_RETURN:
+			return "clean return"
+		GameEnums.ResolutionType.INJURED_RETURN:
+			return "returned hurt"
+		GameEnums.ResolutionType.FORCED_BIVY:
+			return "a night out"
+		GameEnums.ResolutionType.RESCUE:
+			return "rescued"
+		GameEnums.ResolutionType.FATALITY:
+			return "did not return"
+	return ""
 
 
 func _add_stat_row(parent: Control, label_text: String, value_text: String) -> void:

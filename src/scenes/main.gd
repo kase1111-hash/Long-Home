@@ -61,6 +61,9 @@ var self_check_screen: SelfCheckScreen = null
 ## Active topo replay visualization
 var topo_replay: TopoReplayVisualization = null
 
+## Lifetime record (main menu > Logbook)
+var stats_display: StatsDisplay = null
+
 ## Active streaming settings screen
 var streaming_settings: StreamingSettings = null
 
@@ -412,6 +415,7 @@ func _show_main_menu() -> void:
 	# Create main menu if not exists
 	if main_menu == null:
 		main_menu = MainMenuScene.instantiate()
+		main_menu.logbook_pressed.connect(_show_logbook)
 		ui.add_child(main_menu)
 	else:
 		main_menu.show_menu()
@@ -834,8 +838,26 @@ func _hide_resolution_screen() -> void:
 
 
 func _hide_main_menu() -> void:
+	_hide_logbook()
 	if main_menu != null:
 		main_menu.hide_menu()
+
+
+## The lifetime record, over the main menu
+func _show_logbook() -> void:
+	if stats_display == null:
+		stats_display = StatsDisplay.new()
+		stats_display.name = "Logbook"
+		stats_display.close_requested.connect(_hide_logbook)
+		ui.add_child(stats_display)
+	else:
+		stats_display.refresh()
+	stats_display.visible = true
+
+
+func _hide_logbook() -> void:
+	if stats_display != null:
+		stats_display.visible = false
 
 
 func _show_resolution() -> void:

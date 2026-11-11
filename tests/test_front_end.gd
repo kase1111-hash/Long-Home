@@ -8,12 +8,18 @@ extends SceneTree
 ## What it covers:
 ##   - key moments: which recorded decisions and incidents are worth a line in
 ##     the logbook and on the map replay, and how the line reads (RunMoments)
+##   - the lifetime record: achievements survive a save and a load, and the
+##     main menu's Logbook builds from the save
 ##
 ## Implementation note: a "-s" script is compiled BEFORE the project autoloads
 ## are registered, so this file must not name GameStateManager, GameEnums,
 ## ServiceLocator or any project class_name at compile time (see
 ## tests/smoke_goal.gd).
 
+var _state_manager: Node = null
+var _enums: Node = null
+var _locator: Node = null
+var _main: Node = null
 var _failures: Array[String] = []
 var _checks: int = 0
 
@@ -23,7 +29,19 @@ func _init() -> void:
 
 
 func _run() -> void:
+	_state_manager = root.get_node_or_null("/root/GameStateManager")
+	_enums = root.get_node_or_null("/root/GameEnums")
+	_locator = root.get_node_or_null("/root/ServiceLocator")
+	if _state_manager == null or _enums == null or _locator == null:
+		_finish("autoloads missing; run with --path <project root>")
+		return
+
 	_test_key_moments()
+
+	_main = (load("res://src/scenes/main.tscn") as PackedScene).instantiate()
+	root.add_child(_main)
+	await _wait(5)
+	await _test_lifetime_record()
 	_finish("")
 
 
@@ -90,8 +108,70 @@ func _test_key_moments() -> void:
 
 
 # =============================================================================
+# THE LIFETIME RECORD
+# =============================================================================
+
+func _test_lifetime_record() -> void:
+	var save: Object = _locator.get_service("SaveManager")
+	_expect(is_instance_valid(save), "the save manager is up")
+	if not is_instance_valid(save):
+		return
+
+	# Achievements used to be forgotten when the game closed
+	var tracker_script: GDScript = load("res://src/systems/save/progression_tracker.gd") as GDScript
+	var earned: Object = tracker_script.new()
+	earned._unlock_achievement("first_descent")
+	earned._add_skill_experience("route_reading", 250.0)
+	var restored: Object = tracker_script.from_dict(JSON.parse_string(JSON.stringify(earned.to_dict())))
+	_expect(restored.get_achievement("first_descent").is_unlocked and not restored.get_achievement("clean_descent").is_unlocked,
+		"an achievement survives being written out and read back")
+	_expect(restored.get_skill_level("route_reading") == earned.get_skill_level("route_reading")
+		and earned.get_skill_level("route_reading") >= 1, "and so does a skill's level (%d)" % restored.get_skill_level("route_reading"))
+
+	_expect(save.save_all(), "saving writes every part of the save")
+	var written: Variant = JSON.parse_string(FileAccess.get_file_as_string(save.PROGRESSION_PATH)) \
+		if FileAccess.file_exists(save.PROGRESSION_PATH) else null
+	_expect(written is Dictionary and (written as Dictionary).has("achievements"),
+		"including the achievements (%s)" % save.PROGRESSION_PATH)
+	var before: int = save.get_progression().get_achievement_progress()["unlocked"]
+	save.load_all()
+	_expect(save.get_progression().get_achievement_progress()["unlocked"] == before,
+		"and loading brings back as many as were saved (%d)" % before)
+
+	# The main menu's Logbook
+	var menu: Node = _main.get("main_menu")
+	_expect(menu != null and menu.get("logbook_button") != null, "the main menu has a Logbook button")
+	if menu == null or menu.get("logbook_button") == null:
+		return
+	(menu.get("logbook_button") as Button).pressed.emit()
+	await _wait(5)
+	var logbook: Control = _main.get("stats_display") as Control
+	_expect(logbook != null and logbook.visible, "which opens the lifetime record")
+	if logbook == null:
+		return
+	var found := true
+	for panel_name in ["LifetimeStatistics", "RecentRuns", "Achievements"]:
+		var panel: Node = logbook.find_child(panel_name, true, false)
+		found = found and panel != null and panel.find_child("Content", true, false) != null \
+			and panel.find_child("Content", true, false).get_child_count() > 2
+	_expect(found, "with statistics, recent runs and achievements filled in")
+	var close: Button = logbook.find_child("CloseButton", true, false) as Button
+	_expect(close != null, "and a Close button")
+	if close != null:
+		close.pressed.emit()
+	await _wait(2)
+	_expect(not logbook.visible, "that closes it")
+
+
+# =============================================================================
 # HELPERS
 # =============================================================================
+
+func _wait(frames: int) -> void:
+	for i in range(frames):
+		await process_frame
+
+
 
 func _expect(condition: bool, what: String) -> void:
 	_checks += 1

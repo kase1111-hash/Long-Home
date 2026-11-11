@@ -66,6 +66,12 @@ layout_mode = 2
 size_flags_horizontal = 4
 text = "Continue"
 
+[node name="LogbookButton" type="Button" parent="VBoxContainer/ButtonContainer"]
+custom_minimum_size = Vector2(200, 40)
+layout_mode = 2
+size_flags_horizontal = 4
+text = "Logbook"
+
 [node name="SettingsButton" type="Button" parent="VBoxContainer/ButtonContainer"]
 custom_minimum_size = Vector2(200, 40)
 layout_mode = 2

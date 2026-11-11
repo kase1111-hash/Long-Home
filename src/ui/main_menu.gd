@@ -10,6 +10,7 @@ extends Control
 signal new_descent_pressed()
 signal continue_pressed()
 signal settings_pressed()
+signal logbook_pressed()
 signal quit_pressed()
 
 # =============================================================================
@@ -20,6 +21,7 @@ signal quit_pressed()
 @onready var subtitle_label: Label = $VBoxContainer/SubtitleLabel
 @onready var new_descent_button: Button = $VBoxContainer/ButtonContainer/NewDescentButton
 @onready var continue_button: Button = $VBoxContainer/ButtonContainer/ContinueButton
+@onready var logbook_button: Button = $VBoxContainer/ButtonContainer/LogbookButton
 @onready var settings_button: Button = $VBoxContainer/ButtonContainer/SettingsButton
 @onready var quit_button: Button = $VBoxContainer/ButtonContainer/QuitButton
 @onready var version_label: Label = $VersionLabel
@@ -48,6 +50,7 @@ func _ready() -> void:
 func _setup_buttons() -> void:
 	new_descent_button.pressed.connect(_on_new_descent_pressed)
 	continue_button.pressed.connect(_on_continue_pressed)
+	logbook_button.pressed.connect(_on_logbook_pressed)
 	settings_button.pressed.connect(_on_settings_pressed)
 	quit_button.pressed.connect(_on_quit_pressed)
 
@@ -104,6 +107,11 @@ func _on_continue_pressed() -> void:
 	_play_button_sound()
 	continue_pressed.emit()
 	# Load saved run and continue
+
+
+## Main shows the logbook (lifetime record) over the menu
+func _on_logbook_pressed() -> void:
+	logbook_pressed.emit()
 
 
 func _on_settings_pressed() -> void:

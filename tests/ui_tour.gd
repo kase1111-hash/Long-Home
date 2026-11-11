@@ -176,6 +176,7 @@ func _run() -> void:
 	var parked: Node3D = _locator.get_service("PlayerController") as Node3D
 	_expect(parked == null or not parked.visible, "player parked (hidden) after the run")
 	_shot("11_main_menu_again.png")
+	await _check_logbook(main_scene)
 
 	# 10. Second run: a different mountain (unlocked by the clean return),
 	#     ended by a real fall -> fatal event sequence
@@ -358,6 +359,35 @@ func _check_loadout_summary(screen: Node) -> void:
 	var messages: Node = screen.get_node_or_null(content + "/ValidationMessages")
 	_expect(stats != null and stats.get_child_count() >= 2, "and what the loadout does to speed and warmth")
 	_expect(messages != null and messages.get_child_count() >= 1, "and whether the mountain's requirements are met")
+
+
+## The main menu's Logbook shows the lifetime record, with the run just made
+## in it. (The screen existed but nothing opened it, and its panels could not
+## find their own contents.)
+func _check_logbook(main_scene: Node) -> void:
+	_press(main_scene.get("main_menu"), "logbook_button")
+	await _wait(SETTLE)
+	var logbook: Control = main_scene.get("stats_display") as Control
+	_expect(logbook != null and logbook.visible, "the main menu's Logbook opens the lifetime record")
+	if logbook == null:
+		return
+	_expect(logbook.size.x > 600.0 and logbook.size.y > 400.0, "and it fills the screen (%s)" % logbook.size)
+	var save: Object = _locator.get_service("SaveManager")
+	var runs: int = save.get_profile().total_runs
+	for panel_name in ["LifetimeStatistics", "RecentRuns", "Achievements"]:
+		var panel: Node = logbook.find_child(panel_name, true, false)
+		var content: Node = panel.find_child("Content", true, false) if panel != null else null
+		# Every panel starts with its title and a rule; anything more is content
+		_expect(content != null and content.get_child_count() > 2,
+			"its %s panel has something in it (%d rows)" % [panel_name, content.get_child_count() if content != null else -1])
+	_expect(runs >= 1, "the run just finished is on record (%d runs)" % runs)
+	_shot("11b_logbook.png")
+	var close: Button = _find_button(logbook, "CloseButton")
+	_expect(close != null, "the logbook has a Close button")
+	if close != null:
+		close.pressed.emit()
+	await _wait(SETTLE)
+	_expect(not logbook.visible and (main_scene.get("main_menu") as Control).visible, "Close returns to the main menu")
 
 
 ## "Replay on the map" on the post-game screen opens the topo replay with the

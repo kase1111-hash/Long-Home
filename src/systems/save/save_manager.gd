@@ -27,6 +27,7 @@ signal autosave_triggered()
 const PROFILE_PATH := "user://player_profile.json"
 const HISTORY_PATH := "user://run_history.json"
 const ROUTES_PATH := "user://familiar_routes.json"
+const PROGRESSION_PATH := "user://progression.json"
 const SETTINGS_PATH := "user://settings.json"
 const BACKUP_SUFFIX := ".backup"
 
@@ -117,6 +118,7 @@ func save_all() -> bool:
 	success = _save_profile() and success
 	success = _save_history() and success
 	success = _save_routes() and success
+	success = _save_progression() and success
 
 	save_pending = false
 	save_completed.emit(success)
@@ -139,6 +141,12 @@ func _save_history() -> bool:
 
 func _save_routes() -> bool:
 	return _save_json(ROUTES_PATH, route_memory.to_dict())
+
+
+## Achievements, skills and milestones (they used to live only as long as the
+## game stayed open)
+func _save_progression() -> bool:
+	return _save_json(PROGRESSION_PATH, progression.to_dict())
 
 
 func _save_json(path: String, data: Dictionary) -> bool:
@@ -176,6 +184,7 @@ func load_all() -> bool:
 	success = _load_profile() and success
 	success = _load_history() and success
 	success = _load_routes() and success
+	success = _load_progression() and success
 
 	is_initialized = true
 	load_completed.emit(success)
@@ -219,6 +228,16 @@ func _load_routes() -> bool:
 
 	route_memory = RouteMemory.from_dict(data)
 	return route_memory != null
+
+
+func _load_progression() -> bool:
+	var data := _load_json(PROGRESSION_PATH)
+	if data.is_empty():
+		progression = ProgressionTracker.new()
+		return true
+
+	progression = ProgressionTracker.from_dict(data)
+	return progression != null
 
 
 func _load_json(path: String) -> Dictionary:
