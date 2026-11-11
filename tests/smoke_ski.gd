@@ -112,6 +112,11 @@ func _run() -> void:
 	if player.current_state != skiing:
 		_finish("")
 		return
+	# What follows is a scripted run. Now and then an edge catches while skidding
+	# at speed (a roll in SkiPhysics._check_crash) and the run ends in a slide:
+	# keep that roll out of it. seed() above does not, see _steady_the_mountain()
+	# in tests/test_audio.gd for why
+	player.ski._crash_cooldown = 600.0
 	await _seconds(1.5)
 	var parked: float = player.velocity.length()
 	_expect(parked < 0.6, "skis come on across the slope and the edges hold (%.2f m/s)" % parked)

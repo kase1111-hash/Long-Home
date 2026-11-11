@@ -306,6 +306,10 @@ Godot 4.2 gotchas that bit this project:
   where it holds the output at the threshold
 - A paused tree stops every `AudioStreamPlayer` in it; only `UIAudioManager` runs while paused
   (`PROCESS_MODE_ALWAYS`). Do not "restore" audio state on resume: nothing was lost
+- `seed()` does not make a run repeatable: `WeatherService` draws from the global generator on
+  every drawn frame, and the number of frames drawn varies from run to run. A test that scripts
+  a scenario must switch off the chance it does not want (random slips, weather windows,
+  natural avalanches, the wind's lulls): see `_steady_the_mountain()` in `tests/test_audio.gd`
 - There is no runtime query for the rendering method in 4.2: use
   `EnvironmentVisuals.detect_rendering_method()` (project setting + whether a RenderingDevice
   exists) before touching glow, SSAO, volumetric fog, proximity fade or PSSM shadows, none of

@@ -23,6 +23,10 @@ extends SceneTree
 ## The Dummy audio driver mixes like a real one, so bus levels are real even
 ## though nothing reaches a speaker.
 ##
+## The run is scripted, so the mountain's own chance events (slips, weather
+## windows, avalanches, lulls in the wind) are switched off for it: see
+## _steady_the_mountain().
+##
 ## Implementation note: a "-s" script is compiled BEFORE the project autoloads
 ## are registered, so this file must not name GameStateManager, GameEnums,
 ## ServiceLocator or any project class_name at compile time (see
@@ -73,6 +77,10 @@ func _run() -> void:
 	if not is_instance_valid(_library) or not is_instance_valid(_service):
 		_finish("no audio system")
 		return
+
+	# The checks read levels at set moments: the wind must not take one of its
+	# random lulls in the middle of one
+	_locator.get_service("AmbientAudioManager").silence_moment_chance = 0.0
 
 	_test_library()
 	_test_buses()
@@ -235,8 +243,32 @@ func _start_descent() -> bool:
 	_state_manager.start_run(MOUNTAIN, conditions)
 	_state_manager.transition_to(int(states["DESCENT"]))
 	await _wait(30)
-	return int(_state_manager.current_state) == int(states["DESCENT"]) \
-		and is_instance_valid(_locator.get_service("PlayerController"))
+	if int(_state_manager.current_state) != int(states["DESCENT"]) \
+			or not is_instance_valid(_locator.get_service("PlayerController")):
+		return false
+	_steady_the_mountain()
+	return true
+
+
+## From here on the test says what happens, so the mountain must not act on
+## its own. Left alone it does: in boots on a 34 degree slope the climber can
+## slip before the glissade is asked for, a weather window can change the wind
+## between two readings of it, and an avalanche can release. seed() does not
+## pin these down: the weather draws from the same generator once per drawn
+## frame, and how many frames are drawn differs from run to run.
+func _steady_the_mountain() -> void:
+	var player: Node3D = _locator.get_service("PlayerController") as Node3D
+	# No slips by chance (the sound of a slip is asked for by hand further on)
+	player.posture.micro_slip_probability_scale = 0.0
+	# No weather of its own: the test sets the wind and the weather
+	var weather: Node = _locator.get_service("WeatherService") as Node
+	if weather != null:
+		weather.set_process(false)
+		weather.base_change_probability = 0.0
+	# No avalanches of its own: the test sends the avalanche's signals
+	var avalanches: Object = _locator.get_service("AvalancheSystem")
+	if is_instance_valid(avalanches):
+		avalanches.active = false
 
 
 func _test_descent_ambience() -> void:
@@ -439,16 +471,27 @@ func _test_glissade() -> void:
 	Input.action_press("move_back")
 	await _seconds(1.0)
 	var braking: float = (gear_audio._loops["axe_drag"] as RefCounted).gain
-	Input.action_release("move_back")
 	_expect(braking > 0.05, "braking drags the axe (gain %.2f)" % braking)
 
-	# Self-arrest
+	# Self-arrest, still braking: above the speed firm snow holds a pick at, the
+	# axe can be torn out again, and that is a roll of the dice
+	var pick_in := {"speed": -1.0}
+	var on_engaged := func() -> void: pick_in["speed"] = player.velocity.length()
+	slides.self_arrest_engaged.connect(on_engaged)
+	var tapped_at: float = player.velocity.length()
 	await _tap("slide_initiate")
 	var waited := 0.0
 	while waited < 12.0 and slides.is_sliding:
 		await physics_frame
 		waited += 1.0 / 60.0
+	Input.action_release("move_back")
+	slides.self_arrest_engaged.disconnect(on_engaged)
+	print("[test_audio] self-arrest asked for at %.1f m/s, pick in at %.1f m/s" % [tapped_at, pick_in["speed"]])
 	_expect(not slides.is_sliding, "the arrest stops the slide (%.1f s)" % waited)
+	var traction: GDScript = load("res://src/entities/player/traction_model.gd") as GDScript
+	var holds_to: float = traction.arrest_hold_speed(firm) * lerpf(0.75, 1.0, player.get_ice_axe_effectiveness())
+	_expect(pick_in["speed"] >= 0.0 and pick_in["speed"] <= holds_to,
+		"with the pick going in below the speed that tears an axe out (%.1f m/s, holds to %.1f)" % [pick_in["speed"], holds_to])
 	_expect(_library.get_request_count("axe_bite") == 1, "the pick is heard going in")
 	_expect(_library.get_request_count("arrest_stop") == 1, "and the slide is heard ending")
 	await _seconds(2.0)
@@ -469,6 +512,19 @@ func _test_hazards() -> void:
 	_expect(is_instance_valid(avalanches) and is_instance_valid(crevasses), "the hazard systems exist")
 	if not is_instance_valid(avalanches) or not is_instance_valid(crevasses):
 		return
+
+	# From here to the end the events are sent by hand. Stand the climber on
+	# the flat of the summit first, so that nothing physical follows from them:
+	# a ripped anchor throws the climber off, and on the glissade slope that
+	# would be a tumble down it for the rest of the test
+	var terrain: Object = _locator.get_service("TerrainService")
+	var top: Vector3 = terrain.start_position
+	top.y = terrain.get_height_at(top) + 0.3
+	player.global_position = top
+	player.velocity = Vector3.ZERO
+	await _seconds(1.5)
+	_expect(int(player.current_state) == int(_enums.PlayerMovementState["STANDING"]),
+		"back on the summit, standing (state %s)" % _enums.PlayerMovementState.keys()[player.current_state])
 
 	_library.clear_requests()
 	avalanches.warning_sign.emit("whumpf")
@@ -634,6 +690,8 @@ func _test_fatal() -> void:
 	var player_audio: Object = _locator.get_service("PlayerAudioManager")
 	var ambient: Object = _locator.get_service("AmbientAudioManager")
 	var phases: Dictionary = _enums.FatalPhase
+	# A gust is wind, and wind goes on: keep the next one clear of the count below
+	ambient._next_gust = 30.0
 	_event_bus.fatal_event_started.emit(int(phases["MOMENT_OF_ERROR"]))
 	_event_bus.fatal_phase_changed.emit(int(phases["MOMENT_OF_ERROR"]), int(phases["LOSS_OF_CONTROL"]))
 	await _wait(3)

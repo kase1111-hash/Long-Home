@@ -39,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Menus.** Every button clicks without its screen asking: `UIAudioManager` wires any button
   that enters the scene tree, and the planning tabs turn like pages. The map unfolds and folds,
   and rustles while it is open; a compass in the pack is flipped open with it.
-- `tests/test_audio.gd` (137 checks) and `tests/test_audio_assets.py` (18 checks).
+- `tests/test_audio.gd` (139 checks) and `tests/test_audio_assets.py` (18 checks).
 
 ### Changed
 
