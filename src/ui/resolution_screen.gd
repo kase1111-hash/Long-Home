@@ -18,6 +18,9 @@ signal continue_pressed()
 @onready var outcome_label: Label = $VBoxContainer/OutcomeLabel
 @onready var outcome_subtitle: Label = $VBoxContainer/OutcomeSubtitle
 @onready var stats_container: VBoxContainer = $VBoxContainer/StatsContainer
+
+## The table of stats inside stats_container (built for each run)
+var _stats_grid: GridContainer
 @onready var message_label: Label = $VBoxContainer/MessageLabel
 @onready var continue_button: Button = $VBoxContainer/ContinueButton
 
@@ -121,8 +124,33 @@ func _build_stats() -> void:
 	if run_context == null:
 		return
 
+	# One table for all of them, so the captions and the values line up
+	_stats_grid = GridContainer.new()
+	_stats_grid.name = "StatsGrid"
+	_stats_grid.columns = 2
+	_stats_grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_stats_grid.add_theme_constant_override("h_separation", 18)
+	_stats_grid.add_theme_constant_override("v_separation", 6)
+	stats_container.add_child(_stats_grid)
+
 	# Time elapsed
 	_add_stat("Time", _format_time(run_context.game_time_elapsed))
+
+	# The run timer, for players who have turned it on: the time played, and
+	# whether a route brought home was the fastest return on this mountain
+	var settings := ServiceLocator.get_service("GameSettings") as GameSettings
+	if settings != null and bool(settings.get_value("show_timer")):
+		var played := SpeedrunTimer.format_clock(run_context.real_time_elapsed)
+		var timer := ServiceLocator.get_service("SpeedrunTimer") as SpeedrunTimer
+		var home := run_context.outcome == GameEnums.ResolutionType.CLEAN_RETURN \
+			or run_context.outcome == GameEnums.ResolutionType.INJURED_RETURN
+		if timer != null and home:
+			var best := timer.get_personal_best(run_context.mountain_id, run_context.is_full_route())
+			if timer.last_was_best:
+				played += "  (your fastest return here)"
+			elif best > 0.0:
+				played += "  (fastest %s)" % SpeedrunTimer.format_clock(best)
+		_add_stat("Played", played)
 
 	# Distance traveled
 	_add_stat("Distance", "%.0f m" % run_context.distance_traveled)
@@ -152,21 +180,17 @@ func _build_stats() -> void:
 
 
 func _add_stat(label_text: String, value_text: String) -> void:
-	var container := HBoxContainer.new()
-	container.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-
 	var label := Label.new()
 	label.text = label_text + ":"
-	label.custom_minimum_size = Vector2(110, 0)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	label.add_theme_color_override("font_color", Color(0.5, 0.5, 0.55, 0.8))
 
 	var value := Label.new()
 	value.text = value_text
 	value.add_theme_color_override("font_color", Color(0.8, 0.8, 0.82, 1.0))
 
-	container.add_child(label)
-	container.add_child(value)
-	stats_container.add_child(container)
+	_stats_grid.add_child(label)
+	_stats_grid.add_child(value)
 
 
 func _format_time(hours: float) -> String:

@@ -33,6 +33,7 @@ const DEFAULTS := {
 	"vsync": true,
 	"antialiasing": 2,       # Viewport.MSAA: 0 off, 1 2x, 2 4x, 3 8x
 	"render_scale": 1.0,     # 3D resolution, 0.5-1
+	"show_timer": false,     # The run timer on the HUD and the resolution screen
 	# Camera
 	"mouse_sensitivity": 1.0,  # multiplier, 0.25-3
 	"invert_y": false,
@@ -242,7 +243,9 @@ static func key_name(action: String) -> String:
 			continue
 		var code := key.keycode
 		if code == KEY_NONE and key.physical_keycode != KEY_NONE:
-			code = DisplayServer.keyboard_get_keycode_from_physical(key.physical_keycode)
+			# With no keyboard to ask (a headless run) the key's own name will do
+			code = key.physical_keycode if DisplayServer.get_name() == "headless" \
+				else DisplayServer.keyboard_get_keycode_from_physical(key.physical_keycode)
 		if code != KEY_NONE:
 			return OS.get_keycode_string(code)
 	return ""

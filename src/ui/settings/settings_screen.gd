@@ -219,6 +219,8 @@ func _build_display_page(rows: VBoxContainer) -> void:
 		else "Not available with the compatibility renderer this computer is using.",
 		0.5, 1.0, 0.05, _percent)
 	scale.editable = scalable
+	_add_toggle(rows, "show_timer", "Run timer",
+		"Shows the time you have been on the mountain, and your fastest return on it, on the HUD and at the end of a run.")
 
 
 func _build_controls_page(rows: VBoxContainer) -> void:

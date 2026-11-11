@@ -121,6 +121,8 @@ var _base_camp_value: Label
 var _moving_value: Label
 var _feet_value: Label
 var _time_value: Label
+var _timer_caption: Label
+var _timer_value: Label
 var _temp_caption: Label
 var _temp_value: Label
 var _descended_caption: Label
@@ -281,6 +283,12 @@ func _build_run_panel() -> void:
 	_moving_value = _add_row("Moving")
 	_feet_value = _add_row("Feet")
 	_time_value = _add_row("Time")
+
+	# The run timer: only when the player has asked for it (settings)
+	_timer_value = _add_row("Timer")
+	_timer_caption = _rows.get_node("TimerCaption") as Label
+	_timer_caption.visible = false
+	_timer_value.visible = false
 
 	# Temperature row stays hidden until a source provides a value
 	_temp_caption = _make_label("TempCaption", "Temp", VALUE_FONT_SIZE, CAPTION_COLOR)
@@ -485,6 +493,7 @@ func _refresh() -> void:
 	_moving_value.text = _moving_text()
 	_feet_value.text = _feet_text()
 	_time_value.text = _time_text(run)
+	_update_timer_row(run)
 	_update_context_hints()
 	_update_temperature_row()
 
@@ -659,6 +668,23 @@ func _time_text(run: RunContext) -> String:
 	if hours_value < 0.0:
 		return UNKNOWN
 	return _format_clock(hours_value)
+
+
+## The run timer, for players who have turned it on: the time played, and
+## the fastest return on this mountain once there is one
+func _update_timer_row(run: RunContext) -> void:
+	var settings := ServiceLocator.get_service("GameSettings") as GameSettings
+	var wanted := run != null and settings != null and bool(settings.get_value("show_timer"))
+	_timer_caption.visible = wanted
+	_timer_value.visible = wanted
+	if not wanted:
+		return
+	var text := SpeedrunTimer.format_clock(run.real_time_elapsed)
+	var timer := ServiceLocator.get_service("SpeedrunTimer") as SpeedrunTimer
+	var best := timer.get_personal_best(run.mountain_id, run.is_full_route()) if timer != null else -1.0
+	if best > 0.0:
+		text += "  (best %s)" % SpeedrunTimer.format_clock(best)
+	_timer_value.text = text
 
 
 func _update_temperature_row() -> void:

@@ -3,6 +3,18 @@ extends Node
 ## Speedrun timing and split tracking
 ## For competitive play and personal bests
 ##
+## The time is the run's own clock (RunContext.real_time_elapsed: the seconds
+## actually played, not counting pauses), so a run set aside and picked up
+## again is timed in one piece. A personal best is kept only for a route
+## brought home, per mountain and per way round it (descent or full route).
+## The HUD and the resolution screen show it when the "show_timer" setting is
+## on (SPEC-SHEET 17, "Speedrun Timer": an optional display, personal
+## tracking only):
+##   var timer := ServiceLocator.get_service("SpeedrunTimer") as SpeedrunTimer
+##   timer.get_elapsed_time()                       # seconds, this run
+##   timer.get_personal_best(mountain_id, full)     # seconds, -1 when none
+##   SpeedrunTimer.format_clock(754.0)              # "12:34"
+##
 ## Categories:
 ## - Any%: Reach base by any means
 ## - Clean Return: No injuries, good margin
@@ -39,6 +51,8 @@ enum TimerState {
 	PAUSED,
 	FINISHED
 }
+
+const DATA_PATH := "user://speedrun_data.json"
 
 # =============================================================================
 # CONFIGURATION
@@ -120,6 +134,17 @@ var category: Category = Category.ANY_PERCENT
 ## Current mountain
 var mountain_id: String = ""
 
+## The run being timed is a full route (base camp, summit, base camp)
+var full_route: bool = false
+
+## The run still counts for its category (see _invalidate_run)
+var is_valid: bool = true
+var invalidation_reason: String = ""
+
+## The last finished run: its time, and whether it is the best on its mountain
+var last_time: float = 0.0
+var last_was_best: bool = false
+
 ## Timer start time
 var start_time: float = 0.0
 
@@ -156,6 +181,9 @@ var rope_used: bool = false
 ## Has died this session (for Deathless category)
 var session_death: bool = false
 
+## Where bests are kept (tests point this at a file of their own)
+var data_path: String = DATA_PATH
+
 
 # =============================================================================
 # INITIALIZATION
@@ -183,11 +211,15 @@ func _connect_events() -> void:
 # UPDATE
 # =============================================================================
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	if state != TimerState.RUNNING:
 		return
 
-	elapsed_time = Time.get_ticks_msec() / 1000.0 - start_time - pause_accumulator
+	# The run's own clock: seconds played, pauses not counted, and carried
+	# through a save
+	var run := GameStateManager.current_run
+	if run != null:
+		elapsed_time = run.real_time_elapsed
 
 
 # =============================================================================
@@ -205,6 +237,12 @@ func start_timer(run_category: Category = Category.ANY_PERCENT, mountain: String
 	elapsed_time = 0.0
 	pause_accumulator = 0.0
 	last_split_time = 0.0
+	# Splits are measured down from where this run starts
+	start_altitude = 0.0
+	last_split_altitude = 0.0
+	is_valid = true
+	invalidation_reason = ""
+	last_was_best = false
 
 	current_splits.clear()
 	rope_used = false
@@ -212,17 +250,21 @@ func start_timer(run_category: Category = Category.ANY_PERCENT, mountain: String
 	timer_started.emit(Category.keys()[category])
 
 
-func stop_timer() -> void:
+## Stop the clock. home: the route was brought home (only then can the time
+## be a personal best: a run that ended on the mountain has no time to beat).
+func stop_timer(home: bool = false) -> void:
 	if state == TimerState.STOPPED:
 		return
 
 	state = TimerState.FINISHED
 	var final_time := elapsed_time
+	last_time = final_time
+	last_was_best = false
 
 	timer_stopped.emit(final_time)
 
-	# Check for PB
-	_check_personal_best(final_time)
+	if home and is_valid:
+		_check_personal_best(final_time)
 
 
 func pause_timer() -> void:
@@ -313,13 +355,10 @@ func _validate_category() -> void:
 			pass
 
 
+## The run no longer counts for its category (it is still timed)
 func _invalidate_run(reason: String) -> void:
-	# Run is no longer valid for this category
-	# Could still count for Any%
-
-	var run := _get_current_run_data()
-	run.is_valid = false
-	run.invalidation_reason = reason
+	is_valid = false
+	invalidation_reason = reason
 
 
 func _get_current_run_data() -> RunData:
@@ -330,6 +369,8 @@ func _get_current_run_data() -> RunData:
 	run.end_time = Time.get_ticks_msec() / 1000.0
 	run.final_time = elapsed_time
 	run.splits = current_splits.duplicate()
+	run.is_valid = is_valid
+	run.invalidation_reason = invalidation_reason
 	return run
 
 
@@ -338,24 +379,34 @@ func _get_current_run_data() -> RunData:
 # =============================================================================
 
 func _check_personal_best(time: float) -> void:
-	var key := "%s:%s" % [mountain_id, Category.keys()[category]]
+	var key := _best_key(mountain_id, full_route, category)
 	var current_pb: float = personal_bests.get(key, {}).get("final_time", INF)
 
-	if time < current_pb:
+	if time > 0.0 and time < current_pb:
 		var run := _get_current_run_data()
 		run.is_pb = true
 		personal_bests[key] = run.to_dict()
+		last_was_best = true
 
 		personal_best.emit(Category.keys()[category], time)
 		_save_data()
 
 
-func get_personal_best(mount_id: String = "", cat: Category = Category.ANY_PERCENT) -> float:
+## Fastest return on a mountain, in seconds (-1 when there is none yet).
+## full: the full route rather than the descent. No mountain: the current one.
+func get_personal_best(mount_id: String = "", full: bool = false, cat: Category = Category.ANY_PERCENT) -> float:
 	if mount_id.is_empty():
 		mount_id = mountain_id
+		full = full_route
 
-	var key := "%s:%s" % [mount_id, Category.keys()[cat]]
-	return personal_bests.get(key, {}).get("final_time", -1.0)
+	return float(personal_bests.get(_best_key(mount_id, full, cat), {}).get("final_time", -1.0))
+
+
+## Where a best is filed. (Bests filed before this layout, under
+## "mountain:CATEGORY", counted any ended run, deaths included; they are not
+## read.)
+static func _best_key(mount_id: String, full: bool, cat: Category) -> String:
+	return "%s|%s|%s" % [mount_id, "full" if full else "descent", Category.keys()[cat]]
 
 
 func get_pb_splits(mount_id: String = "", cat: Category = Category.ANY_PERCENT) -> Array[Dictionary]:
@@ -401,14 +452,16 @@ func _save_data() -> void:
 		"gold_splits": gold_splits
 	}
 
-	var file := FileAccess.open("user://speedrun_data.json", FileAccess.WRITE)
+	var file := FileAccess.open(data_path, FileAccess.WRITE)
 	if file:
 		file.store_string(JSON.stringify(data))
 		file.close()
 
 
 func _load_data() -> void:
-	var file := FileAccess.open("user://speedrun_data.json", FileAccess.READ)
+	if not FileAccess.file_exists(data_path):
+		return
+	var file := FileAccess.open(data_path, FileAccess.READ)
 	if file == null:
 		return
 
@@ -431,14 +484,13 @@ func _on_run_started(run_context: RunContext) -> void:
 	if run_context:
 		mountain_id = run_context.mountain_id
 
-	# A run picked up again after being set aside is not timed: its clock
-	# did not run in one piece
-	if run_context != null and run_context.real_time_elapsed > 0.0:
-		reset_timer()
-		return
-
-	# Auto-start timer on run start
+	# Auto-start timer on run start. A run picked up again carries its own
+	# clock, so it goes on from where it was (its splits start again)
+	reset_timer()
+	full_route = run_context != null and run_context.is_full_route()
 	start_timer(category, mountain_id)
+	if run_context != null:
+		elapsed_time = run_context.real_time_elapsed
 
 
 func _on_run_suspended(_run_context: RunContext) -> void:
@@ -454,15 +506,14 @@ func _on_run_ended(run_context: RunContext, outcome: GameEnums.ResolutionType) -
 		if outcome != GameEnums.ResolutionType.CLEAN_RETURN:
 			_invalidate_run("Did not achieve clean return")
 
-	stop_timer()
+	if run_context != null:
+		elapsed_time = run_context.real_time_elapsed
+	stop_timer(outcome == GameEnums.ResolutionType.CLEAN_RETURN or outcome == GameEnums.ResolutionType.INJURED_RETURN)
 
 
-func _on_game_state_changed(old_state: GameEnums.GameState, new_state: GameEnums.GameState) -> void:
-	if new_state == GameEnums.GameState.PAUSED:
-		pause_timer()
-	elif old_state == GameEnums.GameState.PAUSED:
-		resume_timer()
-	elif new_state == GameEnums.GameState.MAIN_MENU:
+func _on_game_state_changed(_old_state: GameEnums.GameState, new_state: GameEnums.GameState) -> void:
+	# (Pauses need no handling: the run's clock does not run in them)
+	if new_state == GameEnums.GameState.MAIN_MENU:
 		reset_timer()
 
 
@@ -497,6 +548,14 @@ func _on_injury(_injury: Injury) -> void:
 # =============================================================================
 # DISPLAY FORMATTING
 # =============================================================================
+
+## A time in seconds as a clock: "12:34", or "1:02:03" from an hour up
+static func format_clock(seconds: float) -> String:
+	var whole := maxi(int(seconds), 0)
+	if whole >= 3600:
+		return "%d:%02d:%02d" % [whole / 3600, (whole / 60) % 60, whole % 60]
+	return "%d:%02d" % [whole / 60, whole % 60]
+
 
 func format_time(time: float) -> String:
 	var minutes := int(time) / 60

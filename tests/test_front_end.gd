@@ -25,6 +25,10 @@ extends SceneTree
 ##     the body, the pack, what is on the feet, where the climber stood and
 ##     the day's record so far, and the save is used up; a file this version
 ##     cannot read is refused
+##   - the run timer: off unless asked for; it shows the run's own clock (so a
+##     run set aside and picked up again is timed in one piece) on the HUD and
+##     the resolution screen; only a route brought home can be a best, kept
+##     per mountain and per way round it
 ##   - the film crew's drone: it takes off beside the climber and stays with
 ##     them (walking, moved far away, in a storm), B switches the screen to
 ##     its camera and back, and a fatal sequence is watched through it, in
@@ -71,6 +75,7 @@ func _run() -> void:
 	await _test_lifetime_record()
 	await _test_settings()
 	_test_day_options()
+	_test_run_timer_rules()
 	if not await _plan_the_day_and_start():
 		_finish("could not start a descent")
 		return
@@ -399,6 +404,64 @@ func _test_day_options() -> void:
 		"conditions built by hand carry no day and no weather bonus")
 
 
+const TEST_TIMER_DATA := "user://speedrun_data_test_front_end.json"
+
+## The run timer's rules, on a mountain of the test's own and in a file of
+## the test's own (nobody's real bests are touched): only a route brought
+## home can be a best, kept per mountain and per way round it
+func _test_run_timer_rules() -> void:
+	var timer: Node = _locator.get_service("SpeedrunTimer") as Node
+	_expect(timer != null, "the run timer service is up")
+	if timer == null:
+		return
+	_expect(timer.format_clock(754.9) == "12:34" and timer.format_clock(3723.0) == "1:02:03" and timer.format_clock(-5.0) == "0:00",
+		"times read as a clock (%s, %s)" % [timer.format_clock(754.9), timer.format_clock(3723.0)])
+
+	var real_path: String = timer.data_path
+	var real_bests: Dictionary = timer.personal_bests.duplicate(true)
+	timer.data_path = TEST_TIMER_DATA
+	var peak := "a_peak_of_the_tests_own"
+	var outcomes: Dictionary = _enums.ResolutionType
+	var conditions_script: GDScript = load("res://src/core/data/start_conditions.gd") as GDScript
+	var context_script: GDScript = load("res://src/core/data/run_context.gd") as GDScript
+	var finish := func(seconds: float, outcome: String, full: bool) -> void:
+		var conditions: Object = conditions_script.create_moderate()
+		if full:
+			conditions.apply_route_mode(int(_enums.RouteMode["FULL_ROUTE"]))
+		var run: Object = context_script.create_new_run(peak, conditions)
+		timer._on_run_started(run)
+		run.real_time_elapsed = seconds
+		timer._on_run_ended(run, int(outcomes[outcome]))
+
+	_expect(timer.get_personal_best(peak, false) < 0.0, "a mountain never come home from has no fastest return")
+	finish.call(95.0, "FATALITY", false)
+	_expect(timer.get_personal_best(peak, false) < 0.0 and not timer.last_was_best, "dying quickly is not a fast return")
+	finish.call(600.0, "CLEAN_RETURN", false)
+	_expect(is_equal_approx(timer.get_personal_best(peak, false), 600.0) and timer.last_was_best, "the first route brought home is the fastest so far")
+	finish.call(720.0, "INJURED_RETURN", false)
+	_expect(is_equal_approx(timer.get_personal_best(peak, false), 600.0) and not timer.last_was_best and is_equal_approx(timer.last_time, 720.0),
+		"a slower return leaves it standing")
+	finish.call(200.0, "RESCUE", false)
+	_expect(is_equal_approx(timer.get_personal_best(peak, false), 600.0), "being carried down is not a return")
+	finish.call(540.0, "INJURED_RETURN", false)
+	_expect(is_equal_approx(timer.get_personal_best(peak, false), 540.0) and timer.last_was_best, "a faster one, even hurt, replaces it")
+	finish.call(1500.0, "CLEAN_RETURN", true)
+	_expect(is_equal_approx(timer.get_personal_best(peak, true), 1500.0) and is_equal_approx(timer.get_personal_best(peak, false), 540.0),
+		"the full route keeps a best of its own")
+
+	# Kept on disk, in the test's own file; the old layout's entries are not read
+	timer.personal_bests = {"%s:ANY_PERCENT" % peak: {"final_time": 12.0}}
+	_expect(timer.get_personal_best(peak, false) < 0.0, "a best filed the old way (any ended run counted) is not believed")
+	timer.personal_bests = {}
+	timer._load_data()
+	_expect(is_equal_approx(timer.get_personal_best(peak, false), 540.0), "bests are read back from disk")
+	if FileAccess.file_exists(TEST_TIMER_DATA):
+		DirAccess.remove_absolute(TEST_TIMER_DATA)
+	timer.data_path = real_path
+	timer.personal_bests = real_bests
+	timer.reset_timer()
+
+
 ## The worst weather (rung of WeatherService.WEATHER_LADDER) in the first
 ## hours of a generated day, averaged over many days drawn from fixed seeds
 func _mean_worst_weather(weather: Node, option: Dictionary, volatility: float, hours: float = 6.0, days: int = 150) -> float:
@@ -619,6 +682,24 @@ func _test_save_and_continue() -> bool:
 	weather.target_wind_direction = weather.wind_direction
 	await _seconds(0.5)
 
+	# --- the run timer, for those who ask for it --------------------------------
+	var settings: Object = _locator.get_service("GameSettings")
+	var timer: Node = _locator.get_service("SpeedrunTimer") as Node
+	var hud_now: Node = _main.get("descent_hud")
+	var timer_caption: Label = hud_now.find_child("TimerCaption", true, false) if hud_now != null else null
+	var timer_value: Label = hud_now.find_child("TimerValue", true, false) if hud_now != null else null
+	_expect(settings != null and timer != null and timer_caption != null and timer_value != null, "the HUD has a place for the run timer")
+	if timer_caption != null and timer_value != null and settings != null and timer != null:
+		hud_now.refresh()
+		_expect(not timer_caption.visible and not timer_value.visible, "which stays out of sight unless it is asked for")
+		settings.set_value("show_timer", true)
+		hud_now.refresh()
+		var shown: String = timer_value.text
+		_expect(timer_caption.visible and timer_value.visible and shown.begins_with(timer.format_clock(run.real_time_elapsed)),
+			"asked for, it shows the time played so far (%s after %.1f s)" % [shown, run.real_time_elapsed])
+		_expect(run.real_time_elapsed > 4.0 and absf(timer.get_elapsed_time() - run.real_time_elapsed) < 0.5,
+			"and it is the run's own clock (%.1f s, run %.1f s)" % [timer.get_elapsed_time(), run.real_time_elapsed])
+
 	# --- when it can and cannot be saved -------------------------------------
 	_expect(_main.get_suspend_block_reason() == "", "standing on the mountain, the run can be saved (%s)" % _main.get_suspend_block_reason())
 	player.gear_action = &"crampons"
@@ -742,6 +823,9 @@ func _test_save_and_continue() -> bool:
 		and str(back.start_conditions.avalanche.headline) == before["avalanche_headline"], "and it is the same day's snowpack")
 	_expect(is_equal_approx(back.start_elevation, before["start_elevation"]), "progress is still measured from the summit")
 	_expect(not FileAccess.file_exists(TEST_SUSPEND) and not saves.has_suspended_run(), "the save is used up: there is no going back to it")
+	if timer != null:
+		_expect(back.real_time_elapsed >= run.real_time_elapsed and absf(timer.get_elapsed_time() - back.real_time_elapsed) < 0.5,
+			"the run timer goes on from where it was (%.1f s, was %.1f)" % [timer.get_elapsed_time(), run.real_time_elapsed])
 	var hud: Node = _main.get("descent_hud")
 	_expect(hud != null and (_main.get("world") as Node3D).visible, "the mountain and the HUD are back")
 	_expect(root.get_viewport().get_camera_3d() == player.camera_pivot.camera, "seen through the climber's own camera")
@@ -889,9 +973,24 @@ func _test_drone() -> void:
 	_expect(aside > 20.0, "and is never sent to hover over them (%.0f m to the side at %.0f m up)" % [aside, sent.y - player.global_position.y])
 
 	# The run ends the way a fatal one does, and the player goes home
+	var timer: Node = _locator.get_service("SpeedrunTimer") as Node
+	var best_before: float = timer.get_personal_best(MOUNTAIN, false) if timer != null else -1.0
 	_event_bus.fatal_event_completed.emit()
 	_state_manager.complete_run(int(_enums.ResolutionType["FATALITY"]), "test")
 	await _wait(5)
+	if timer != null:
+		_expect(not timer.last_was_best and is_equal_approx(timer.get_personal_best(MOUNTAIN, false), best_before),
+			"a run that ended on the mountain is nobody's fastest return")
+	var resolution: Node = _main.get("resolution_screen")
+	var played_shown := false
+	if resolution != null:
+		for label in resolution.stats_container.find_children("*", "Label", true, false):
+			if (label as Label).text == "Played:":
+				played_shown = true
+	_expect(played_shown, "with the timer asked for, the resolution screen says how long was played")
+	var timer_settings: Object = _locator.get_service("GameSettings")
+	if timer_settings != null:
+		timer_settings.set_value("show_timer", false)
 	_state_manager.transition_to(int(_enums.GameState["POST_GAME"]))
 	await _wait(5)
 	_state_manager.transition_to(int(_enums.GameState["MAIN_MENU"]))
