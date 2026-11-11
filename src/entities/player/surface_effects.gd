@@ -159,6 +159,14 @@ func _physics_process(_delta: float) -> void:
 	_drive_plume(_dust, (not use_spray) and plume > 0.0, plume, medium, feet, horizontal, speed)
 
 
+## Stop the plumes (whoever puts this node to sleep in mid-slide calls this:
+## an emitter left running goes on throwing snow where the climber was)
+func stop() -> void:
+	for emitter in [_spray, _dust]:
+		if emitter != null and emitter.emitting:
+			emitter.emitting = false
+
+
 # =============================================================================
 # CONTINUOUS PLUMES
 # =============================================================================

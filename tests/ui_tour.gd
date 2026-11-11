@@ -11,9 +11,10 @@ extends SceneTree
 ##
 ## Screens, in order: main menu, mountain select, loadout, planning, descent
 ## (start + after walking), pause menu, map check, self-check, physical map,
-## resolution, post-game and its map replay, then a second mountain ending in
-## a real fatal event, and a third run completed and retried. Exit code 0 on
-## PASS, 1 on FAIL.
+## resolution, post-game with its map replay and the replay on the mountain,
+## then a second mountain ending in a real fatal event (and that run's replay,
+## under the rules for one), and a third run completed and retried. Exit code
+## 0 on PASS, 1 on FAIL.
 ##
 ## Implementation note: a "-s" script is compiled BEFORE the project autoloads
 ## are registered, so this file must not name GameStateManager, GameEnums,
@@ -198,6 +199,7 @@ func _run() -> void:
 	_expect_state("POST_GAME", "resolution Continue")
 	_shot("10_post_game.png")
 	await _check_map_replay(main_scene)
+	await _check_replay(main_scene)
 	_press(main_scene.get("post_game_screen"), "return_button")
 	await _wait(SETTLE)
 	_expect_state("MAIN_MENU", "post-game Return")
@@ -257,6 +259,7 @@ func _run() -> void:
 	_expect_state("POST_GAME", "second resolution Continue")
 	var retry_after_fatality: Button = (main_scene.get("post_game_screen") as Node).get("retry_button") as Button
 	_expect(retry_after_fatality != null and not retry_after_fatality.visible, "no Retry offered after a fatality")
+	await _check_fatal_replay(main_scene)
 	_press(main_scene.get("post_game_screen"), "return_button")
 	await _wait(SETTLE)
 	_expect_state("MAIN_MENU", "second Return")
@@ -548,6 +551,146 @@ func _check_map_replay(main_scene: Node) -> void:
 	_press(replay, "close_button")
 	await _wait(SETTLE)
 	_expect(not replay.visible and post_game.visible, "Close returns to the post-game screen")
+
+
+## "Watch it again" on the post-game screen replays the run on the mountain:
+## the climber where they were, three cameras, a timeline, the day's moments,
+## and Close comes back to the summary with everything as it was.
+func _check_replay(main_scene: Node) -> void:
+	var post_game: Control = main_scene.get("post_game_screen") as Control
+	var watch: Button = post_game.get("watch_button") as Button
+	_expect(watch != null and watch.visible and not watch.disabled, "the post-game screen offers Watch it again")
+	if watch == null:
+		return
+	var climber: Node3D = _locator.get_service("PlayerController") as Node3D
+	var at_rest: Vector3 = climber.global_position
+	var game_camera: Camera3D = root.get_viewport().get_camera_3d()
+	watch.pressed.emit()
+	await _wait(SETTLE)
+	var screen: Control = main_scene.get("replay_screen") as Control
+	var stage: Node3D = main_scene.get("replay_stage") as Node3D
+	var replays: Node = _locator.get_service("ReplayPlayer")
+	_expect(screen != null and screen.visible and not post_game.visible, "Watch it again opens the replay in place of the summary")
+	if screen == null or stage == null:
+		return
+	var replay_camera: Camera3D = stage.get("camera") as Camera3D
+	_expect(replay_camera != null and replay_camera.current and root.get_viewport().get_camera_3d() == replay_camera,
+		"seen through the replay's own camera")
+	_expect(replays.is_playing() and replays.get_duration() > 1.0, "and playing (%.1f s of the run)" % replays.get_duration())
+	_expect_state("POST_GAME", "opening the replay")
+	_shot("10c_replay.png")
+
+	# From the start of the day: the climber is back where the run began
+	replays.pause()
+	replays.seek(replays.get_start())
+	await _wait(3)
+	var terrain: Object = _locator.get_service("TerrainService")
+	_expect(climber.global_position.distance_to(terrain.start_position) < 6.0 and climber.global_position.distance_to(at_rest) > 10.0,
+		"wound back to the start, the climber is at the summit again")
+	_shot("10d_replay_start.png")
+
+	# Each camera
+	var names: Array[String] = []
+	for i in range(3):
+		names.append((screen.get("camera_button") as Button).text)
+		if i > 0:
+			_shot("10e_replay_camera_%d.png" % i)
+		_press(screen, "camera_button")
+		await _wait(SETTLE)
+	_expect(names[0] != names[1] and names[1] != names[2] and names[0] != names[2], "the camera button goes round three cameras %s" % [names])
+	_expect((screen.get("camera_button") as Button).text == names[0], "and back to the first")
+
+	# Speed, and the day's moments
+	_press(screen, "speed_button")
+	_expect(is_equal_approx(replays.playback_speed, 2.0) and (screen.get("speed_button") as Button).text.contains("2"), "the speed button doubles the speed")
+	_press(screen, "speed_button")
+	_press(screen, "speed_button")
+	_press(screen, "speed_button")
+	_press(screen, "speed_button")
+	_expect(is_equal_approx(replays.playback_speed, 1.0), "and comes round to normal speed")
+	(screen.get("list_button") as Button).button_pressed = true
+	await _wait(SETTLE)
+	var list_panel: Control = screen.get("list_panel") as Control
+	_expect(list_panel.visible and (screen.get("list_box") as Node).get_child_count() >= 1, "Moments opens the list of the day's moments")
+	_shot("10f_replay_moments.png")
+	(screen.get("list_button") as Button).button_pressed = false
+
+	# Play to the end
+	replays.seek(replays.get_end() - 1.0)
+	replays.play()
+	var waited := 0
+	while replays.is_playing() and waited < 600:
+		await process_frame
+		waited += 1
+	_expect(not replays.is_playing() and absf(replays.current_timestamp - replays.get_end()) < 0.05, "played out, it stops at the end of the run")
+
+	_press(screen, "close_button")
+	await _wait(SETTLE)
+	_expect(not screen.visible and post_game.visible, "Close returns to the summary")
+	_expect(root.get_viewport().get_camera_3d() == game_camera, "with the game's camera back")
+	_expect(climber.global_position.distance_to(at_rest) < 0.05, "and the climber where the run left them")
+	_expect_state("POST_GAME", "closing the replay")
+
+
+## A run that ended in a fatal event is replayed under the rules for one
+## (SPEC-SHEET 11): normal speed, one fixed camera, the fatal moments once as
+## one take with nothing else on the screen, and then the path on the map.
+func _check_fatal_replay(main_scene: Node) -> void:
+	var post_game: Control = main_scene.get("post_game_screen") as Control
+	_press(post_game, "watch_button")
+	await _wait(SETTLE)
+	var screen: Control = main_scene.get("replay_screen") as Control
+	var replays: Node = _locator.get_service("ReplayPlayer")
+	_expect(screen != null and screen.visible, "the fatal run can be watched again")
+	if screen == null or not screen.visible:
+		return
+	_expect(bool(replays.is_fatal_run), "and the replay knows what kind of run it was")
+	_expect(not (screen.get("speed_button") as Button).visible and not (screen.get("camera_button") as Button).visible,
+		"it offers no change of speed and no change of camera")
+	replays.seek(replays.get_end())
+	_expect(replays.current_timestamp <= float(replays.fatal_start) + 0.01, "and cannot be wound past the moment control was lost")
+	_shot("13b_fatal_replay.png")
+
+	# Played on from there: the one take, alone on the screen
+	replays.play()
+	var waited := 0
+	while not bool(replays.in_fatal_section) and replays.is_playing() and waited < 1200:
+		await process_frame
+		waited += 1
+	_expect(bool(replays.in_fatal_section), "played on, it enters the fatal moments")
+	await _wait(SETTLE)
+	_expect(not (screen.get("_bar") as Control).visible and not (screen.get("_top") as Control).visible,
+		"shown with nothing else on the screen")
+	replays.pause()
+	_expect(replays.is_playing(), "and without a pause")
+	_shot("13c_fatal_replay_take.png")
+	waited = 0
+	while replays.is_playing() and waited < 3600:
+		await process_frame
+		waited += 1
+	await _wait(SETTLE)
+	_expect(not replays.is_playing() and bool(replays.has_fatal_been_replayed()), "the take ends with the recording")
+	var map_button: Button = screen.get("map_button") as Button
+	_expect(map_button.visible and (screen.get("note_label") as Label).text.contains("map"), "and the replay points to the map for the rest of the day")
+	_shot("13d_fatal_replay_after.png")
+
+	# Not a second time
+	replays.play()
+	waited = 0
+	while replays.is_playing() and waited < 1200:
+		await process_frame
+		waited += 1
+	_expect(not bool(replays.in_fatal_section) and replays.current_timestamp <= float(replays.fatal_start) + 0.01,
+		"played again, it stops where control was lost")
+
+	map_button.pressed.emit()
+	await _wait(SETTLE)
+	var topo: Control = main_scene.get("topo_replay") as Control
+	_expect(topo != null and topo.visible and not screen.visible, "Replay on the map opens the map replay")
+	if topo != null and topo.visible:
+		_press(topo, "close_button")
+	await _wait(SETTLE)
+	_expect(post_game.visible, "and from there Close returns to the summary")
 
 
 func _shot(file_name: String) -> void:

@@ -509,7 +509,7 @@ func _on_confirm_abandon() -> void:
 	if run_context:
 		run_context.set_meta("death_cause", "Abandoned")
 
-	GameStateManager.complete_run(GameEnums.ResolutionType.FATALITY, "Run abandoned")
+	GameStateManager.complete_run(GameEnums.ResolutionType.FATALITY, RunContext.CAUSE_ABANDONED)
 
 
 # =============================================================================

@@ -335,7 +335,7 @@ func complete_run(outcome: GameEnums.ResolutionType, cause: String = "") -> void
 ## Abandon the current run without completion
 func _abandon_run() -> void:
 	if current_run != null:
-		current_run.complete_run(GameEnums.ResolutionType.FATALITY, "Run abandoned")
+		current_run.complete_run(GameEnums.ResolutionType.FATALITY, RunContext.CAUSE_ABANDONED)
 		current_run = null
 
 

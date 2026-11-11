@@ -122,6 +122,10 @@ var route_score: RefCounted = null
 ## EventBus echo of record_decision/record_incident is not logged twice
 const LOGGED_KEY := "logged"
 
+## The end_cause of a run its player gave up. It is filed as a fatality (the
+## climber did not return), but nothing fatal happened in it.
+const CAUSE_ABANDONED := "Run abandoned"
+
 ## A single position sample further than this is a teleport (spawn, debug
 ## warp, test harness), not travel - it resets tracking instead of adding
 ## a bogus distance

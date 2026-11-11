@@ -68,6 +68,11 @@ var self_check_screen: SelfCheckScreen = null
 ## Active topo replay visualization
 var topo_replay: TopoReplayVisualization = null
 
+## The replay on the mountain: its stage (in the world) and its controls
+var replay_stage: ReplayStage = null
+var replay_screen: ReplayScreen = null
+var _world_visible_before_replay: bool = true
+
 ## Lifetime record (main menu > Logbook)
 var stats_display: StatsDisplay = null
 
@@ -474,8 +479,16 @@ func _capture_suspended_run() -> Dictionary:
 			},
 			"environment": environment_service.to_save(),
 			"mountain": _capture_mountain(),
+			"recording": _capture_recording(),
 		},
 	}
+
+
+## The recording of the run so far, so that the replay of a run that was set
+## aside and continued is whole
+func _capture_recording() -> Dictionary:
+	var recorder := ServiceLocator.get_service("RecordingService") as RecordingService
+	return recorder.to_save() if recorder != null else {}
 
 
 ## What has changed on the mountain since the day began (ground that slid or
@@ -558,6 +571,11 @@ func _on_continue_pressed() -> void:
 
 	var world_saved: Variant = record.get("world")
 	run.set_meta(RESUME_META, world_saved if world_saved is Dictionary else {})
+	# The recording goes on from where it was (the recorder takes it up when
+	# the run starts)
+	var recorder := ServiceLocator.get_service("RecordingService") as RecordingService
+	if recorder != null and world_saved is Dictionary and world_saved.get("recording") is Dictionary:
+		recorder.pending_restore = world_saved["recording"]
 	GameStateManager.resume_run(run)
 	GameStateManager.transition_to(GameEnums.GameState.DESCENT)
 
@@ -1197,10 +1215,12 @@ func _show_post_game() -> void:
 	if post_game_screen == null:
 		post_game_screen = PostGameScreenScene.instantiate()
 		post_game_screen.view_replay_pressed.connect(_on_view_replay_pressed)
+		post_game_screen.watch_replay_pressed.connect(_show_replay)
 		ui.add_child(post_game_screen)
 
 	# Show analysis
 	post_game_screen.show_analysis(run)
+	post_game_screen.set_replay_available(_recording_of(run) != null)
 
 	UIFocus.take(post_game_screen.return_button)
 
@@ -1209,12 +1229,88 @@ func _show_post_game() -> void:
 
 func _hide_post_game_screen() -> void:
 	_hide_topo_replay()
+	_hide_replay(false)
 	if post_game_screen != null:
 		post_game_screen.hide_analysis()
 
 
 func _on_view_replay_pressed() -> void:
 	_show_topo_replay()
+
+
+# =============================================================================
+# REPLAY ON THE MOUNTAIN
+# =============================================================================
+
+## The recording of a run, when the recorder still holds it and it is worth
+## watching (null otherwise)
+func _recording_of(run: RunContext) -> RecordingService.RecordingData:
+	var recorder := ServiceLocator.get_service("RecordingService") as RecordingService
+	var recording: RecordingService.RecordingData = recorder.get_current_recording() if recorder != null else null
+	if run == null or recording == null or recording.run_id != run.run_id or recording.frames.size() < 2:
+		return null
+	return recording
+
+
+## Post-game > Watch it again: the run just finished, replayed on the
+## mountain. The climber is moved through the recording, the hour and the
+## weather are the recording's, and ReplayPlayer keeps to the rules for a run
+## that ended in a fatal event.
+func _show_replay() -> void:
+	if replay_screen != null and replay_screen.visible:
+		return
+	var run := post_game_screen.get_run_context() if post_game_screen != null else GameStateManager.current_run
+	var recording := _recording_of(run)
+	var replays := ServiceLocator.get_service("ReplayPlayer") as ReplayPlayer
+	if recording == null or replays == null:
+		return
+	if replay_stage == null:
+		replay_stage = ReplayStage.new()
+		replay_stage.name = "ReplayStage"
+		world.add_child(replay_stage)
+	if not replay_stage.begin(recording, run):
+		return
+	if not replays.open(recording, replay_stage):
+		replay_stage.end()
+		return
+	print("[Main] Showing the replay (%d frames, %.0f s)" % [recording.frames.size(), recording.get_duration()])
+
+	_world_visible_before_replay = world.visible
+	world.visible = true
+	_hide_topo_replay()
+	post_game_screen.visible = false
+	if replay_screen == null:
+		replay_screen = ReplayScreen.new()
+		replay_screen.name = "ReplayScreen"
+		replay_screen.close_requested.connect(_hide_replay)
+		replay_screen.map_replay_requested.connect(func() -> void:
+			_hide_replay()
+			_show_topo_replay())
+		ui.add_child(replay_screen)
+	var highlights: Array = []
+	var generator := ServiceLocator.get_service("HighlightGenerator") as HighlightGenerator
+	if generator != null and terrain_service != null:
+		highlights = generator.generate_highlights(recording, terrain_service.start_position.y, terrain_service.goal_position.y)
+	replay_screen.open(replays, run, highlights)
+	replays.play()
+
+
+## Put the mountain away again and go back to the day's summary
+## (back_to_summary false: the summary itself is being left)
+func _hide_replay(back_to_summary: bool = true) -> void:
+	if replay_screen == null or not replay_screen.visible:
+		return
+	replay_screen.close()
+	var replays := ServiceLocator.get_service("ReplayPlayer") as ReplayPlayer
+	if replays != null:
+		replays.close()
+	if replay_stage != null:
+		replay_stage.end()
+	world.visible = _world_visible_before_replay
+	if back_to_summary and post_game_screen != null:
+		post_game_screen.visible = true
+		post_game_screen.modulate.a = 1.0
+		UIFocus.take(post_game_screen.watch_button)
 
 
 func _show_topo_replay() -> void:

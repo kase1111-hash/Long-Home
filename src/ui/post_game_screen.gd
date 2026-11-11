@@ -12,6 +12,8 @@ extends Control
 signal return_to_menu_pressed()
 signal retry_pressed()
 signal view_replay_pressed()
+## Watch the run again on the mountain (Main opens the replay)
+signal watch_replay_pressed()
 
 # =============================================================================
 # REFERENCES
@@ -24,6 +26,10 @@ signal view_replay_pressed()
 @onready var return_button: Button = $HSplitContainer/MomentsPanel/Layout/ButtonContainer/ReturnButton
 @onready var retry_button: Button = $HSplitContainer/MomentsPanel/Layout/ButtonContainer/RetryButton
 @onready var replay_button: Button = $HSplitContainer/MomentsPanel/Layout/ReplayButton
+
+## "Watch it again": the run replayed on the mountain (made in _ready, beside
+## the map replay's button)
+var watch_button: Button
 
 # =============================================================================
 # CONFIGURATION
@@ -58,6 +64,12 @@ func _ready() -> void:
 	return_button.pressed.connect(_on_return_pressed)
 	retry_button.pressed.connect(_on_retry_pressed)
 	replay_button.pressed.connect(_on_view_replay_pressed)
+	watch_button = Button.new()
+	watch_button.name = "WatchButton"
+	watch_button.text = "Watch it again"
+	watch_button.tooltip_text = "The run replayed on the mountain"
+	watch_button.pressed.connect(func() -> void: watch_replay_pressed.emit())
+	replay_button.add_sibling(watch_button)
 	_apply_theme()
 	visible = false
 
@@ -389,6 +401,13 @@ func _on_retry_pressed() -> void:
 
 func _on_view_replay_pressed() -> void:
 	view_replay_pressed.emit()
+
+
+## Whether there is a recording of this run to watch (Main says so each time
+## the screen comes up)
+func set_replay_available(available: bool) -> void:
+	watch_button.disabled = not available
+	watch_button.tooltip_text = "The run replayed on the mountain" if available else "There is no recording of this run"
 
 
 ## Get the run context for replay visualization
