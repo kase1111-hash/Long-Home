@@ -22,7 +22,7 @@ particles, a climber and a full set of synthesized sound effects
 
 ### Core Patterns
 
-1. **Event Bus Pattern** - `EventBus` singleton with 69 signals for cross-system communication
+1. **Event Bus Pattern** - `EventBus` singleton with 72 signals for cross-system communication
 2. **Service Locator Pattern** - `ServiceLocator` singleton for dependency injection
 3. **State Machine Pattern** - `GameStateManager` for game lifecycle, `PlayerStateMachine` for player states
 4. **Component-Based Architecture** - Player uses composable component systems
@@ -101,15 +101,15 @@ tests/                  # Godot-native checks (check_scripts, smoke_goal, ui_tou
 3. **Rope** - Anchor building/testing, doubled-rope rappels under brake-hand control, re-anchoring, rope pulls
 4. **Environment** - Day/night, 9 weather states, temperature with wind chill
 5. **Body Condition** - Fatigue, cold exposure, location-specific injuries
-6. **Drone** - Third-person camera, battery system
+6. **Drone** - The film crew's drone: keeps station beside the climber with a line of sight, `B` looks through it, fatal events are watched through it
 7. **Camera Director AI** - Shot-based thinking with emotional rhythm
 8. **Fatal Events** - 5-phase ethical death handling
 9. **Risk Detection** - Terrain analysis and fall prediction
 10. **Audio** - 123 synthesized effects by id, layered wind, breath engine, event-driven gear and hazard sound; no music
 11. **UI** - Minimalist, diegetic (in-world) design
 12. **Tutorial** - Organic instructor-based learning
-13. **Save/Progression** - Player profiles, run history, achievements
-14. **Streaming** - Recording, replay, OBS integration
+13. **Save/Progression** - Player profiles, run history, achievements; a run set aside (Save and Quit) and picked up again (Continue)
+14. **Streaming** - Recording, OBS integration; the post-game map replay (3D playback is not built)
 15. **Gear Database** - Equipment definitions
 16. **Mountain Database** - Mountain metadata, progress, logbook, full-route unlock
 17. **Planning & Scoring** - Guidebook lines per mountain, alpine grades, book times, logbook scoring, full route
@@ -122,6 +122,7 @@ tests/                  # Godot-native checks (check_scripts, smoke_goal, ui_tou
 Game States:
 MAIN_MENU → MOUNTAIN_SELECT → LOADOUT_CONFIG → PLANNING →
 TUTORIAL → DESCENT → RESOLUTION → POST_GAME (PAUSED as overlay)
+PAUSED → MAIN_MENU (Save and Quit) and MAIN_MENU → DESCENT (Continue)
 
 Player Movement States:
 STANDING ↔ WALKING ↔ DOWNCLIMBING ↔ TRAVERSING
@@ -239,6 +240,35 @@ jumps earn nothing), and `Main._score_run` files it in `MountainDatabase` before
 (on-sight is judged on the knowledge the run started with). Nothing route-related is ever placed
 in the 3D world; `tests/smoke_full_route.gd` asserts there is no `Label3D` on the mountain.
 
+### Around the descent (who owns what)
+
+- **The day.** `StartConditions.CLIMBS` and `WEATHER_WINDOWS` are the choices; the planning
+  screen holds the ids (`climb_id`, `weather_id`) and Main builds the run's conditions from them
+  (`StartConditions.create_for_day`). `create_moderate()` is for tests and tools: it carries no
+  ids and earns no weather factor. `WeatherService.generate_weather_windows` starts the day in
+  the conditions' weather and wind and steps along `WEATHER_LADDER`; stability is worn down by
+  `MountainData.weather_volatility`, wind follows `wind_exposure`. To pin the weather in a test,
+  clear `weather_windows` and set `base_change_probability = 0`.
+- **A run set aside.** `EventBus.run_suspended` is not `run_ended`: nothing is recorded.
+  `RunContext.to_save()` and the world around it (`Main._capture_suspended_run`: where the
+  climber stands, the clock, the weather and its windows) go to `user://suspended_run.dat` with
+  `store_var` (plain data only, never objects). Continue rebuilds the run with `from_save()`,
+  draws the day's snowpack again from its seed, and hands the saved world to the descent under
+  the run's `resume_world` meta; the file is deleted once the descent is built. A system that
+  keeps per-run state of its own and should survive a save needs a `to_save()` too; today the
+  avalanche debris, opened crevasses and anything else that changed the terrain do not.
+  `Main.get_suspend_block_reason()` decides when saving is allowed.
+- **Settings.** `GameSettings` (service) owns values, ranges and the file; it applies sound
+  levels and the display itself, and the climber's camera follows its `changed` signal. Tests
+  set `persist = false` so they never write to the settings of whoever runs them.
+- **The record.** `RunMoments.collect(run)` turns a run's decisions and incidents into the
+  lines the post-game screen and the map replay print; times on a run are game hours, except
+  `real_time_elapsed` (seconds played), which is what the run timer shows.
+  Achievements and skills are saved by `SaveManager` in `user://progression.json`.
+- **The drone.** `DroneController.follow_subject` keeps station in the slope's frame and lifts
+  until it can see the climber; `DroneService.toggle_view` (`B`) switches cameras; during a
+  fatal sequence `fatal_sequence` and `let_subject_go` stop it following or hovering overhead.
+
 ## Common Commands
 
 ```bash
@@ -267,6 +297,9 @@ godot --headless --audio-driver Dummy --path . -s res://tests/test_avalanche.gd 
 godot --headless --audio-driver Dummy --path . -s res://tests/test_route_scoring.gd  # grades, guidebook, scoring
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_full_route.gd    # full route + retreat
 godot --headless --audio-driver Dummy --path . -s res://tests/test_audio.gd          # library, mix, events -> sounds
+godot --headless --audio-driver Dummy --path . -s res://tests/test_front_end.gd      # logbook, settings, the day, save/continue, timer, drone
+godot --headless --audio-driver Dummy --path . -s res://tests/test_continue.gd -- --phase=save      # then the same with
+godot --headless --audio-driver Dummy --path . -s res://tests/test_continue.gd -- --phase=continue  # --phase=continue (two launches)
 xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-driver opengl3 \
   --audio-driver Dummy -s res://tests/ui_tour.gd -- --out=/tmp/tour    # every screen, with PNGs
 xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-driver opengl3 \
@@ -409,6 +442,14 @@ print("[SystemName] Debug message")
 | Sound files and ids | `assets/audio/` (README there), `src/systems/audio/sound_library.gd` |
 | Designing or re-rendering a sound | `tools/sfx/sounds_*.py`, `tools/sfx/generate.py` |
 | Run data | `src/core/data/run_context.gd` |
+| The day chosen at the hut (climb, weather window) | `src/core/data/start_conditions.gd`, `src/ui/planning/planning_screen.gd` |
+| How a day's weather goes | `src/systems/environment/weather_service.gd` (`generate_weather_windows`) |
+| Save and Quit / Continue | `Main._on_save_and_quit`, `_on_continue_pressed`; `to_save()`/`from_save()` on the run, body, gear and start conditions; `SaveManager.save_suspended_run` |
+| Settings | `src/systems/settings/game_settings.gd`, `src/ui/settings/settings_screen.gd` |
+| Logbook (lifetime record) | `src/ui/stats/stats_display.gd` |
+| Map replay, key moments | `src/ui/analysis/topo_replay_visualization.gd`, `run_moments.gd` |
+| Drone | `src/systems/drone/drone_service.gd`, `drone_controller.gd`, `drone_entity.gd` |
+| Run timer | `src/systems/replay/speedrun_timer.gd` (shown by `descent_hud.gd` and `resolution_screen.gd` when the `show_timer` setting is on) |
 | UI screens | `src/ui/` |
 
 ## Documentation

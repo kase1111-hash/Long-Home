@@ -66,18 +66,18 @@ As a first-person mountain survival experience, Long-Home combines realistic ter
 | **Sliding Mechanics** | Complete | Slope-plane glissade physics with braking, crampon catches and rock impacts; physical self-arrest; snow spray or dust trails the climber |
 | **Rope System** | Complete | Anchor building and testing, doubled-rope rappels under brake-hand control, re-anchoring, rope pulls that can snag |
 | **Skiing & Snowboarding** | Complete | Touring skis or a splitboard: carving, skidding, hockey stops, crashes into slides, rock damage |
-| **Planning & Route Scoring** | Complete | A guidebook per mountain (lines graded F-ED with pitch topos and book times), navigation gear, a day plan with turnaround time, logbook scoring of the line actually climbed, and an unlockable full route (up and down) |
-| **Time & Environment** | Complete | Day/night cycles with a sun-lit procedural sky, wind-driven cloud sheet and distant ranges, 9 weather states with fog, snow, rain and spindrift, temperature; glow/SSAO/cascaded shadows on Forward+ |
+| **Planning & Route Scoring** | Complete | A guidebook per mountain (lines graded F-ED with pitch topos and book times), navigation gear, the day chosen at the hut (how the climb went, which weather window), a day plan with turnaround time, logbook scoring of the line actually climbed, and an unlockable full route (up and down) |
+| **Time & Environment** | Complete | Day/night cycles with a sun-lit procedural sky, wind-driven cloud sheet and distant ranges, 9 weather states with fog, snow, rain and spindrift, temperature; a day's weather that starts in the window chosen and moves on a step at a time, faster on a volatile mountain; glow/SSAO/cascaded shadows on Forward+ |
 | **Body Condition** | Complete | Fatigue, cold exposure, injuries (diegetic feedback) |
 | **Risk Detection** | Complete | Terrain analysis, fall prediction, diegetic risk cues |
-| **Drone Camera** | Partial | Spectator drone implemented; scout drone not yet implemented |
+| **Drone Camera** | Partial | The film crew's drone flies with the climber, keeps them in sight, and can be looked through (`B`); a fatal event is watched through it. Scout drone not yet implemented |
 | **Camera Director AI** | Complete | AI filmmaker with 5 shot intent types |
 | **Fatal Event Handling** | Complete | Ethical 5-phase death sequence system |
-| **User Interface** | Complete | Minimalist UI across all game phases plus a small descent HUD and control hints |
+| **User Interface** | Complete | Minimalist UI across all game phases plus a small descent HUD and control hints; settings for sound, display and camera; a Logbook of the lifetime record; a map replay of each finished run. Keys cannot be rebound yet and there is no gamepad support |
 | **Tutorial System** | Structural | Framework exists; instructor dialogue and interactions incomplete |
 | **Audio Design** | Complete | 123 synthesized sound effects (no music): wind in layers that follow its strength, breath and heartbeat that follow the climber, footsteps for every surface and footwear, sliding, skis, rope, anchors, avalanches and crevasses. Tuned by measurement, not yet by ear; recordings drop in by file name |
-| **Streaming & Replay** | Complete | Recording, playback, OBS integration, highlights |
-| **Save & Progression** | Complete | Route memory, run history, player profiles |
+| **Streaming & Replay** | Partial | Every finished run can be replayed on the topo map (line drawn by how each stretch was travelled, key moments on a timeline). An optional run timer (time played, fastest return per mountain). OBS integration. Recording and highlight selection run as services with nothing on screen yet; 3D playback of a recording is not built |
+| **Save & Progression** | Complete | Route memory, run history, player profile, achievements and skills; Save and Quit from the pause menu sets a descent aside and Continue picks it up, also after closing the game (one run at a time, used up when continued) |
 
 ---
 
@@ -108,8 +108,10 @@ As a first-person mountain survival experience, Long-Home combines realistic ter
    - From a terminal: `godot --path .`
 
 4. Play: **New Descent** → pick a mountain → choose your kit → look at the topo map
-   (double-click to add waypoints, or just **Begin Descent** on the direct line) → walk,
-   slide and rope your way from the summit plateau down to the lit base camp beacon.
+   (double-click to add waypoints, or just **Begin Descent** on the direct line) and choose
+   the day → walk, slide and rope your way from the summit plateau down to the lit base camp
+   beacon. **Esc** pauses; **Save and Quit** there leaves the mountain as it is, and
+   **Continue** on the main menu takes you back to it.
    Reaching base camp ends the run and opens the resolution and post-game analysis.
 
 ### Developer quick start
@@ -182,6 +184,16 @@ godot --headless --audio-driver Dummy --path . -s res://tests/smoke_full_route.g
 # avalanche / burial / crevasse / rope events ask for their sounds, a fatal event is silent
 godot --headless --audio-driver Dummy --path . -s res://tests/test_audio.gd
 
+# The screens around a descent: key moments, the Logbook and saved achievements, settings, the
+# day chosen at the hut and the weather that follows from it, Save and Quit and Continue, the
+# run timer, and the film crew's drone
+godot --headless --audio-driver Dummy --path . -s res://tests/test_front_end.gd
+
+# Continue after the game has been closed: two launches, in this order (add --full-route to
+# both to save part-way up a full route)
+godot --headless --audio-driver Dummy --path . -s res://tests/test_continue.gd -- --phase=save
+godot --headless --audio-driver Dummy --path . -s res://tests/test_continue.gd -- --phase=continue
+
 # Walk every screen with the real buttons and save a screenshot of each (needs a display;
 # xvfb-run works on a headless Linux box)
 mkdir -p /tmp/tour && xvfb-run -a -s "-screen 0 1280x720x24" \
@@ -239,6 +251,7 @@ descend), on the rope (push down the face to let rope run) and on skis (`A`/`D` 
 | On skis: turn, skid to slow or stop, tuck or pole | `A`/`D`, `S`, `W` |
 | Check Self (Body Status) | `C` |
 | Open Map (needs the topo map in your pack) | `M` |
+| Look through the film crew's drone / back to your own view | `B` |
 | Pause / resume | `Esc` |
 | Toggle control hints | `H` |
 
@@ -247,6 +260,34 @@ what you are doing, what is on your feet, the time and the temperature. Without 
 the elevation is an estimate to the nearest 50 m. On the way up a full route, "Descended" and
 "Base camp" read "Climbed" and "Summit". While you glissade, ski or work the rope, the hint line
 swaps to the controls of that activity. Everything else is read from the mountain.
+
+### The day you choose
+
+The Plan tab of the planning screen has two choices. Neither is a difficulty setting; each is a
+trade (`StartConditions.CLIMBS` and `WEATHER_WINDOWS`).
+
+- **The climb.** Pushed hard: on top at 10:00, tired and dry, with the whole day ahead. Steady:
+  12:00. Slow, with rests: 14:30, fresh, with the afternoon already going. (On a full route the
+  climb is yours to do: you leave base camp rested at 05:00.)
+- **The weather.** Settled, changeable, a front coming in, or a storm day. Each says what the
+  sky is doing on the summit and how likely it is to hold. A route brought home in a harder
+  window counts for more in the logbook (x1.00, x1.05, x1.15, x1.30).
+
+The descent starts in that weather, and the day moves on from it a step at a time, one to two
+game hours at a stretch: it holds, worsens or improves, as likely as the day is settled, less
+settled in the afternoon and on a mountain whose weather turns fast. Nothing forecasts it for
+you on the mountain; you read the sky.
+
+### Leaving and coming back
+
+**Save and Quit** in the pause menu writes the descent to disk and returns to the main menu;
+nothing is recorded, because the run has no outcome yet. **Continue** on the main menu puts you
+back where you stood: the mountain, the clock, the weather and the rest of its day, your body
+and pack, what is on your feet and the day's record so far. There is one place for a run set
+aside (saving another replaces it), and continuing uses it up, so a bad turn cannot be undone
+by loading. You can save standing and in control, not on the rope, in a slide, in moving snow
+or in a crevasse. Snow that slid and bridges that broke before you saved are back as they were
+that morning.
 
 ### How the mountain behaves
 
@@ -452,7 +493,7 @@ you something.
 Long-Home/
 ├── src/
 │   ├── core/                          # Architecture & state management
-│   │   ├── event_bus.gd              # 69 signals for cross-system communication
+│   │   ├── event_bus.gd              # 72 signals for cross-system communication
 │   │   ├── enums.gd                  # Game enumerations & constants
 │   │   ├── service_locator.gd        # Dependency injection system
 │   │   ├── game_state_manager.gd     # Global state machine
@@ -460,7 +501,7 @@ Long-Home/
 │   │       ├── run_context.gd        # Complete run state
 │   │       ├── body_state.gd         # Physical condition tracking
 │   │       ├── gear_state.gd         # Equipment state
-│   │       ├── start_conditions.gd   # Difficulty parameters
+│   │       ├── start_conditions.gd   # The day: how the climb went, the weather window, the pack
 │   │       └── injury.gd             # Injury data class
 │   │
 │   ├── entities/
@@ -495,9 +536,10 @@ Long-Home/
 │   │   ├── drone/                    # Drone camera (5 files)
 │   │   ├── camera_director/          # AI film director (5 files)
 │   │   ├── fatal_event/              # Death sequence (5 files)
-│   │   ├── replay/                   # Recording & playback (5 files)
+│   │   ├── replay/                   # Recording, highlights, the run timer (5 files)
 │   │   ├── tutorial/                 # First-time experience (4 files)
-│   │   ├── save/                     # Persistence (5 files)
+│   │   ├── save/                     # Persistence: profile, history, progression, a run set aside (5 files)
+│   │   ├── settings/                 # The player's settings: sound levels, display, camera
 │   │   └── streaming/                # OBS integration (1 file)
 │   │
 │   ├── ui/                           # User interface
@@ -506,9 +548,9 @@ Long-Home/
 │   │   ├── planning/                 # Route planning: topo map, guidebook tab, route cards
 │   │   ├── hud/                      # Descent HUD, physical map, self-check
 │   │   ├── pause/                    # Pause menu
-│   │   ├── analysis/                 # Post-game analysis
-│   │   ├── stats/                    # Statistics display
-│   │   ├── settings/                 # Game settings
+│   │   ├── analysis/                 # Map replay of a finished run, the day's key moments
+│   │   ├── stats/                    # The Logbook (lifetime record)
+│   │   ├── settings/                 # Settings screen, streaming settings
 │   │   ├── post_game_screen.gd
 │   │   └── resolution_screen.gd
 │   │
@@ -532,7 +574,8 @@ Long-Home/
 │
 ├── tests/                            # Godot-native checks (check_scripts, smoke_goal, ui_tour,
 │                                     # screenshot_tour, test_route_scoring, smoke_full_route,
-│                                     # test_scatter, test_glacier, test_avalanche, test_audio)
+│                                     # test_scatter, test_glacier, test_avalanche, test_audio,
+│                                     # test_front_end, test_continue)
 │                                     # and Python validators
 ├── SPEC-SHEET.md                     # Complete game specification
 ├── PROGRAMMING-ROADMAP.md            # Implementation guide
@@ -552,7 +595,7 @@ The game uses a **Service Locator** pattern with an **Event Bus** for cross-syst
 
 | Service | Purpose |
 |---------|---------|
-| `EventBus` | Global event communication (69 signals) |
+| `EventBus` | Global event communication (72 signals) |
 | `GameEnums` | Shared enumerations and constants |
 | `ServiceLocator` | Dependency injection registry |
 | `GameStateManager` | Global state machine |
@@ -580,16 +623,16 @@ RESTING (temporary recovery state)
 
 ### Event-Driven Architecture
 
-The `EventBus` contains **69 signals** organized by category:
+The `EventBus` contains **72 signals** organized by category:
 
-- **Game State** (5 signals): `game_state_changed`, `run_started`, `run_ended`, etc.
-- **Player** (6 signals): `player_movement_changed`, `micro_slip_occurred`, etc.
+- **Game State** (7 signals): `game_state_changed`, `run_started`, `run_ended`, `run_suspended`, etc.
+- **Player** (8 signals): `player_movement_changed`, `micro_slip_occurred`, etc.
 - **Sliding** (4 signals): `slide_started`, `slide_state_updated`, etc.
 - **Rope** (7 signals): `rope_deployment_started`, `rappel_started`, etc.
 - **Body Condition** (4 signals): `fatigue_threshold_crossed`, `injury_occurred`, etc.
-- **Camera/Drone** (4 signals): `shot_intent_changed`, `drone_mode_changed`, etc.
+- **Camera/Drone** (5 signals): `shot_intent_changed`, `drone_mode_changed`, etc.
 - **Fatal Events** (3 signals): `fatal_event_started`, `fatal_phase_changed`, etc.
-- **Audio** (5 signals): `audio_ready`, `wind_audio_changed`, etc.
+- **Audio** (7 signals): `audio_ready`, `wind_audio_changed`, etc.
 
 ---
 
@@ -698,19 +741,26 @@ All feedback is diegetic - no numerical displays.
 - [x] Trees and boulders, glaciers and crevasses
 - [x] Avalanches: daily snowpack and bulletin, triggered and natural releases, burial and rescue
 - [x] Sound: a synthesized effect for every mechanic, mixed by wind, speed and the climber's state
+- [x] Settings (sound, display, camera), a Logbook of the lifetime record, a map replay after each run
+- [x] The day chosen at the hut (how the climb went, the weather window), and weather that follows it
+- [x] Save and Quit, and Continue
+- [x] The film crew's drone on screen (`B`)
+- [x] An optional run timer (Settings > Display)
 
 ### Partial / Structural
 
 - [ ] Tutorial system (framework exists; instructor dialogue incomplete)
 - [ ] Scout drone (diegetic easy-mode drone not yet implemented)
+- [ ] Replay (the map replay and the run timer are in; 3D playback of a recording and the
+      highlight list are computed and not shown anywhere)
 
 ### Planned
 
 - [ ] Advanced rescue mechanics
-- [ ] More complex weather generation
+- [ ] Key rebinding and gamepad support
 - [ ] Gear damage system
 - [ ] Recorded audio where it matters most (wind, breath, footsteps) in place of the synthesized set
-- [ ] Drone motor audio (the spec's "loud in tension shots"; the game is seen from the chase camera)
+- [ ] Drone motor audio (the spec's "loud in tension shots")
 - [ ] Real USGS mountain data integration
 - [ ] Accessibility features
 

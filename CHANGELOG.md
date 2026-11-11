@@ -7,6 +7,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (around the descent)
+
+- **Settings.** The main menu's Settings button did nothing. It, and the one in the pause menu,
+  now open a settings screen: five sound levels (everything, wind and weather, the climber,
+  movement and gear, menus and map), fullscreen, vertical sync, anti-aliasing and 3D resolution, mouse
+  sensitivity, invert Y, and how much the camera sways and shakes. Kept in
+  `user://settings.json`; each page can be put back to its defaults. The Controls page lists
+  the keys; they cannot be rebound yet. The 3D-resolution slider is switched off under the
+  Compatibility renderer, where Godot 4.2 ignores it.
+- **Logbook.** The main menu has a Logbook: lifetime totals, each mountain's attempts and best
+  score, recent runs, and achievements. The screen existed and was never shown.
+- **Map replay.** The post-game screen has a "Replay on the map" button: the run's line drawn
+  on the topo map, coloured by how each stretch was travelled, with the key moments on a
+  timeline that can be dragged.
+- **The day chosen at the hut.** The Plan tab chooses how the climb went (on top early and
+  tired, or late and fresh) and the weather window (settled, changeable, a front coming in, a
+  storm day). A harder window counts for more in the logbook (x1.00 to x1.30, for a route
+  brought home). Every run used to start from one fixed preset.
+- **Save and Quit, and Continue.** The pause menu can set a descent aside and the main menu's
+  Continue picks it up, also after the game has been closed: the mountain, the clock, the
+  weather and the rest of its day, the body, the pack, what is on the feet, where the climber
+  stood and the day's record so far. One run at a time; continuing uses the save up. Saving is
+  refused on the rope, in a slide, in moving snow, in a crevasse and during a gear change, and
+  the menu says why. Not kept: snow that slid and bridges that broke before the save.
+- **The drone on screen.** `B` looks through the film crew's drone and back. A fatal event is
+  watched through it, in one take, from a distance, with the HUD gone.
+- **A run timer, if you want one.** Settings > Display > Run timer (off by default) puts the
+  time played on the HUD with your fastest return on that mountain, and on the screen at the
+  end of a run. The timer ran on every descent and nothing showed it.
+- `GameSettings` service, `SettingsScreen`, `RunMoments`, `EventBus.run_suspended`,
+  `GameStateManager.suspend_run` / `resume_run`, `to_save()` / `from_save()` on `RunContext`,
+  `BodyState`, `GearState` and `StartConditions`.
+- `tests/test_front_end.gd` (191 checks) and `tests/test_continue.gd` (two launches: save, then
+  continue; also with `--full-route`); the rendered `tests/ui_tour.gd` walks the new screens.
+
+### Changed (around the descent)
+
+- **The weather is the weather you chose.** A day used to be drawn at random and applied in the
+  first minute, whatever the start conditions said: a "moderate" day opened in a storm or a
+  whiteout about one time in five. Now the descent starts in the chosen weather and wind, and
+  the day moves on from it a step at a time (hold, worse or better), as likely as the day is
+  settled, less settled in the afternoon.
+- **Mountains have their own weather.** A mountain's weather volatility and wind exposure,
+  shown on its card, now do something: the same window goes worse on Storm Peak than on The
+  Knife Edge, and exposed peaks are windier.
+- **Continue means continue.** It used to appear after any finished run and do nothing. It is
+  shown only when a run has been set aside, and names the mountain.
+- The drone keeps station beside the climber in the slope's frame, climbs until it has a line
+  of sight (rock and tree crowns block it), flies against the wind instead of being carried by
+  it, and uses wide lenses only. Its battery drains only in scout mode.
+- **A fastest time is a route brought home.** The run timer used to file any run that ended,
+  deaths included, as the personal best. It keeps a best only for a clean or injured return,
+  per mountain and per way round it, and times a run by its own clock, so one that was saved
+  and continued is timed in one piece. Bests filed the old way are not read.
+- The streaming and replay status in the README said "complete". The map replay and the run
+  timer are in; 3D playback of a recording and the highlight list are still not shown anywhere.
+
+### Fixed (around the descent)
+
+- **The drone was never where the climber was.** It was created at the world's origin, about
+  three kilometres under the summit, and spent the descent flying up. In a strong wind it was
+  blown away, and in a fatal sequence it followed the body down.
+- **Achievements and skills were never saved.** They were tracked during a session and lost
+  when the game closed.
+- **The map replay could not play.** It read the run's times as seconds (they are game hours),
+  placed its points before the map had a size, stretched the map, and showed through to the
+  screen behind.
+- The risk system's camera jolt was listed in the run's key moments as "Fell".
+- Every run's record began with a change of footwear at 0:00: the crampons the climber starts
+  the day in were logged as a decision.
+- With the game paused, the settings screen opened behind the HUD.
+- The stats on the end-of-run screen were each centred on their own, so captions and values
+  did not line up.
+- `WeatherService` treated partly cloudy, overcast and snow as "other" (no cloud cover or
+  snowfall of their own), though the sky and the sound already drew them.
+
 ### Added (sound)
 
 - **A sound for everything that happens.** 123 sound effects (257 files, 13.6 MB) in
