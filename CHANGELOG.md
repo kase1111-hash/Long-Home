@@ -7,6 +7,135 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (around the descent)
+
+- **Settings.** The main menu's Settings button did nothing. It, and the one in the pause menu,
+  now open a settings screen: five sound levels (everything, wind and weather, the climber,
+  movement and gear, menus and map), fullscreen, vertical sync, anti-aliasing and 3D resolution, mouse
+  sensitivity, invert Y, and how much the camera sways and shakes. Kept in
+  `user://settings.json`; each page can be put back to its defaults. The 3D-resolution slider
+  is switched off under the Compatibility renderer, where Godot 4.2 ignores it.
+- **Your own keys.** Settings > Controls lists every action with its key and its gamepad
+  button; choose one and press the new key or button. One already in use swaps with it.
+  Bindings are kept with the settings and can be reset.
+- **Gamepad.** The left stick moves (part of the way walks slower), the right stick looks, and
+  every action has a button. In the menus `A` chooses, `B` goes back, the D-pad or the stick
+  moves and `LB` / `RB` turn pages. Hints and messages name the controls actually bound, for
+  the device touched last, with PlayStation names on a PlayStation pad. Tried with simulated
+  input only. Not there: triggers, vibration, waypoints on the planning map without a mouse.
+- **Logbook.** The main menu has a Logbook: lifetime totals, each mountain's attempts and best
+  score, recent runs, and achievements. The screen existed and was never shown.
+- **Map replay.** The post-game screen has a "Replay on the map" button: the run's line drawn
+  on the topo map, coloured by how each stretch was travelled, with the key moments on a
+  timeline that can be dragged.
+- **Watch it again.** The post-game screen replays the run just finished on the mountain: the
+  climber where they were, in the light and weather of that hour, from three cameras (behind
+  the climber, the film crew's drone as it flew, from across the slope), at half to eight
+  times the speed, with a timeline to wind along. The recorder and a replay player had been
+  running, unseen, since the first version.
+- **Moments and highlights.** The replay lists what the day recorded and its highlights, and
+  jumps to them: long glissades the climber chose and stopped (the axe at the end of one is
+  how it ends, not a close call), slips caught with the axe, the rope going out, the weather
+  turning, getting home after trouble. They are named for the place and what was done ("Upper
+  Face - Weather Turn"). No slide the climber did not choose is a highlight, and nothing from
+  the last seconds before control was lost.
+- **A fatal run's replay keeps the spec's rules** (SPEC-SHEET 11, 17): normal speed, one camera
+  (the drone), no winding into the fatal moments; played into, they are shown once as one
+  continuous take with nothing else on the screen and no pause, never a second time, and then
+  the replay points to the map. Every run filed as a fatality is replayed this way, also one
+  with no fatal sequence in its recording (its last ten seconds are then the fatal moments),
+  except a run the player abandoned, which has nothing fatal in it.
+- **The day chosen at the hut.** The Plan tab chooses how the climb went (on top early and
+  tired, or late and fresh) and the weather window (settled, changeable, a front coming in, a
+  storm day). A harder window counts for more in the logbook (x1.00 to x1.30, for a route
+  brought home). Every run used to start from one fixed preset.
+- **Save and Quit, and Continue.** The pause menu can set a descent aside and the main menu's
+  Continue picks it up, also after the game has been closed: the mountain, the clock, the
+  weather and the rest of its day, the body, the pack, what is on the feet, where the climber
+  stood and the day's record so far. One run at a time; continuing uses the save up. Saving is
+  refused on the rope, in a slide, in moving snow, in a crevasse and during a gear change, and
+  the menu says why. Closing the game window on a descent keeps it too, unless another run is
+  already set aside. The mountain is kept as it was left: ground that slid and the debris on
+  it, what the avalanches left to be seen, snow bridges that fell in, probe holes. So is the
+  recording of the day so far.
+- **The drone on screen.** `B` looks through the film crew's drone and back. A fatal event is
+  watched through it, in one take, from a distance, with the HUD gone.
+- **A run timer, if you want one.** Settings > Display > Run timer (off by default) puts the
+  time played on the HUD with your fastest return on that mountain, and on the screen at the
+  end of a run. It splits at a quarter, half and three quarters of the way down (on a full
+  route: halfway up, the summit, halfway down), each against the same point of the best run.
+  The timer ran on every descent and nothing showed it.
+- `GameSettings` service, `SettingsScreen`, `RunMoments`, `EventBus.run_suspended`,
+  `GameStateManager.suspend_run` / `resume_run`, `to_save()` / `from_save()` on `RunContext`,
+  `BodyState`, `GearState` and `StartConditions`; `ControlsMap` (actions, bindings, what to
+  call a control) and `UIFocus`; `ReplayStage` and `ReplayScreen`; `to_save()` on the terrain's
+  changes, the avalanche system, the crevasse system and the recorder.
+- `tests/test_front_end.gd` (255 checks), `tests/test_continue.gd` (two launches: save, then
+  continue; also with `--full-route`) and `tests/test_replay.gd` (108 checks); the rendered
+  `tests/ui_tour.gd` walks the new screens and both kinds of replay.
+
+### Changed (around the descent)
+
+- **The weather is the weather you chose.** A day used to be drawn at random and applied in the
+  first minute, whatever the start conditions said: a "moderate" day opened in a storm or a
+  whiteout about one time in five. Now the descent starts in the chosen weather and wind, and
+  the day moves on from it a step at a time (hold, worse or better), as likely as the day is
+  settled, less settled in the afternoon.
+- **Mountains have their own weather.** A mountain's weather volatility and wind exposure,
+  shown on its card, now do something: the same window goes worse on Storm Peak than on The
+  Knife Edge, and exposed peaks are windier.
+- **Continue means continue.** It used to appear after any finished run and do nothing. It is
+  shown only when a run has been set aside, and names the mountain.
+- The drone keeps station beside the climber in the slope's frame, climbs until it has a line
+  of sight (rock and tree crowns block it), flies against the wind instead of being carried by
+  it, and uses wide lenses only. Its battery drains only in scout mode.
+- **A fastest time is a route brought home.** The run timer used to file any run that ended,
+  deaths included, as the personal best. It keeps a best only for a clean or injured return,
+  per mountain and per way round it, and times a run by its own clock, so one that was saved
+  and continued is timed in one piece. Bests filed the old way are not read.
+- The streaming and replay status in the README said "complete" when none of it was on
+  screen. It now says what is there and what is not: only the run just finished can be
+  watched, and the rope and moving snow are not drawn again.
+- **The recording is the run's.** Frames and events are timed on the run's own clock (seconds
+  played), only while the descent is on and the climber is out on the mountain, one frame a
+  tick. Nothing is written at the end of a run: every run used to leave a JSON file of several
+  megabytes in `user://replays` that nothing read.
+- **Highlights follow the spec.** They used to be whatever scored highest, tumbles and
+  injuries among them, most "important" first.
+- `Esc` pauses through its own action (`pause`, also `Start` on a gamepad), no longer through
+  the menus' cancel, so going back in a menu and pausing can be bound apart.
+
+### Fixed (around the descent)
+
+- **A run that is over stays over.** The watch for fatal conditions followed the game's
+  screens instead of the run, and was wrong at both ends. It stayed on until the main menu:
+  for a climber who got home dangerously cold, the fatal sequence for exposure began on the
+  summary screen two minutes later (the run's outcome stood). It was created after a
+  session's first run had begun, so that run was not watched for the slow dangers until its
+  first pause. And every return from a pause or the map wiped the time spent dangerously
+  cold, so the two minutes never ran out for anyone who checked the map. Now a run is watched
+  from its first second to its last, across pauses, and not after. The risk system sleeps
+  between runs.
+- A recording began a frame before the climber was placed: at the map's origin in a session's
+  first run, where the last run had ended in later ones. After a slow frame it stored the same
+  moment several times.
+- **The drone was never where the climber was.** It was created at the world's origin, about
+  three kilometres under the summit, and spent the descent flying up. In a strong wind it was
+  blown away, and in a fatal sequence it followed the body down.
+- **Achievements and skills were never saved.** They were tracked during a session and lost
+  when the game closed.
+- **The map replay could not play.** It read the run's times as seconds (they are game hours),
+  placed its points before the map had a size, stretched the map, and showed through to the
+  screen behind.
+- The risk system's camera jolt was listed in the run's key moments as "Fell".
+- Every run's record began with a change of footwear at 0:00: the crampons the climber starts
+  the day in were logged as a decision.
+- With the game paused, the settings screen opened behind the HUD.
+- The stats on the end-of-run screen were each centred on their own, so captions and values
+  did not line up.
+- `WeatherService` treated partly cloudy, overcast and snow as "other" (no cloud cover or
+  snowfall of their own), though the sky and the sound already drew them.
+
 ### Added (sound)
 
 - **A sound for everything that happens.** 123 sound effects (257 files, 13.6 MB) in
@@ -39,7 +168,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Menus.** Every button clicks without its screen asking: `UIAudioManager` wires any button
   that enters the scene tree, and the planning tabs turn like pages. The map unfolds and folds,
   and rustles while it is open; a compass in the pack is flipped open with it.
-- `tests/test_audio.gd` (139 checks) and `tests/test_audio_assets.py` (18 checks).
+- `tests/test_audio.gd` (146 checks) and `tests/test_audio_assets.py` (18 checks).
 
 ### Changed
 
@@ -63,6 +192,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Footsteps played twice, from two systems with different rhythms, and the one in step with the
   animation always played the same blip whatever the surface.
 - After any pause the wind stayed at its quietest until the weather next changed.
+- The wind never changed on exposed ground: the audio waited to be told the terrain zone by a
+  signal nothing sends (`EventBus.terrain_zone_changed`). It now reads the ground under the
+  climber, so a face to downclimb or rappel brings up the thin high wind and, in a gale, the
+  whistle.
 - Rope, self-arrest and menu sounds never played: they listened for signals that do not exist.
 - The map made its unfold sound twice.
 

@@ -765,7 +765,9 @@ func get_height_above_terrain() -> float:
 
 
 ## Say something in the diegetic message slot (not repeated back to back)
+## ({placeholders} in a message name the player's own controls: ControlsMap.fill)
 func say(message: String, duration: float = 2.5) -> void:
+	message = ControlsMap.fill(message)
 	var now := Time.get_ticks_msec() / 1000.0
 	if message == _last_message and now - _last_message_time < MESSAGE_REPEAT_GAP:
 		return

@@ -235,7 +235,7 @@ func _update_in_slot(slot: GlacierField.Crevasse, flat: Vector2, delta: float) -
 		if not _told_trapped:
 			_told_trapped = true
 			if has_axe and player.gear_state.has_crampons():
-				player.say("Blue ice on every side. Crampons on (F), then climb.", 4.0)
+				player.say("Blue ice on every side. Crampons on ({crampons_toggle}), then climb.", 4.0)
 			else:
 				player.say("Blue ice on every side, and nothing to climb it with. You shout.", 4.0)
 		if not has_axe or not player.gear_state.has_crampons():
@@ -381,6 +381,25 @@ func probe_ahead(glacier: GlacierField) -> bool:
 	EventBus.record_decision("probe", {"hollow": false})
 	probed.emit(false)
 	return false
+
+
+## The climber's marks on the glacier as plain data, for a suspended run's
+## save file (which bridges have fallen is the terrain's to keep)
+func to_save() -> Dictionary:
+	var holes := PackedVector2Array()
+	for hole in _probe_holes:
+		if is_instance_valid(hole):
+			holes.append(Vector2(hole.global_position.x, hole.global_position.z))
+	return {"probe_holes": holes}
+
+
+## Put to_save() data back on the mountain
+func restore(data: Dictionary) -> void:
+	if not _resolve():
+		return
+	if data.get("probe_holes") is PackedVector2Array:
+		for point in data["probe_holes"]:
+			_leave_probe_hole(point)
 
 
 ## A dark hole where the shaft broke through: the climber's own mark

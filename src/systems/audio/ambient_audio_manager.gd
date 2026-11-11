@@ -346,10 +346,15 @@ func _update_surroundings(delta: float) -> void:
 	_sleet_level = sleet
 
 	var snow := 1.0
+	var zone := GameEnums.TerrainZone.WALKABLE
 	var player := _get_player()
 	if player != null and player.current_cell != null:
 		snow = 1.0 if TractionModel.is_snow(player.current_cell.surface_type) else 0.25
+		zone = player.current_cell.terrain_zone
 	_on_snow = snow
+	# Read here because nothing announces it: EventBus.terrain_zone_changed is
+	# never sent, and waiting for it left the wind deaf to exposed ground
+	current_terrain_zone = zone
 
 
 ## Now and then the mountain itself: ice shifting in a glacier, a stone falling
@@ -433,11 +438,22 @@ func _end_silence_moment() -> void:
 
 
 func _is_exposed_terrain() -> bool:
-	return current_terrain_zone in [
+	return is_exposed_zone(current_terrain_zone)
+
+
+## Ground steep enough to climb down or rope down: the wind has edges to cross
+## and there is nothing to stand behind
+static func is_exposed_zone(zone: GameEnums.TerrainZone) -> bool:
+	return zone in [
 		GameEnums.TerrainZone.CLIFF,
 		GameEnums.TerrainZone.RAPPEL_REQUIRED,
 		GameEnums.TerrainZone.DOWNCLIMB
 	]
+
+
+## How exposed the wind sounds right now: 0.4 on open slopes, 1.0 on steep ground
+func get_exposure() -> float:
+	return _exposure
 
 
 # =============================================================================
@@ -492,11 +508,6 @@ func set_weather_intensity(intensity: float) -> void:
 ## Set tension level from risk system (0-1)
 func set_tension_level(tension: float) -> void:
 	tension_level = clampf(tension, 0.0, 1.0)
-
-
-## Set current terrain zone
-func set_terrain_zone(zone: GameEnums.TerrainZone) -> void:
-	current_terrain_zone = zone
 
 
 ## Start slide-specific wind audio

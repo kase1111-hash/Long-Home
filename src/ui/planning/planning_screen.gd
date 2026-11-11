@@ -14,6 +14,11 @@ extends Control
 ## guidebook's lines are inked on the paper map only; nothing is ever marked
 ## on the mountain itself. On a full route the ascent and the descent are
 ## planned as two legs, with a turnaround time.
+##
+## The day itself is chosen here too (SPEC-SHEET 1, "Start State"): how the
+## climb went, which sets the hour on the summit and the state of the legs,
+## and the weather window to go in. Main reads climb_id and weather_id when
+## the plan is confirmed and builds the run's StartConditions from them.
 
 # =============================================================================
 # SIGNALS
@@ -22,6 +27,8 @@ extends Control
 signal planning_complete(route: PackedVector3Array)
 signal planning_cancelled()
 signal route_updated(analysis: RoutePlanner.RouteAnalysis)
+## The climb or the weather window chosen for the day changed
+signal day_changed(climb_id: String, weather_id: String)
 
 # =============================================================================
 # CONSTANTS
@@ -56,6 +63,10 @@ var follow_button: Button
 var guide_note: Label
 var bulletin_content: VBoxContainer
 var slope_toggle: CheckButton
+var climb_picker: OptionButton
+var weather_picker: OptionButton
+var climb_note: Label
+var weather_note: Label
 
 # =============================================================================
 # STATE
@@ -93,6 +104,11 @@ var selected_guide: int = -1
 
 ## Guidebook line copied onto each leg's plan (RunPhase -> route id)
 var followed_guide: Dictionary = {}
+
+## The day chosen: how the climb went and the weather window (ids in
+## StartConditions.CLIMBS and WEATHER_WINDOWS). Kept between visits.
+var climb_id: String = StartConditions.DEFAULT_CLIMB
+var weather_id: String = StartConditions.DEFAULT_WEATHER
 
 
 # =============================================================================
@@ -138,6 +154,7 @@ func refresh() -> void:
 
 func _refresh_all() -> void:
 	_read_route_mode()
+	_refresh_day()
 	_refresh_guidebook()
 	_refresh_bulletin()
 	_analyze_current_route()
@@ -218,6 +235,10 @@ func _resolve_nodes() -> void:
 	guide_note = find_child("GuideNote", true, false) as Label
 	bulletin_content = find_child("BulletinContent", true, false) as VBoxContainer
 	slope_toggle = find_child("SlopeToggle", true, false) as CheckButton
+	climb_picker = find_child("ClimbPicker", true, false) as OptionButton
+	weather_picker = find_child("WeatherPicker", true, false) as OptionButton
+	climb_note = find_child("ClimbNote", true, false) as Label
+	weather_note = find_child("WeatherNote", true, false) as Label
 
 
 func _connect_signals() -> void:
@@ -246,12 +267,17 @@ func _connect_signals() -> void:
 		follow_button.pressed.connect(_on_follow_pressed)
 	if slope_toggle:
 		slope_toggle.toggled.connect(_on_slope_toggled)
+	if climb_picker:
+		climb_picker.item_selected.connect(_on_climb_picked)
+	if weather_picker:
+		weather_picker.item_selected.connect(_on_weather_picked)
 
 
 func _setup_ui() -> void:
 	# Initial state
 	if confirm_button:
 		confirm_button.disabled = true
+	_refresh_day()
 	_update_route_info()
 
 
@@ -294,6 +320,76 @@ func get_active_leg() -> int:
 	if map_display != null:
 		return map_display.active_leg
 	return GameEnums.RunPhase.DESCENT
+
+
+# =============================================================================
+# THE DAY
+# =============================================================================
+
+## Choose the day: a climb and a weather window, by id (StartConditions).
+## Unknown ids give the defaults.
+func set_day(climb: String, weather: String) -> void:
+	climb_id = str(StartConditions.climb_option(climb)["id"])
+	weather_id = str(StartConditions.weather_option(weather)["id"])
+	_refresh_day()
+	_update_route_info()
+	_update_weather_display()
+	day_changed.emit(climb_id, weather_id)
+
+
+## The start conditions the chosen day gives (without gear, knowledge or the
+## snowpack: Main adds those when the plan is confirmed)
+func get_day_conditions() -> StartConditions:
+	var conditions := StartConditions.create_for_day(climb_id, weather_id)
+	conditions.apply_route_mode(route_mode)
+	return conditions
+
+
+func _on_climb_picked(index: int) -> void:
+	if index >= 0 and index < StartConditions.CLIMBS.size():
+		set_day(str(StartConditions.CLIMBS[index]["id"]), weather_id)
+
+
+func _on_weather_picked(index: int) -> void:
+	if index >= 0 and index < StartConditions.WEATHER_WINDOWS.size():
+		set_day(climb_id, str(StartConditions.WEATHER_WINDOWS[index]["id"]))
+
+
+## Fill the two pickers and the line under each
+func _refresh_day() -> void:
+	var full := route_mode == GameEnums.RouteMode.FULL_ROUTE
+	var sunset := get_day_conditions().calculate_sunset()
+	if climb_picker != null:
+		if climb_picker.item_count != StartConditions.CLIMBS.size():
+			climb_picker.clear()
+			for option in StartConditions.CLIMBS:
+				climb_picker.add_item("%s · on top %s" % [option["name"], _clock(option["time_of_day"])])
+		for i in range(StartConditions.CLIMBS.size()):
+			if StartConditions.CLIMBS[i]["id"] == climb_id:
+				climb_picker.select(i)
+		# On a full route the climb is still to do
+		climb_picker.disabled = full
+	if climb_note != null:
+		if full:
+			climb_note.text = "You leave base camp rested at 05:00. How the climb goes is up to you."
+		else:
+			var climb := StartConditions.climb_option(climb_id)
+			climb_note.text = "%s %s of daylight left." % [
+				climb["summary"], _hours_text(sunset - float(climb["time_of_day"])).capitalize()]
+	if weather_picker != null:
+		if weather_picker.item_count != StartConditions.WEATHER_WINDOWS.size():
+			weather_picker.clear()
+			for option in StartConditions.WEATHER_WINDOWS:
+				weather_picker.add_item(str(option["name"]))
+		for i in range(StartConditions.WEATHER_WINDOWS.size()):
+			if StartConditions.WEATHER_WINDOWS[i]["id"] == weather_id:
+				weather_picker.select(i)
+	if weather_note != null:
+		var window := StartConditions.weather_option(weather_id)
+		var counts := ""
+		if float(window["score"]) > 1.0:
+			counts = " A route finished in it counts x%.2f in the logbook." % float(window["score"])
+		weather_note.text = "%s%s" % [window["summary"], counts]
 
 
 # =============================================================================
@@ -642,8 +738,7 @@ func _update_route_info() -> void:
 
 ## Start, arrival, sunset and (full route) turnaround, from the book times
 func _day_plan_text() -> String:
-	var conditions := StartConditions.create_moderate()
-	conditions.apply_route_mode(route_mode)
+	var conditions := get_day_conditions()
 	var start := conditions.time_of_day
 	var sunset := conditions.calculate_sunset()
 	var down: RouteMetrics.Result = leg_metrics.get(GameEnums.RunPhase.DESCENT)
@@ -776,11 +871,13 @@ func _update_weather_display() -> void:
 		weather_label.text = "Forecast: unavailable"
 		return
 
-	var volatility := "stable"
+	# The mountain's own character: it bends whatever window is chosen
+	# (WeatherService.generate_weather_windows)
+	var volatility := "slow to change"
 	if mountain.weather_volatility > 0.66:
-		volatility = "volatile"
+		volatility = "turns fast"
 	elif mountain.weather_volatility > 0.33:
-		volatility = "changeable"
+		volatility = "can turn"
 	var wind := "sheltered"
 	if mountain.wind_exposure > 0.66:
 		wind = "exposed"
@@ -793,8 +890,8 @@ func _update_weather_display() -> void:
 	if today != null:
 		summit_temperature = today.afternoon_temperature(today.elevation_range.y)
 		temperature_note = " (afternoon)"
-	weather_label.text = "Forecast: %s\nSummit temp: %.0f°C%s\nWind: %s" % [
-		volatility, summit_temperature, temperature_note, wind
+	weather_label.text = "Weather on this mountain: %s, %s\nSummit temp: %.0f°C%s" % [
+		volatility, wind, summit_temperature, temperature_note
 	]
 
 
@@ -823,6 +920,14 @@ func _input(event: InputEvent) -> void:
 
 	if event.is_action_pressed("ui_cancel"):
 		_on_back_pressed()
+		return
+
+	# LB/RB or Page Up/Down: the next page of the plan (guidebook, bulletin)
+	var step := UIFocus.page_step(event)
+	var pages := find_child("Tabs", true, false) as TabContainer
+	if step != 0 and pages != null:
+		pages.current_tab = wrapi(pages.current_tab + step, 0, pages.get_tab_count())
+		get_viewport().set_input_as_handled()
 
 
 # =============================================================================
@@ -953,7 +1058,32 @@ func _build_ui() -> void:
 	plan.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	plan_scroll.add_child(plan)
 
-	# Forecast (typical conditions before the run, live weather during it)
+	# The day: how the climb went and which weather window to go in
+	var day_panel := VBoxContainer.new()
+	day_panel.name = "DayPanel"
+	day_panel.add_theme_constant_override("separation", 3)
+	plan.add_child(day_panel)
+	for row in [["Climb", "The climb"], ["Weather", "The weather"]]:
+		var line := HBoxContainer.new()
+		line.name = "%sRow" % row[0]
+		day_panel.add_child(line)
+		var caption := Label.new()
+		caption.text = row[1]
+		caption.custom_minimum_size.x = 100
+		line.add_child(caption)
+		var picker := OptionButton.new()
+		picker.name = "%sPicker" % row[0]
+		picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		picker.fit_to_longest_item = false
+		line.add_child(picker)
+		var note := Label.new()
+		note.name = "%sNote" % row[0]
+		note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		note.add_theme_font_size_override("font_size", 13)
+		note.add_theme_color_override("font_color", RouteCard.SCREEN_DIM)
+		day_panel.add_child(note)
+
+	# The mountain's weather (before the run), the live weather (during it)
 	var weather := VBoxContainer.new()
 	weather.name = "WeatherPanel"
 	plan.add_child(weather)

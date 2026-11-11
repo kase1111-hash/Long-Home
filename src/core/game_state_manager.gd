@@ -41,6 +41,7 @@ func _setup_valid_transitions() -> void:
 		],
 		GameEnums.GameState.MAIN_MENU: [
 			GameEnums.GameState.MOUNTAIN_SELECT,
+			GameEnums.GameState.DESCENT,  # Continue a run that was set aside
 			GameEnums.GameState.NONE  # Exit game
 		],
 		GameEnums.GameState.MOUNTAIN_SELECT: [
@@ -69,7 +70,7 @@ func _setup_valid_transitions() -> void:
 			GameEnums.GameState.DESCENT,
 			GameEnums.GameState.MAP_CHECK,
 			GameEnums.GameState.RESOLUTION,  # Abandon run from the pause menu
-			GameEnums.GameState.MAIN_MENU  # Abandon run
+			GameEnums.GameState.MAIN_MENU  # Save and quit: the run is set aside
 		],
 		GameEnums.GameState.MAP_CHECK: [
 			GameEnums.GameState.DESCENT,
@@ -270,6 +271,36 @@ func start_run(mountain_id: String, conditions: StartConditions) -> RunContext:
 	return current_run
 
 
+## Carry on with a run that was set aside (RunContext.from_save). Systems
+## hear run_started, as for a new run, and take the run's body and gear.
+func resume_run(run: RunContext) -> RunContext:
+	if run == null:
+		return null
+	if current_run != null and not current_run.is_complete:
+		push_warning("[GameStateManager] Abandoning existing run to resume another")
+		_abandon_run()
+	current_run = run
+	_movement_state = GameEnums.PlayerMovementState.STANDING
+	_slide_control = GameEnums.SlideControlLevel.CONTROLLED
+
+	EventBus.run_started.emit(current_run)
+
+	print("[GameStateManager] Run resumed: %s on %s" % [current_run.run_id, current_run.mountain_id])
+	return current_run
+
+
+## Set the current run aside without ending it (the caller has saved it):
+## no outcome, nothing recorded. Returns the run.
+func suspend_run() -> RunContext:
+	var run := current_run
+	if run == null or run.is_complete:
+		return null
+	current_run = null
+	EventBus.run_suspended.emit(run)
+	print("[GameStateManager] Run suspended: %s" % run.run_id)
+	return run
+
+
 ## Get the current run context
 func get_current_run() -> RunContext:
 	return current_run
@@ -304,7 +335,7 @@ func complete_run(outcome: GameEnums.ResolutionType, cause: String = "") -> void
 ## Abandon the current run without completion
 func _abandon_run() -> void:
 	if current_run != null:
-		current_run.complete_run(GameEnums.ResolutionType.FATALITY, "Run abandoned")
+		current_run.complete_run(GameEnums.ResolutionType.FATALITY, RunContext.CAUSE_ABANDONED)
 		current_run = null
 
 
@@ -376,7 +407,9 @@ func _on_fatal_event_completed() -> void:
 # =============================================================================
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_cancel"):
+	# Pause has its own control (Esc, or Start on a gamepad; ControlsMap).
+	# Backing out of the map is "cancel" (Esc, or B on a gamepad).
+	if event.is_action_pressed("pause"):
 		match current_state:
 			GameEnums.GameState.DESCENT:
 				toggle_pause()
@@ -384,6 +417,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				toggle_pause()
 			GameEnums.GameState.MAP_CHECK:
 				exit_map_check()
+	elif event.is_action_pressed("ui_cancel") and current_state == GameEnums.GameState.MAP_CHECK:
+		exit_map_check()
 
 	if event.is_action_pressed("open_map"):
 		if current_state == GameEnums.GameState.DESCENT:

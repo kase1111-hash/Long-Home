@@ -144,6 +144,7 @@ func _connect_events() -> void:
 
 	# Game state
 	EventBus.game_state_changed.connect(_on_game_state_changed)
+	EventBus.run_started.connect(func(_run: RunContext) -> void: _reset())
 
 
 # =============================================================================
@@ -152,7 +153,10 @@ func _connect_events() -> void:
 
 func _process(delta: float) -> void:
 	if not is_fatal_active:
-		_check_for_fatal_conditions()
+		# Only a run that is still going is watched: after it, the climber
+		# on the mountain may be a replay's
+		if GameStateManager.is_run_active():
+			_check_for_fatal_conditions()
 		return
 
 	phase_timer += delta
@@ -286,6 +290,9 @@ func check_injury_fatal(total_severity: float) -> void:
 ## Main fatal trigger
 func _trigger_fatal(trigger: FatalTrigger, position: Vector3) -> void:
 	if is_fatal_active:
+		return
+	# A run that is over cannot end again
+	if not GameStateManager.is_run_active():
 		return
 
 	is_fatal_active = true

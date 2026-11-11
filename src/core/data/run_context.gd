@@ -122,6 +122,10 @@ var route_score: RefCounted = null
 ## EventBus echo of record_decision/record_incident is not logged twice
 const LOGGED_KEY := "logged"
 
+## The end_cause of a run its player gave up. It is filed as a fatality (the
+## climber did not return), but nothing fatal happened in it.
+const CAUSE_ABANDONED := "Run abandoned"
+
 ## A single position sample further than this is a teleport (spawn, debug
 ## warp, test harness), not travel - it resets tracking instead of adding
 ## a bogus distance
@@ -416,6 +420,143 @@ func get_run_summary() -> Dictionary:
 		"route_mode": route_mode,
 		"summit_reached": summit_reached
 	}
+
+
+# =============================================================================
+# SUSPENDING (a run saved part-way, to be picked up again)
+# =============================================================================
+
+## This run as plain data (numbers, strings, vectors, arrays, dictionaries):
+## everything needed to carry on with it later. SaveManager writes it; the
+## world around the run (clock, weather, where the climber stands) is saved
+## alongside by Main.
+func to_save() -> Dictionary:
+	var metas := {}
+	for key in get_meta_list():
+		var value: Variant = _plain(get_meta(key))
+		if value != null:
+			metas[str(key)] = value
+	return {
+		"run_id": run_id,
+		"mountain_id": mountain_id,
+		"start_timestamp": start_timestamp,
+		"start_conditions": start_conditions.to_save() if start_conditions != null else {},
+		"position": position,
+		"movement_state": int(movement_state),
+		"body_state": body_state.to_save() if body_state != null else {},
+		"gear_state": gear_state.to_save() if gear_state != null else {},
+		"current_time": current_time,
+		"current_weather": int(current_weather),
+		"current_wind": int(current_wind),
+		"current_temperature": current_temperature,
+		"real_time_elapsed": real_time_elapsed,
+		"game_time_elapsed": game_time_elapsed,
+		"distance_traveled": distance_traveled,
+		"current_elevation": current_elevation,
+		"start_elevation": start_elevation,
+		"target_elevation": target_elevation,
+		"path_history": path_history,
+		"path_timestamps": path_timestamps,
+		"path_modes": path_modes,
+		"decisions": _plain(decisions),
+		"incidents": _plain(incidents),
+		"route_mode": int(route_mode),
+		"phase": int(phase),
+		"summit_reached": summit_reached,
+		"summit_time": summit_time,
+		"summit_path_index": summit_path_index,
+		"metas": metas,
+	}
+
+
+## A run from to_save() data, ready to carry on (never a finished one).
+## null when the data is not a run.
+static func from_save(data: Dictionary) -> RunContext:
+	if str(data.get("mountain_id", "")).is_empty() or not (data.get("start_conditions") is Dictionary):
+		return null
+	var run := RunContext.new()
+	run.run_id = str(data.get("run_id", run.run_id))
+	run.mountain_id = str(data["mountain_id"])
+	run.start_timestamp = int(data.get("start_timestamp", run.start_timestamp))
+	run.start_conditions = StartConditions.from_save(data["start_conditions"])
+	if data.get("position") is Vector3:
+		run.position = data["position"]
+	run.body_state = BodyState.from_save(data["body_state"]) if data.get("body_state") is Dictionary \
+		else run.start_conditions.body_state.duplicate_state()
+	run.gear_state = GearState.from_save(data["gear_state"]) if data.get("gear_state") is Dictionary \
+		else run.start_conditions.gear_state.duplicate_state()
+	run.current_time = fposmod(float(data.get("current_time", run.start_conditions.time_of_day)), 24.0)
+	run.current_weather = StartConditions._enum_value(data.get("current_weather"), GameEnums.WeatherState.size(), run.start_conditions.weather) as GameEnums.WeatherState
+	run.current_wind = StartConditions._enum_value(data.get("current_wind"), GameEnums.WindStrength.size(), run.start_conditions.wind_strength) as GameEnums.WindStrength
+	run.current_temperature = float(data.get("current_temperature", run.start_conditions.temperature))
+	run.real_time_elapsed = maxf(float(data.get("real_time_elapsed", 0.0)), 0.0)
+	run.game_time_elapsed = maxf(float(data.get("game_time_elapsed", 0.0)), 0.0)
+	run.distance_traveled = maxf(float(data.get("distance_traveled", 0.0)), 0.0)
+	run.current_elevation = float(data.get("current_elevation", run.position.y))
+	run.start_elevation = float(data.get("start_elevation", run.position.y))
+	run.target_elevation = float(data.get("target_elevation", 0.0))
+	if data.get("path_history") is PackedVector3Array:
+		run.path_history = data["path_history"]
+	if data.get("path_timestamps") is PackedFloat64Array:
+		run.path_timestamps = data["path_timestamps"]
+	if data.get("path_modes") is PackedByteArray:
+		run.path_modes = data["path_modes"]
+	# The three run in parallel: a file where they do not match keeps the
+	# part they share
+	var samples := mini(run.path_history.size(), run.path_timestamps.size())
+	run.path_history = run.path_history.slice(0, samples)
+	run.path_timestamps = run.path_timestamps.slice(0, samples)
+	if run.path_modes.size() != samples:
+		run.path_modes.resize(samples)
+	for entry in _dictionaries(data.get("decisions")):
+		run.decisions.append(entry)
+	for entry in _dictionaries(data.get("incidents")):
+		run.incidents.append(entry)
+	run.route_mode = run.start_conditions.route_mode
+	run.phase = StartConditions._enum_value(data.get("phase"), GameEnums.RunPhase.size(), run.phase) as GameEnums.RunPhase
+	run.summit_reached = bool(data.get("summit_reached", false))
+	run.summit_time = float(data.get("summit_time", -1.0))
+	run.summit_path_index = clampi(int(data.get("summit_path_index", -1)), -1, maxi(samples - 1, -1))
+	var metas: Variant = data.get("metas")
+	if metas is Dictionary:
+		for key in metas:
+			run.set_meta(str(key), metas[key])
+	return run
+
+
+## A copy of a value with nothing but plain data in it: objects become their
+## own to_save() data when they have one and are left out otherwise
+static func _plain(value: Variant) -> Variant:
+	match typeof(value):
+		TYPE_OBJECT:
+			if value != null and is_instance_valid(value) and (value as Object).has_method("to_save"):
+				return (value as Object).call("to_save")
+			return null
+		TYPE_CALLABLE, TYPE_SIGNAL, TYPE_RID:
+			return null
+		TYPE_DICTIONARY:
+			var copy := {}
+			for key in value:
+				var plain_key: Variant = _plain(key)
+				if plain_key != null:
+					copy[plain_key] = _plain(value[key])
+			return copy
+		TYPE_ARRAY:
+			var list: Array = []
+			for item in value:
+				list.append(_plain(item))
+			return list
+	return value
+
+
+## The dictionaries in a saved list (anything else in it is dropped)
+static func _dictionaries(value: Variant) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if value is Array:
+		for entry in value:
+			if entry is Dictionary:
+				out.append(entry)
+	return out
 
 
 # =============================================================================

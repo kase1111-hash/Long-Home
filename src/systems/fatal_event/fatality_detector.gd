@@ -91,7 +91,8 @@ var is_sliding: bool = false
 var slide_speed: float = 0.0
 var cliff_distance: float = INF
 
-## Detection active
+## Detection active: a run is under way and the game is on the mountain
+## (worked out every tick; see _physics_process)
 var is_active: bool = false
 
 
@@ -118,6 +119,7 @@ func _connect_events() -> void:
 	EventBus.slide_state_updated.connect(_on_slide_state_updated)
 	EventBus.cliff_proximity_changed.connect(_on_cliff_proximity)
 	EventBus.game_state_changed.connect(_on_game_state_changed)
+	EventBus.run_started.connect(_on_run_started)
 
 
 # =============================================================================
@@ -125,6 +127,14 @@ func _connect_events() -> void:
 # =============================================================================
 
 func _physics_process(delta: float) -> void:
+	# Only a run that is still going can end: not one that is paused or has
+	# its map open, and not one that is over (the summary screens, a replay).
+	# This used to follow the game's state instead, and got both ends wrong:
+	# this node is made after a session's first run has entered DESCENT, so
+	# that run went unwatched until its first pause; and it stayed on until
+	# the main menu, so a climber who got home dangerously cold could "die of
+	# exposure" on the summary screen two minutes later.
+	is_active = GameStateManager.is_run_active() and GameStateManager.current_state == GameEnums.GameState.DESCENT
 	if not is_active:
 		return
 
@@ -342,13 +352,14 @@ func _on_cliff_proximity(distance: float) -> void:
 
 
 func _on_game_state_changed(_old: GameEnums.GameState, new_state: GameEnums.GameState) -> void:
-	match new_state:
-		GameEnums.GameState.DESCENT:
-			is_active = true
-			_reset()
-		GameEnums.GameState.MAIN_MENU:
-			is_active = false
-			_reset()
+	if new_state == GameEnums.GameState.MAIN_MENU:
+		_reset()
+
+
+## A new day starts clean. (Not every return to DESCENT: that wiped the time
+## spent dangerously cold whenever the game was paused or the map opened.)
+func _on_run_started(_run: RunContext) -> void:
+	_reset()
 
 
 func _reset() -> void:

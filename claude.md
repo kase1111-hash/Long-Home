@@ -22,7 +22,7 @@ particles, a climber and a full set of synthesized sound effects
 
 ### Core Patterns
 
-1. **Event Bus Pattern** - `EventBus` singleton with 69 signals for cross-system communication
+1. **Event Bus Pattern** - `EventBus` singleton with 72 signals for cross-system communication
 2. **Service Locator Pattern** - `ServiceLocator` singleton for dependency injection
 3. **State Machine Pattern** - `GameStateManager` for game lifecycle, `PlayerStateMachine` for player states
 4. **Component-Based Architecture** - Player uses composable component systems
@@ -101,15 +101,15 @@ tests/                  # Godot-native checks (check_scripts, smoke_goal, ui_tou
 3. **Rope** - Anchor building/testing, doubled-rope rappels under brake-hand control, re-anchoring, rope pulls
 4. **Environment** - Day/night, 9 weather states, temperature with wind chill
 5. **Body Condition** - Fatigue, cold exposure, location-specific injuries
-6. **Drone** - Third-person camera, battery system
+6. **Drone** - The film crew's drone: keeps station beside the climber with a line of sight, `B` looks through it, fatal events are watched through it
 7. **Camera Director AI** - Shot-based thinking with emotional rhythm
 8. **Fatal Events** - 5-phase ethical death handling
 9. **Risk Detection** - Terrain analysis and fall prediction
 10. **Audio** - 123 synthesized effects by id, layered wind, breath engine, event-driven gear and hazard sound; no music
 11. **UI** - Minimalist, diegetic (in-world) design
 12. **Tutorial** - Organic instructor-based learning
-13. **Save/Progression** - Player profiles, run history, achievements
-14. **Streaming** - Recording, replay, OBS integration
+13. **Save/Progression** - Player profiles, run history, achievements; a run set aside (Save and Quit) and picked up again (Continue)
+14. **Streaming** - Recording, OBS integration; after a run, the replay on the mountain (with highlights) and the map replay
 15. **Gear Database** - Equipment definitions
 16. **Mountain Database** - Mountain metadata, progress, logbook, full-route unlock
 17. **Planning & Scoring** - Guidebook lines per mountain, alpine grades, book times, logbook scoring, full route
@@ -122,6 +122,7 @@ tests/                  # Godot-native checks (check_scripts, smoke_goal, ui_tou
 Game States:
 MAIN_MENU → MOUNTAIN_SELECT → LOADOUT_CONFIG → PLANNING →
 TUTORIAL → DESCENT → RESOLUTION → POST_GAME (PAUSED as overlay)
+PAUSED → MAIN_MENU (Save and Quit) and MAIN_MENU → DESCENT (Continue)
 
 Player Movement States:
 STANDING ↔ WALKING ↔ DOWNCLIMBING ↔ TRAVERSING
@@ -239,6 +240,61 @@ jumps earn nothing), and `Main._score_run` files it in `MountainDatabase` before
 (on-sight is judged on the knowledge the run started with). Nothing route-related is ever placed
 in the 3D world; `tests/smoke_full_route.gd` asserts there is no `Label3D` on the mountain.
 
+### Around the descent (who owns what)
+
+- **The day.** `StartConditions.CLIMBS` and `WEATHER_WINDOWS` are the choices; the planning
+  screen holds the ids (`climb_id`, `weather_id`) and Main builds the run's conditions from them
+  (`StartConditions.create_for_day`). `create_moderate()` is for tests and tools: it carries no
+  ids and earns no weather factor. `WeatherService.generate_weather_windows` starts the day in
+  the conditions' weather and wind and steps along `WEATHER_LADDER`; stability is worn down by
+  `MountainData.weather_volatility`, wind follows `wind_exposure`. To pin the weather in a test,
+  clear `weather_windows` and set `base_change_probability = 0`.
+- **A run set aside.** `EventBus.run_suspended` is not `run_ended`: nothing is recorded.
+  `RunContext.to_save()` and the world around it (`Main._capture_suspended_run`: where the
+  climber stands, the clock, the weather and its windows) go to `user://suspended_run.dat` with
+  `store_var` (plain data only, never objects). Continue rebuilds the run with `from_save()`,
+  draws the day's snowpack again from its seed, and hands the saved world to the descent under
+  the run's `resume_world` meta; the file is deleted once the descent is built. A system that
+  keeps per-run state of its own and should survive a save needs a `to_save()` too, taken in
+  `Main._capture_suspended_run`: the terrain's change journal (`TerrainService.get_changes`,
+  every height, debris and bed value that `apply_height_deltas` touched), what the avalanches
+  left (`AvalancheSystem.to_save`), fallen bridges and probe holes (`CrevasseSystem.to_save`)
+  and the recording so far (`RecordingService.to_save`) all are.
+  `Main.get_suspend_block_reason()` decides when saving is allowed. Closing the window on a
+  descent saves it the same way (`Main.save_run_on_close`), never over a run already set aside.
+- **Settings.** `GameSettings` (service) owns values, ranges and the file; it applies sound
+  levels and the display itself, and the climber's camera follows its `changed` signal. Tests
+  set `persist = false` so they never write to the settings of whoever runs them.
+- **The record.** `RunMoments.collect(run)` turns a run's decisions and incidents into the
+  lines the post-game screen and the map replay print; times on a run are game hours, except
+  `real_time_elapsed` (seconds played), which is what the run timer shows.
+  Achievements and skills are saved by `SaveManager` in `user://progression.json`.
+- **The drone.** `DroneController.follow_subject` keeps station in the slope's frame and lifts
+  until it can see the climber; `DroneService.toggle_view` (`B`) switches cameras; during a
+  fatal sequence `fatal_sequence` and `let_subject_go` stop it following or hovering overhead.
+- **Controls.** `ControlsMap.ACTIONS` is the list of actions with their default key and
+  gamepad button (also in `project.godot`, so they exist before anything loads); `GameSettings`
+  holds the player's bindings and puts them into the `InputMap` (`ControlsMap.apply`), which
+  also gives Godot's menu actions their gamepad buttons (they come with keys only). Text never
+  names a key: write `{slide_initiate}`, `{move}`, `{look}` and let `ControlsMap.fill` or
+  `player.say` put in what is bound on the device last touched. `UIFocus.take(control)` gives
+  a screen its starting focus; every screen Main shows needs one, or a gamepad cannot use it.
+- **The recording and the replay.** `RecordingService` records the run on its own clock
+  (`real_time_elapsed`), only in DESCENT and once the climber is out, and keeps the last run in
+  memory. `RecordingData.loss_time()` says when control was lost for good (INF for a run that
+  came home or was abandoned); replays and highlights keep clear of everything from there on.
+  `ReplayPlayer` is the clock and the rules (what may be wound, sped up, re-framed;
+  the one take of a fatal run), `ReplayStage` shows a moment (the game's own climber node with
+  its controller asleep and only its animation and slide spray awake, the hour and weather of
+  that moment, its own camera), `ReplayScreen` is the controls. `Main._show_replay` / `_hide_replay` put them up
+  and take them down; `end()` restores everything `begin()` took. `HighlightGenerator` picks
+  highlights by the spec's rules (SPEC-SHEET 17).
+- **A run that is over.** The replay moves the real climber node about, so nothing may take a
+  climber for a live one unless a run is going: gate on `GameStateManager.is_run_active()`
+  (as `FatalityDetector`, `FatalEventManager`, `AvalancheSystem`, `CrevasseSystem`,
+  `RopeService` do) or sleep between runs (`BodyConditionService`, `RiskDetectionService`).
+  Following the game's state instead is how a climber came to die on the summary screen.
+
 ## Common Commands
 
 ```bash
@@ -267,6 +323,10 @@ godot --headless --audio-driver Dummy --path . -s res://tests/test_avalanche.gd 
 godot --headless --audio-driver Dummy --path . -s res://tests/test_route_scoring.gd  # grades, guidebook, scoring
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_full_route.gd    # full route + retreat
 godot --headless --audio-driver Dummy --path . -s res://tests/test_audio.gd          # library, mix, events -> sounds
+godot --headless --audio-driver Dummy --path . -s res://tests/test_front_end.gd      # logbook, settings, controls, the day, save/continue, timer, drone
+godot --headless --audio-driver Dummy --path . -s res://tests/test_replay.gd         # recording, replay, highlights, fatal-run rules
+godot --headless --audio-driver Dummy --path . -s res://tests/test_continue.gd -- --phase=save      # then the same with
+godot --headless --audio-driver Dummy --path . -s res://tests/test_continue.gd -- --phase=continue  # --phase=continue (two launches)
 xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-driver opengl3 \
   --audio-driver Dummy -s res://tests/ui_tour.gd -- --out=/tmp/tour    # every screen, with PNGs
 xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-driver opengl3 \
@@ -286,7 +346,21 @@ Godot 4.2 gotchas that bit this project:
   `pop_back`, `get_meta`, ...) is a parse error. Always annotate: `var cell: TerrainCell = ...`
 - `Array[T]` fields cannot be assigned an untyped literal at runtime; use `.assign([...])`
 - New `class_name` files need an import pass (`godot --headless --path . --import`) before
-  other scripts can reference them from a headless run
+  other scripts can reference them from a headless run. Two `class_name` scripts that name
+  each other in typed code can fail to register at all: break the circle with untyped access
+  through the `ServiceLocator` (as `ControlsMap` reaches `GameSettings`)
+- Input in a headless test: `Input.parse_input_event` is not delivered. Use
+  `root.push_input(event)` for what the GUI and `_input` should see, and
+  `Input.action_press(action, strength)` for what `Input.get_vector` should read. A focused
+  `Button` fires on release: send the press and the release
+- Godot's own `ui_accept` and `ui_cancel` have keys and no gamepad buttons
+- Nodes with `_unhandled_input` do not run while the tree is paused: a screen shown over a
+  paused game has to listen for its own way out (see `pause_menu.gd`)
+- `SceneTree.quit()` does not send `NOTIFICATION_WM_CLOSE_REQUEST`; a test of "the window was
+  closed" has to call the handler
+- A headless run ticks faster than it draws anything, a rendered one under xvfb far slower
+  (about 8 frames a second here). Anything that happens "a frame after the state changes" is
+  only caught by one of the two: the recorder's first frame was wrong only when rendered
 - Test harnesses run with `-s` are compiled before the autoloads exist: reach
   `GameStateManager` etc. via `root.get_node("/root/GameStateManager")` and `load()` (see
   `tests/smoke_goal.gd`)
@@ -409,6 +483,17 @@ print("[SystemName] Debug message")
 | Sound files and ids | `assets/audio/` (README there), `src/systems/audio/sound_library.gd` |
 | Designing or re-rendering a sound | `tools/sfx/sounds_*.py`, `tools/sfx/generate.py` |
 | Run data | `src/core/data/run_context.gd` |
+| The day chosen at the hut (climb, weather window) | `src/core/data/start_conditions.gd`, `src/ui/planning/planning_screen.gd` |
+| How a day's weather goes | `src/systems/environment/weather_service.gd` (`generate_weather_windows`) |
+| Save and Quit / Continue | `Main._on_save_and_quit`, `_on_continue_pressed`; `to_save()`/`from_save()` on the run, body, gear and start conditions; `SaveManager.save_suspended_run` |
+| Settings | `src/systems/settings/game_settings.gd`, `src/ui/settings/settings_screen.gd` |
+| Controls: actions, bindings, prompts, gamepad | `src/systems/settings/controls_map.gd`, `game_settings.gd` (`set_binding`), `src/ui/ui_focus.gd` |
+| Logbook (lifetime record) | `src/ui/stats/stats_display.gd` |
+| Map replay, key moments | `src/ui/analysis/topo_replay_visualization.gd`, `run_moments.gd` |
+| Replay on the mountain | `src/systems/replay/recording_service.gd`, `replay_player.gd`, `replay_stage.gd`, `src/ui/analysis/replay_screen.gd`, `Main._show_replay` |
+| Highlights | `src/systems/replay/highlight_generator.gd` |
+| Drone | `src/systems/drone/drone_service.gd`, `drone_controller.gd`, `drone_entity.gd` |
+| Run timer | `src/systems/replay/speedrun_timer.gd` (shown by `descent_hud.gd` and `resolution_screen.gd` when the `show_timer` setting is on) |
 | UI screens | `src/ui/` |
 
 ## Documentation

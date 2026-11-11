@@ -105,6 +105,7 @@ func _ready() -> void:
 	# and resolution all read run.body_state
 	EventBus.run_started.connect(_on_run_started)
 	EventBus.run_ended.connect(_on_run_ended)
+	EventBus.run_suspended.connect(_on_run_suspended)
 	if GameStateManager.current_run != null:
 		_on_run_started(GameStateManager.current_run)
 
@@ -142,6 +143,11 @@ func adopt_body_state(state: BodyState) -> void:
 
 ## A finished run's body is frozen; simulation resumes with the next run
 func _on_run_ended(_run: RunContext, _outcome: GameEnums.ResolutionType) -> void:
+	process_mode = Node.PROCESS_MODE_DISABLED
+
+
+## A run set aside: its body waits as it is until the run is picked up
+func _on_run_suspended(_run: RunContext) -> void:
 	process_mode = Node.PROCESS_MODE_DISABLED
 
 

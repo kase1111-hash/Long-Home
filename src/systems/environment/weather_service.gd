@@ -6,7 +6,9 @@ extends Node
 ## Design Philosophy:
 ## - Weather is observed, not predicted by UI
 ## - Cloud patterns, wind changes indicate transitions
-## - Weather windows are generated at run start
+## - Weather windows are generated at run start, from the weather, wind and
+##   stability the run starts with (StartConditions): the first window is
+##   that weather, and the day moves on from it a step at a time
 ## - Transitions are gradual, not instant
 
 # =============================================================================
@@ -132,6 +134,56 @@ class WeatherWindow:
 
 
 # =============================================================================
+# THE DAY'S WEATHER
+# =============================================================================
+
+## Weather from best to worst: a window's weather moves along this a step at
+## a time. SNOW (steady snowfall) shares a rung with DETERIORATING.
+const WEATHER_LADDER: Array[GameEnums.WeatherState] = [
+	GameEnums.WeatherState.CLEAR,
+	GameEnums.WeatherState.PARTLY_CLOUDY,
+	GameEnums.WeatherState.CLOUDY,
+	GameEnums.WeatherState.OVERCAST,
+	GameEnums.WeatherState.DETERIORATING,
+	GameEnums.WeatherState.STORM,
+	GameEnums.WeatherState.WHITEOUT,
+]
+const SNOW_RUNG := 4
+
+## The two wind strengths typical of each kind of weather (lighter, stronger)
+const WINDOW_WINDS := {
+	GameEnums.WeatherState.CLEAR: [GameEnums.WindStrength.CALM, GameEnums.WindStrength.LIGHT],
+	GameEnums.WeatherState.PARTLY_CLOUDY: [GameEnums.WindStrength.LIGHT, GameEnums.WindStrength.MODERATE],
+	GameEnums.WeatherState.CLOUDY: [GameEnums.WindStrength.LIGHT, GameEnums.WindStrength.MODERATE],
+	GameEnums.WeatherState.CLEARING: [GameEnums.WindStrength.LIGHT, GameEnums.WindStrength.MODERATE],
+	GameEnums.WeatherState.OVERCAST: [GameEnums.WindStrength.LIGHT, GameEnums.WindStrength.MODERATE],
+	GameEnums.WeatherState.SNOW: [GameEnums.WindStrength.LIGHT, GameEnums.WindStrength.MODERATE],
+	GameEnums.WeatherState.DETERIORATING: [GameEnums.WindStrength.MODERATE, GameEnums.WindStrength.STRONG],
+	GameEnums.WeatherState.STORM: [GameEnums.WindStrength.STRONG, GameEnums.WindStrength.GALE],
+	GameEnums.WeatherState.WHITEOUT: [GameEnums.WindStrength.GALE, GameEnums.WindStrength.SEVERE],
+}
+
+## A window lasts this many game hours (a game hour is six real minutes):
+## long enough to read the sky, short enough that a day can turn in one descent
+const WINDOW_HOURS_MIN := 1.0
+const WINDOW_HOURS_MAX := 2.0
+## Chance that a window is a step worse than the last, on a day with no stability at all
+const WORSEN_RATE := 0.75
+## Chance that it is a step better, on a perfectly settled day
+const IMPROVE_RATE := 0.25
+const MAX_WORSEN_CHANCE := 0.9
+## How much of a day's stability a mountain with the most volatile weather wears away
+const VOLATILITY_WEAR := 0.35
+## A storm closes in to a whiteout this much less readily than weather worsens otherwise
+const WHITEOUT_SHARE := 0.25
+## Chance per window that a whiteout lifts back to a storm
+const WHITEOUT_LIFT_CHANCE := 0.5
+
+## How settled today is, 0-1 (the day's stability after the mountain's volatility)
+var day_stability: float = 0.6
+
+
+# =============================================================================
 # INITIALIZATION
 # =============================================================================
 
@@ -146,68 +198,102 @@ func _on_time_service_ready(service: Object) -> void:
 	time_service.hour_changed.connect(_on_hour_changed)
 
 
-## Generate weather windows for a run
-func generate_weather_windows(start_hour: float, difficulty: float = 0.5) -> void:
+## Lay out the day's weather from where it stands when the run starts.
+##
+## The first window is the weather and wind the run starts in; each later one
+## holds, worsens by a step or improves by a step (WEATHER_LADDER). How often
+## it holds is the day's stability, worn down by a mountain whose weather
+## turns fast, and the afternoon is less settled than the morning.
+##   stability: 0-1 (StartConditions.weather_stability)
+##   volatility: 0-1, how fast this mountain's weather turns (MountainData)
+##   exposure: 0-1, how open the mountain is to the wind (MountainData)
+func generate_weather_windows(start_hour: float, start_weather: GameEnums.WeatherState = GameEnums.WeatherState.CLEAR,
+		start_wind: GameEnums.WindStrength = GameEnums.WindStrength.LIGHT, stability: float = 0.6,
+		volatility: float = 0.3, exposure: float = 0.5) -> void:
 	weather_windows.clear()
+	day_stability = clampf(stability * (1.0 - VOLATILITY_WEAR * clampf(volatility, 0.0, 1.0)), 0.0, 1.0)
 
-	# Generate windows based on difficulty
-	var num_windows := 3 + int(difficulty * 4)  # 3-7 windows
-	var window_duration := 24.0 / num_windows
-
-	for i in range(num_windows):
+	var weather := start_weather
+	var wind := start_wind
+	var hour := start_hour
+	var day_end := start_hour + 24.0
+	while hour < day_end - 0.01:
+		var length := minf(randf_range(WINDOW_HOURS_MIN, WINDOW_HOURS_MAX), day_end - hour)
+		# No sliver of a window at the end of the day
+		if day_end - (hour + length) < WINDOW_HOURS_MIN * 0.5:
+			length = day_end - hour
 		var window := WeatherWindow.new()
-		window.start_time = start_hour + i * window_duration
-		if window.start_time >= 24.0:
-			window.start_time -= 24.0
-		window.end_time = window.start_time + window_duration
-		if window.end_time >= 24.0:
-			window.end_time -= 24.0
-
-		# Determine weather for this window
-		window.weather = _generate_window_weather(i, num_windows, difficulty)
-		window.wind_strength = _generate_window_wind(window.weather)
-		window.intensity = 0.5 + randf() * 0.5
-
+		window.start_time = fposmod(hour, 24.0)
+		window.end_time = fposmod(hour + length, 24.0)
+		window.weather = weather
+		window.wind_strength = wind
+		window.intensity = randf_range(0.5, 1.0)
 		weather_windows.append(window)
+
+		hour += length
+		weather = _next_window_weather(weather, day_stability, fposmod(hour, 24.0))
+		wind = _next_window_wind(weather, wind, exposure)
 
 	current_window_index = 0
 	_apply_window(weather_windows[0])
 
 
-func _generate_window_weather(index: int, total: int, difficulty: float) -> GameEnums.WeatherState:
-	# Early windows tend to be better
-	var position_factor := float(index) / float(total)
-
-	# Higher difficulty = worse weather more likely
-	var bad_weather_chance := difficulty * 0.4 + position_factor * 0.3
+## The weather that follows a window: the same, a step worse or a step better
+func _next_window_weather(weather: GameEnums.WeatherState, stability: float, hour: float) -> GameEnums.WeatherState:
+	var worse_chance := (1.0 - stability) * WORSEN_RATE
+	# Afternoon build-up
+	if hour >= 12.0 and hour < 20.0:
+		worse_chance *= afternoon_instability
+	var better_chance := stability * IMPROVE_RATE
+	match weather:
+		GameEnums.WeatherState.STORM:
+			# A storm closes in to a whiteout less often than cloud thickens
+			worse_chance *= WHITEOUT_SHARE
+		GameEnums.WeatherState.WHITEOUT:
+			# Whiteouts come in waves
+			better_chance = maxf(better_chance, WHITEOUT_LIFT_CHANCE)
+	worse_chance = minf(worse_chance, MAX_WORSEN_CHANCE)
 
 	var roll := randf()
-	if roll < 0.3 - bad_weather_chance * 0.2:
-		return GameEnums.WeatherState.CLEAR
-	elif roll < 0.6 - bad_weather_chance * 0.1:
-		return GameEnums.WeatherState.CLOUDY
-	elif roll < 0.8:
-		return GameEnums.WeatherState.DETERIORATING
-	elif roll < 0.95:
-		return GameEnums.WeatherState.STORM
-	else:
-		return GameEnums.WeatherState.WHITEOUT
+	if roll < worse_chance:
+		return step_weather(weather, 1, stability)
+	if roll < worse_chance + better_chance:
+		return step_weather(weather, -1, stability)
+	return weather
 
 
-func _generate_window_wind(weather: GameEnums.WeatherState) -> GameEnums.WindStrength:
+## The wind that goes with a window's weather: one of the two strengths
+## typical of it (the stronger more often on an exposed mountain), reached
+## from the last window's wind a step at a time
+func _next_window_wind(weather: GameEnums.WeatherState, previous: GameEnums.WindStrength, exposure: float) -> GameEnums.WindStrength:
+	var typical: Array = WINDOW_WINDS.get(weather, [GameEnums.WindStrength.LIGHT, GameEnums.WindStrength.MODERATE])
+	var target: int = typical[1] if randf() < 0.2 + 0.6 * clampf(exposure, 0.0, 1.0) else typical[0]
+	return clampi(target, int(previous) - 1, int(previous) + 1) as GameEnums.WindStrength
+
+
+## Weather one step worse (direction 1) or better (-1) than a state. Thick
+## cloud turns to steady snowfall on a settled day and to the leading edge of
+## a storm (DETERIORATING) on an unsettled one.
+static func step_weather(weather: GameEnums.WeatherState, direction: int, stability: float = 0.5) -> GameEnums.WeatherState:
+	var rung := weather_rung(weather)
+	var next := clampi(rung + signi(direction), 0, WEATHER_LADDER.size() - 1)
+	if next == rung:
+		return weather
+	if next == SNOW_RUNG:
+		if direction < 0:
+			return GameEnums.WeatherState.SNOW
+		return GameEnums.WeatherState.SNOW if stability >= 0.5 else GameEnums.WeatherState.DETERIORATING
+	return WEATHER_LADDER[next]
+
+
+## Where a weather state stands on WEATHER_LADDER (0 = clear)
+static func weather_rung(weather: GameEnums.WeatherState) -> int:
 	match weather:
-		GameEnums.WeatherState.CLEAR:
-			return GameEnums.WindStrength.CALM if randf() < 0.7 else GameEnums.WindStrength.LIGHT
-		GameEnums.WeatherState.CLOUDY:
-			return GameEnums.WindStrength.LIGHT if randf() < 0.6 else GameEnums.WindStrength.MODERATE
-		GameEnums.WeatherState.DETERIORATING:
-			return GameEnums.WindStrength.MODERATE if randf() < 0.5 else GameEnums.WindStrength.STRONG
-		GameEnums.WeatherState.STORM:
-			return GameEnums.WindStrength.STRONG if randf() < 0.4 else GameEnums.WindStrength.SEVERE
-		GameEnums.WeatherState.WHITEOUT:
-			return GameEnums.WindStrength.SEVERE
-		_:
-			return GameEnums.WindStrength.LIGHT
+		GameEnums.WeatherState.SNOW:
+			return SNOW_RUNG
+		GameEnums.WeatherState.CLEARING:
+			return WEATHER_LADDER.find(GameEnums.WeatherState.CLOUDY)
+	return maxi(WEATHER_LADDER.find(weather), 0)
 
 
 ## Put the weather into a clean, settled state for a new run
@@ -222,6 +308,68 @@ func reset_for_run(start_weather: GameEnums.WeatherState) -> void:
 	target_wind_direction = wind_direction
 	current_window_index = 0
 	print("[WeatherService] Reset for run: %s" % GameEnums.WeatherState.keys()[start_weather])
+
+
+## The day's weather as plain data, for a suspended run's save file
+func to_save() -> Dictionary:
+	var windows: Array = []
+	for window in weather_windows:
+		windows.append({
+			"start": window.start_time,
+			"end": window.end_time,
+			"weather": int(window.weather),
+			"wind": int(window.wind_strength),
+			"intensity": window.intensity,
+		})
+	return {
+		# A change that is under way is saved as arrived
+		"weather": int(target_weather if is_transitioning else current_weather),
+		"wind": int(current_wind_strength),
+		"wind_direction": wind_direction,
+		"day_stability": day_stability,
+		"windows": windows,
+	}
+
+
+## Put the day's weather back as to_save() found it. hour: the time of day,
+## which decides which window the day is in (it is not applied again: the
+## weather saved may have drifted from it).
+func restore(data: Dictionary, hour: float) -> void:
+	var weather := int(data.get("weather", current_weather))
+	if weather < 0 or weather >= GameEnums.WeatherState.size():
+		weather = int(current_weather)
+	reset_for_run(weather as GameEnums.WeatherState)
+	var wind := int(data.get("wind", current_wind_strength))
+	if wind >= 0 and wind < GameEnums.WindStrength.size():
+		_set_wind_strength(wind as GameEnums.WindStrength)
+	if data.get("wind_direction") is Vector3 and (data["wind_direction"] as Vector3).length_squared() > 0.01:
+		wind_direction = (data["wind_direction"] as Vector3).normalized()
+		target_wind_direction = wind_direction
+	day_stability = clampf(float(data.get("day_stability", day_stability)), 0.0, 1.0)
+
+	weather_windows.clear()
+	var saved: Variant = data.get("windows")
+	if saved is Array:
+		for entry in saved:
+			if not (entry is Dictionary):
+				continue
+			var window_weather := int(entry.get("weather", -1))
+			var window_wind := int(entry.get("wind", -1))
+			if window_weather < 0 or window_weather >= GameEnums.WeatherState.size() \
+					or window_wind < 0 or window_wind >= GameEnums.WindStrength.size():
+				continue
+			var window := WeatherWindow.new()
+			window.start_time = fposmod(float(entry.get("start", 0.0)), 24.0)
+			window.end_time = fposmod(float(entry.get("end", 0.0)), 24.0)
+			window.weather = window_weather as GameEnums.WeatherState
+			window.wind_strength = window_wind as GameEnums.WindStrength
+			window.intensity = clampf(float(entry.get("intensity", 1.0)), 0.0, 1.0)
+			weather_windows.append(window)
+	current_window_index = 0
+	for i in range(weather_windows.size()):
+		if weather_windows[i].is_active(hour):
+			current_window_index = i
+			break
 
 
 func _apply_window(window: WeatherWindow) -> void:
@@ -384,17 +532,7 @@ func _get_transition_time() -> float:
 
 
 func _get_worse_weather(weather: GameEnums.WeatherState) -> GameEnums.WeatherState:
-	match weather:
-		GameEnums.WeatherState.CLEAR:
-			return GameEnums.WeatherState.CLOUDY
-		GameEnums.WeatherState.CLOUDY:
-			return GameEnums.WeatherState.DETERIORATING
-		GameEnums.WeatherState.DETERIORATING:
-			return GameEnums.WeatherState.STORM
-		GameEnums.WeatherState.STORM:
-			return GameEnums.WeatherState.WHITEOUT
-		_:
-			return weather
+	return step_weather(weather, 1, day_stability)
 
 
 # =============================================================================
@@ -453,10 +591,16 @@ func _get_cloud_cover_for_weather(weather: GameEnums.WeatherState) -> float:
 	match weather:
 		GameEnums.WeatherState.CLEAR:
 			return 0.1
+		GameEnums.WeatherState.PARTLY_CLOUDY:
+			return 0.3
 		GameEnums.WeatherState.CLOUDY:
 			return 0.5
+		GameEnums.WeatherState.OVERCAST:
+			return 0.8
 		GameEnums.WeatherState.DETERIORATING:
 			return 0.8
+		GameEnums.WeatherState.SNOW:
+			return 0.9
 		GameEnums.WeatherState.STORM:
 			return 1.0
 		GameEnums.WeatherState.WHITEOUT:
@@ -471,7 +615,7 @@ func _get_precipitation_for_weather(weather: GameEnums.WeatherState) -> Precipit
 	match weather:
 		GameEnums.WeatherState.CLEAR, GameEnums.WeatherState.CLOUDY:
 			return PrecipitationType.NONE
-		GameEnums.WeatherState.DETERIORATING:
+		GameEnums.WeatherState.DETERIORATING, GameEnums.WeatherState.SNOW:
 			return PrecipitationType.LIGHT_SNOW
 		GameEnums.WeatherState.STORM:
 			return PrecipitationType.HEAVY_SNOW

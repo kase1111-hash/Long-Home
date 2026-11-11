@@ -4,7 +4,7 @@ extends RefCounted
 ## actually climbed and what it grades, in what style, how long it took
 ## against the book, whether it went as planned, and whether you came home.
 ##
-##   points = line points x outcome x style x pace x plan x on-sight x daylight
+##   points = line points x outcome x style x pace x plan x on-sight x weather x daylight
 ##
 ## Line points come from the grade of the line actually travelled (measured
 ## by RouteMetrics from the path history, the same yardstick the guidebook
@@ -16,7 +16,9 @@ extends RefCounted
 ## hard line is not punished for being slow and a glissade that beats the
 ## book is rewarded. Style counts the incidents on the way. A full route
 ## scores the ascent and the descent as two lines; turning back short of the
-## summit keeps a fraction of the ascent.
+## summit keeps a fraction of the ascent. A route brought home in a harder
+## weather window counts for more (StartConditions.WEATHER_WINDOWS): the
+## window is chosen at the hut, so this rewards the commitment and not the luck.
 
 # =============================================================================
 # CONSTANTS
@@ -105,6 +107,11 @@ class RouteScore:
 	var plan_factor: float = 1.0
 	var plan_share: float = 0.0
 	var onsight: bool = false
+	## What the weather window gone in counted for (1 = a settled day)
+	var weather_factor: float = 1.0
+	## The climb and weather window of the day ("" = conditions built by hand)
+	var climb_id: String = ""
+	var weather_id: String = ""
 	var benighted: bool = false
 	var summit_reached: bool = false
 	var retreated: bool = false
@@ -141,6 +148,8 @@ class RouteScore:
 			"book_minutes": book_minutes,
 			"summit": summit_reached,
 			"onsight": onsight,
+			"climb": climb_id,
+			"weather": weather_id,
 			"date": Time.get_date_string_from_system(),
 		}
 
@@ -255,12 +264,21 @@ static func score_run(run: RunContext, terrain: TerrainService, routes: Array = 
 		score.onsight = true
 		score.lines.append({"label": "On-sight: first time on this mountain", "value": "x%.2f" % ONSIGHT_BONUS})
 
+	# --- the weather window gone in (only for a route brought home) ---------
+	if run.start_conditions != null:
+		score.climb_id = run.start_conditions.climb_id
+		score.weather_id = run.start_conditions.weather_id
+		if success and run.start_conditions.get_weather_score_factor() != 1.0:
+			score.weather_factor = run.start_conditions.get_weather_score_factor()
+			var window := StartConditions.weather_option(score.weather_id)
+			score.lines.append({"label": "Weather: went in a window that was %s" % str(window["name"]).to_lower(), "value": "x%.2f" % score.weather_factor})
+
 	# --- benighted ------------------------------------------------------------
 	if success and run.is_dark():
 		score.benighted = true
 		score.lines.append({"label": "Benighted: finished after dark", "value": "x%.2f" % BENIGHTED_FACTOR})
 
-	var total := score.line_points * score.outcome_factor * score.style_factor * score.pace_factor * score.plan_factor
+	var total := score.line_points * score.outcome_factor * score.style_factor * score.pace_factor * score.plan_factor * score.weather_factor
 	if score.onsight:
 		total *= ONSIGHT_BONUS
 	if score.benighted:

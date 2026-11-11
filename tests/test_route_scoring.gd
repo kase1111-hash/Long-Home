@@ -214,6 +214,30 @@ func _check_scoring() -> void:
 	var hurt: Object = _scorer.score_run(_make_run(path, outcomes["INJURED_RETURN"], book), terrain, routes)
 	_expect(hurt.total < clean.total and hurt.total > 0, "an injured return scores less than a clean one (%d < %d)" % [hurt.total, clean.total])
 
+	# The weather window gone in (chosen at the hut): a harder one counts for
+	# more, for a route brought home
+	_expect(is_equal_approx(clean.weather_factor, 1.0) and clean.weather_id == "", "conditions built by hand earn no weather bonus")
+	var settled_run: Object = _make_run(path, outcomes["CLEAN_RETURN"], book)
+	settled_run.start_conditions.apply_weather_window("settled")
+	var settled: Object = _scorer.score_run(settled_run, terrain, routes)
+	_expect(settled.total == clean.total and settled.weather_id == "settled", "a settled day is the yardstick (%d = %d)" % [settled.total, clean.total])
+	var front_run: Object = _make_run(path, outcomes["CLEAN_RETURN"], book)
+	front_run.start_conditions.apply_weather_window("front")
+	var front: Object = _scorer.score_run(front_run, terrain, routes)
+	var front_factor: float = _conditions_script.weather_option("front")["score"]
+	_expect(is_equal_approx(front.weather_factor, front_factor) and absi(front.total - roundi(clean.total * front_factor)) <= 1,
+		"the same line with a front coming in counts x%.2f (%d vs %d)" % [front_factor, front.total, clean.total])
+	var weather_lines := 0
+	for line in front.lines:
+		if str(line["label"]).begins_with("Weather:"):
+			weather_lines += 1
+	_expect(weather_lines == 1, "and the logbook says why")
+	var storm_run: Object = _make_run(path, outcomes["FATALITY"], book)
+	storm_run.start_conditions.apply_weather_window("storm")
+	var lost: Object = _scorer.score_run(storm_run, terrain, routes)
+	_expect(lost.total == 0 and is_equal_approx(lost.weather_factor, 1.0), "going out in a storm and not coming home earns nothing")
+	_expect(front.to_dict().get("weather") == "front", "the logbook entry records the window")
+
 	var fast: Object = _scorer.score_run(_make_run(path, outcomes["CLEAN_RETURN"], book * 0.6), terrain, routes)
 	var slow: Object = _scorer.score_run(_make_run(path, outcomes["CLEAN_RETURN"], book * 2.0), terrain, routes)
 	_expect(fast.pace_factor > 1.0 and slow.pace_factor < 1.0, "beating the book pays, dawdling costs (x%.2f / x%.2f)" % [fast.pace_factor, slow.pace_factor])

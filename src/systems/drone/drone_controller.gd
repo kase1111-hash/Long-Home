@@ -84,6 +84,41 @@ var drift_time: float = 0.0
 ## Pending movement (for reaction delay)
 var pending_move: Dictionary = {}
 
+## Keeping station on the subject: the offset held from them, in the frame of
+## the slope they are on (x across it to their right when facing downhill,
+## y up, z back up the fall line). A shot is a station kept, not a spot flown
+## to once: the climber keeps moving.
+var is_following: bool = false
+var follow_offset: Vector3 = Vector3.ZERO
+var follow_speed: float = 1.0
+
+## Horizontal unit vector pointing back up the fall line from the subject
+## (behind them on flat ground). Turns slowly, so the drone does not swing
+## round every time the climber crosses a ripple in the slope.
+var _back: Vector3 = Vector3.ZERO
+
+## Below this slope there is no fall line worth following
+const FLAT_SLOPE := 8.0
+## How fast the station swings round to a new fall line (per second)
+const BACK_TURN_RATE := 0.6
+## Metres a station is kept above the ground under it
+const STATION_CLEARANCE := 4.0
+## A station with something between it and the subject (a tree, a roll in the
+## slope) is raised by these amounts in turn until it can see them
+const SIGHT_LIFTS: Array[float] = [0.0, 6.0, 12.0, 20.0]
+## Where on the subject the drone needs to see (metres above their feet)
+const SIGHT_HEIGHT := 1.0
+## In a fatal sequence the drone stays at least this far to the side for each
+## metre it is above the climber (about 40 degrees off the vertical)
+const OVERHEAD_RATIO := 0.85
+## Seconds between looks at whether the station being kept can still see them
+const SIGHT_CHECK_INTERVAL := 0.3
+
+## How far the station being kept is raised to see the subject, and when that
+## is next looked at
+var _follow_lift: float = 0.0
+var _sight_check_in: float = 0.0
+
 ## Collision raycast
 var collision_ray: RayCast3D
 
@@ -116,6 +151,8 @@ func _physics_process(delta: float) -> void:
 
 	if is_orbiting:
 		_update_orbit(delta)
+	elif is_following:
+		_update_follow(delta)
 
 
 func _update_drift(delta: float) -> void:
@@ -177,10 +214,11 @@ func get_movement_input() -> Vector3:
 	var direction := (target_position - current_pos)
 	var distance := direction.length()
 
-	# Check if arrived
+	# Check if arrived (on station while following: stay with it, quietly)
 	if distance < arrival_threshold:
-		has_target = false
-		target_reached.emit(target_position)
+		if not is_following:
+			has_target = false
+			target_reached.emit(target_position)
 		return drift_offset * 0.1
 
 	# Normalize and apply approach smoothing
@@ -223,8 +261,11 @@ func _apply_collision_avoidance(from: Vector3, direction: Vector3) -> Vector3:
 # POSITION COMMANDS
 # =============================================================================
 
-## Move to a specific position
+## Move to a specific position (a single move: it takes over from any station
+## being kept)
 func set_target_position(position: Vector3, speed: float = 1.0) -> void:
+	is_following = false
+	position = _permitted(position)
 	if imperfection_enabled:
 		# Add reaction delay
 		var delay := randf_range(reaction_delay_range.x, reaction_delay_range.y)
@@ -241,6 +282,29 @@ func set_target_position(position: Vector3, speed: float = 1.0) -> void:
 	position_planned.emit(drone.global_position if drone else Vector3.ZERO, position)
 
 
+## A place the drone may be sent: clear of the ground, and during a fatal
+## sequence never over the climber. ("The drone must never hover directly
+## overhead": SPECTATOR rules for fatal events.)
+func _permitted(position: Vector3) -> Vector3:
+	if drone == null:
+		return position
+	if drone.terrain_service != null:
+		position.y = maxf(position.y, drone.terrain_service.get_height_at(position) + STATION_CLEARANCE)
+	if drone.let_subject_go and is_instance_valid(drone.subject):
+		var from_subject: Vector3 = position - drone.subject.global_position
+		var height := maxf(from_subject.y, 0.0)
+		var aside := Vector2(from_subject.x, from_subject.z)
+		var needed := height * OVERHEAD_RATIO
+		if aside.length() < needed:
+			var away := aside.normalized() if aside.length() > 0.5 else Vector2(_back.x, _back.z)
+			if away.length() < 0.5:
+				away = Vector2(0.0, 1.0)
+			aside = away.normalized() * needed
+			position.x = drone.subject.global_position.x + aside.x
+			position.z = drone.subject.global_position.z + aside.y
+	return position
+
+
 ## Move to offset from subject
 func move_to_subject_offset(offset: Vector3, speed: float = 1.0) -> void:
 	if drone == null or drone.subject == null:
@@ -248,6 +312,132 @@ func move_to_subject_offset(offset: Vector3, speed: float = 1.0) -> void:
 
 	var target := drone.subject.global_position + offset
 	set_target_position(target, speed)
+
+
+## Keep station on the subject at an offset in the slope's frame (x across,
+## y up, z back up the fall line) until told otherwise
+func follow_subject(offset: Vector3, speed: float = 1.0) -> void:
+	if drone == null or not is_instance_valid(drone.subject):
+		return
+	follow_offset = offset
+	follow_speed = speed
+	is_following = true
+	is_orbiting = false
+	pending_move.clear()
+	_update_follow(0.0)
+
+
+## Where an offset from the subject is in the world, kept clear of the ground
+func station_for(offset: Vector3) -> Vector3:
+	if drone == null or not is_instance_valid(drone.subject):
+		return target_position
+	if _back == Vector3.ZERO:
+		_update_back(0.0)
+	var station := _station_at_offset(offset)
+	return station + Vector3.UP * _lift_to_see_from(station)
+
+
+## The offset itself, in the world, kept clear of the ground under it
+func _station_at_offset(offset: Vector3) -> Vector3:
+	var across := Vector3.UP.cross(_back)
+	var station: Vector3 = drone.subject.global_position + across * offset.x + Vector3.UP * offset.y + _back * offset.z
+	if drone.terrain_service != null:
+		station.y = maxf(station.y, drone.terrain_service.get_height_at(station) + STATION_CLEARANCE)
+	return station
+
+
+## How far a station has to be raised to see the subject: a camera behind a
+## tree films the tree
+func _lift_to_see_from(station: Vector3) -> float:
+	for lift in SIGHT_LIFTS:
+		if _can_see_subject_from(station + Vector3.UP * lift):
+			return lift
+	return SIGHT_LIFTS[-1]
+
+
+## True when neither ground, rock nor a tree lies between a point and the subject
+func _can_see_subject_from(point: Vector3) -> bool:
+	var eye := drone.subject.global_position + Vector3.UP * SIGHT_HEIGHT
+	if drone.is_inside_tree():
+		var space := drone.get_world_3d().direct_space_state
+		if space != null:
+			var query := PhysicsRayQueryParameters3D.create(point, eye)
+			var excluded: Array[RID] = [drone.get_rid()]
+			if drone.subject is CollisionObject3D:
+				excluded.append((drone.subject as CollisionObject3D).get_rid())
+			query.exclude = excluded
+			if not space.intersect_ray(query).is_empty():
+				return false
+	return _sight_clear_of_trees(point, eye)
+
+
+## A tree's collider is its trunk; what hides the climber is its foliage, a
+## cone from the ground to the tree's height
+func _sight_clear_of_trees(from: Vector3, to: Vector3) -> bool:
+	var scatter: TerrainScatter = drone.terrain_service.scatter if drone.terrain_service != null else null
+	if scatter == null:
+		return true
+	var steps := clampi(int(from.distance_to(to) / 3.0), 2, 12)
+	for i in range(steps):
+		var point := from.lerp(to, float(i) / float(steps))
+		# The climber may be standing under a tree: that is not the drone's doing
+		if point.distance_to(to) < 3.0:
+			break
+		for obj in scatter.get_objects_near(point, 4.0):
+			if not obj.is_tree() or obj.size <= 0.0:
+				continue
+			var above := point.y - obj.position.y
+			if above < 0.0 or above > obj.size:
+				continue
+			var foliage := maxf(obj.footprint, 1.0) * (1.0 - above / obj.size) + 0.75
+			if Vector2(point.x - obj.position.x, point.z - obj.position.z).length() < foliage:
+				return false
+	return true
+
+
+func _update_follow(delta: float) -> void:
+	if not is_instance_valid(drone.subject):
+		is_following = false
+		return
+	_update_back(delta)
+	var station := _station_at_offset(follow_offset)
+	# Looking for a clear view costs rays and tree lookups: not every tick
+	_sight_check_in -= delta
+	if _sight_check_in <= 0.0 or delta <= 0.0:
+		_sight_check_in = SIGHT_CHECK_INTERVAL
+		_follow_lift = _lift_to_see_from(station)
+	target_position = station + Vector3.UP * _follow_lift
+	has_target = true
+	# Fast enough to stay with a subject that is moving
+	var subject_speed := 0.0
+	if drone.subject is CharacterBody3D:
+		subject_speed = (drone.subject as CharacterBody3D).velocity.length()
+	speed_factor = clampf(maxf(follow_speed, (subject_speed + 2.0) / maxf(drone.max_speed * approach_smoothing, 0.1)), 0.0, 1.4)
+
+
+## Turn "back" toward the uphill side of the slope the subject is on
+func _update_back(delta: float) -> void:
+	var subject := drone.subject
+	var wanted := _back
+	var cell: TerrainCell = drone.terrain_service.get_cell_at(subject.global_position) if drone.terrain_service != null else null
+	if cell != null and cell.slope_angle >= FLAT_SLOPE:
+		var down := Vector3(cell.slope_direction.x, 0.0, cell.slope_direction.z)
+		if down.length_squared() > 0.0001:
+			wanted = -down.normalized()
+	if wanted == Vector3.ZERO:
+		# Flat ground and no fall line seen yet: behind where they face
+		var behind := subject.global_transform.basis.z
+		behind.y = 0.0
+		wanted = behind.normalized() if behind.length_squared() > 0.0001 else Vector3.BACK
+	if _back == Vector3.ZERO or delta <= 0.0:
+		_back = wanted if _back == Vector3.ZERO else _back
+		return
+	# Opposite directions have no shortest way round: pick one
+	if _back.dot(wanted) < -0.98:
+		wanted = (wanted + Vector3.UP.cross(_back) * 0.2).normalized()
+	_back = _back.slerp(wanted, clampf(delta * BACK_TURN_RATE, 0.0, 1.0))
+	_back.y = 0.0
+	_back = _back.normalized() if _back.length_squared() > 0.0001 else wanted
 
 
 ## Start orbiting the subject
@@ -283,27 +473,27 @@ func track_subject(offset: Vector3) -> void:
 
 ## Position for a context shot (wide, establishing)
 func position_for_context() -> void:
-	move_to_subject_offset(Vector3(0, 15, 25), 0.5)
+	follow_subject(Vector3(0, 15, 25), 0.5)
 
 
 ## Position for a tension shot (medium, close)
 func position_for_tension() -> void:
-	move_to_subject_offset(Vector3(3, 3, 8), 0.7)
+	follow_subject(Vector3(3, 3, 8), 0.7)
 
 
 ## Position for a commitment shot (close, forward)
 func position_for_commitment() -> void:
-	move_to_subject_offset(Vector3(1, 2, 5), 0.8)
+	follow_subject(Vector3(1, 2, 5), 0.8)
 
 
 ## Position for a consequence shot (neutral observation)
 func position_for_consequence() -> void:
-	move_to_subject_offset(Vector3(0, 5, 12), 0.4)
+	follow_subject(Vector3(0, 5, 12), 0.4)
 
 
 ## Position for a release shot (pull back, breathe)
 func position_for_release() -> void:
-	move_to_subject_offset(Vector3(0, 12, 30), 0.3)
+	follow_subject(Vector3(0, 12, 30), 0.3)
 
 
 ## Position based on shot intent
@@ -377,6 +567,8 @@ func arc_move(start_angle: float, end_angle: float, duration: float) -> void:
 func hold_position() -> void:
 	has_target = false
 	is_orbiting = false
+	is_following = false
+	pending_move.clear()
 	if drone:
 		target_position = drone.global_position
 
@@ -419,6 +611,8 @@ func get_summary() -> Dictionary:
 		"has_target": has_target,
 		"target_position": target_position,
 		"is_orbiting": is_orbiting,
+		"is_following": is_following,
+		"follow_offset": follow_offset,
 		"orbit_angle": orbit_angle,
 		"speed_factor": speed_factor
 	}

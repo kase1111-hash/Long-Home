@@ -47,23 +47,49 @@ class Highlight:
 # CONFIGURATION
 # =============================================================================
 
-@export_group("Highlight Settings")
-## Minimum importance for highlight
-@export var min_importance: float = 0.6
-## Buffer before event (seconds)
-@export var lead_in: float = 3.0
-## Buffer after event (seconds)
-@export var lead_out: float = 2.0
-## Maximum highlight duration
-@export var max_duration: float = 15.0
-## Minimum gap between highlights
-@export var min_gap: float = 5.0
-
 @export_group("Ethical Settings")
 ## Exclude fatal events
 @export var exclude_fatal: bool = true
 ## Use neutral titles
 @export var neutral_titles: bool = true
+
+@export_group("Highlight Settings")
+## Buffer before event (seconds)
+@export var lead_in: float = 4.0
+## Buffer after event (seconds)
+@export var lead_out: float = 4.0
+## Maximum highlight duration
+@export var max_duration: float = 40.0
+## Minimum gap between highlights
+@export var min_gap: float = 3.0
+## A glissade shorter than this is not a highlight (seconds)
+@export var min_slide_time: float = 4.0
+
+## Nothing is a highlight from this long before control was lost (seconds):
+## "clips stop before loss of control"
+const FATAL_MARGIN := 8.0
+
+## Where on the mountain, by the share of the height still above base camp
+const SECTIONS := [
+	[0.85, "Summit Slopes"],
+	[0.6, "Upper Face"],
+	[0.35, "Middle Slopes"],
+	[0.12, "Lower Slopes"],
+	[-INF, "Run-Out"],
+]
+
+## Slides that ended under control (SPEC-SHEET 17: "successful long slides";
+## uncontrolled slides are excluded)
+const CONTROLLED_SLIDE_ENDS := ["CLEAN_STOP", "TERRAIN_CATCH"]
+
+## Incidents that make getting home afterwards worth a highlight. None of
+## them is a highlight itself.
+const TROUBLE := [
+	"self_arrest_failed", "slide_from_slip", "slide_upset", "slide_impact", "ski_crash",
+	"fall_from_slip", "fall_over", "fall_injury", "hard_landing", "injury",
+	"avalanche_triggered", "avalanche_caught", "avalanche_burial",
+	"crevasse_fall", "anchor_failure", "rope_jam", "rope_lost",
+]
 
 # =============================================================================
 # STATE
@@ -77,6 +103,10 @@ var recording: RecordingService.RecordingData
 
 ## Streamer tools reference
 var streamer_tools: StreamerTools
+
+## Heights of the summit and of base camp (for naming the part of the mountain)
+var _top: float = 0.0
+var _bottom: float = 0.0
 
 
 # =============================================================================
@@ -93,164 +123,143 @@ func _ready() -> void:
 # GENERATION
 # =============================================================================
 
-func generate_highlights(rec: RecordingService.RecordingData) -> Array[Highlight]:
+## The highlights of a recording, in the order they happened (SPEC-SHEET 17):
+## long glissades that ended under control, slips that were arrested, the
+## rope going out, the weather turning, and coming home after trouble. Never
+## a fall, an impact, a slide out of control or anything from the moments
+## before control was lost for good. Titles name the place and what was done
+## ("Upper Face - Weather Turn"), never the danger.
+##
+## A glissade is a slide the climber sat down to; the axe at the end of one is
+## how it is stopped, not a close call. A slide they did not choose (a slip, a
+## tumble, a ski crash) is never a highlight, but stopping one with the axe is.
+##   top, bottom: heights of the summit and of base camp (metres)
+func generate_highlights(rec: RecordingService.RecordingData, top: float = 0.0, bottom: float = 0.0) -> Array[Highlight]:
 	recording = rec
+	_top = top
+	_bottom = bottom
 	highlights.clear()
 
-	if recording == null:
+	if recording == null or recording.frames.is_empty():
 		return highlights
 
-	# Find notable events
-	var notable_events := _find_notable_events()
+	var slide_started := -1.0
+	## The slide under way was the climber's choice (SlideSystem says so when
+	## one starts: its "slide_initiated" decision)
+	var slide_chosen := true
+	var trouble := false
+	for event in recording.events:
+		match event.event_type:
+			"decision":
+				if str(event.data.get("type", "")) == "slide_initiated":
+					var context: Variant = event.data.get("context", {})
+					slide_chosen = not (context is Dictionary and bool((context as Dictionary).get("uncontrolled", false)))
+			"slide_started":
+				slide_started = event.timestamp
+			"slide_ended":
+				var controlled := str(event.data.get("outcome", "")) in CONTROLLED_SLIDE_ENDS
+				if not controlled or not slide_chosen:
+					trouble = true
+				elif slide_started >= 0.0 and event.timestamp - slide_started >= min_slide_time:
+					_add(slide_started - lead_in, event.timestamp + lead_out, "Glissade", "descent", 0.7, slide_started)
+				slide_started = -1.0
+				slide_chosen = true
+			"rope_deployed":
+				_add(event.timestamp - lead_in, event.timestamp + lead_out * 2.0, "Abseil", "technical", 0.6, event.timestamp)
+			"weather_changed":
+				var title := _weather_title(str(event.data.get("from", "")), str(event.data.get("to", "")))
+				if not title.is_empty():
+					_add(event.timestamp - lead_in, event.timestamp + lead_out, title, "conditions", 0.6, event.timestamp)
+			"injury":
+				trouble = true
+			"incident":
+				var incident := str(event.data.get("type", ""))
+				if incident == "self_arrest_success":
+					# The axe stopping a slide nobody chose: a close call, caught.
+					# From the slip to the stop, the stop always in it.
+					if not slide_chosen:
+						var to := event.timestamp + lead_out
+						var from := event.timestamp - lead_in * 1.5
+						if slide_started >= 0.0:
+							from = maxf(slide_started - lead_in, to - max_duration)
+						_add(from, to, "Self-Arrest", "recovery", 0.8, event.timestamp)
+						trouble = true
+				elif incident in TROUBLE:
+					trouble = true
+			"run_ended":
+				if trouble and str(event.data.get("outcome", "")) in ["CLEAN_RETURN", "INJURED_RETURN"]:
+					_add(event.timestamp - lead_in * 2.0, event.timestamp, "Safe Return", "return", 0.75, event.timestamp)
 
-	# Convert to highlights
-	for event in notable_events:
-		var highlight := _create_highlight(event)
-		if highlight:
-			highlights.append(highlight)
-
-	# Merge overlapping highlights
 	_merge_overlapping()
-
-	# Sort by importance
-	highlights.sort_custom(func(a, b): return a.importance > b.importance)
+	highlights.sort_custom(func(a, b): return a.start_time < b.start_time)
 
 	highlights_ready.emit(highlights)
 	return highlights
 
 
-func _find_notable_events() -> Array[Dictionary]:
-	var events: Array[Dictionary] = []
-
-	for event in recording.events:
-		# Skip fatal events if configured
-		if exclude_fatal and event.event_type == "fatal_event":
-			continue
-
-		var importance := _calculate_importance(event)
-		if importance >= min_importance:
-			events.append({
-				"event": event,
-				"importance": importance
-			})
-
-	return events
-
-
-func _calculate_importance(event: RecordingService.RecordedEvent) -> float:
-	match event.event_type:
-		"slide_started":
-			return 0.6
-		"slide_ended":
-			var outcome: String = event.data.get("outcome", "")
-			match outcome:
-				"CLEAN_STOP":
-					return 0.7
-				"TUMBLE_STOP":
-					return 0.8
-				"TERRAIN_CATCH":
-					return 0.7
-				_:
-					return 0.5
-		"rope_deployed":
-			var quality: String = event.data.get("quality", "")
-			if quality in ["MARGINAL", "POOR"]:
-				return 0.8
-			return 0.6
-		"injury":
-			return 0.5 + event.data.get("severity", 0) * 0.3
-		"decision":
-			return 0.5
-		"weather_changed":
-			var to_weather: String = event.data.get("to", "")
-			if to_weather in ["STORM", "WHITEOUT"]:
-				return 0.7
-			return 0.4
-		_:
-			return 0.0
-
-
-func _create_highlight(event_data: Dictionary) -> Highlight:
-	var event: RecordingService.RecordedEvent = event_data["event"]
-	var importance: float = event_data["importance"]
-
-	# Check ethical exclusion
-	if streamer_tools and streamer_tools.should_exclude_from_clip(event.timestamp, recording):
-		return null
-
+## Add a highlight unless the ethical rules keep it out
+func _add(from: float, to: float, what: String, category: String, importance: float, at: float) -> void:
+	var first := recording.frames[0].timestamp
+	var last := recording.frames[-1].timestamp
+	# Nothing from the moments before control was lost for good, nor after
+	var lost := recording.loss_time() if exclude_fatal else INF
+	if is_finite(lost):
+		last = minf(last, lost - FATAL_MARGIN)
+		if at > last:
+			return
+	if streamer_tools != null and streamer_tools.should_exclude_from_clip(at, recording):
+		return
 	var highlight := Highlight.new()
-	highlight.id = str(randi())
-	highlight.importance = importance
-	highlight.category = _get_category(event)
-
-	# Calculate timing
-	highlight.start_time = maxf(0.0, event.timestamp - lead_in)
-	highlight.end_time = minf(
-		recording.end_time - recording.start_time,
-		event.timestamp + lead_out
-	)
+	highlight.id = "%s_%d" % [category, highlights.size()]
+	highlight.start_time = clampf(from, first, last)
+	highlight.end_time = clampf(minf(to, highlight.start_time + max_duration), highlight.start_time, last)
 	highlight.duration = highlight.end_time - highlight.start_time
-
-	# Cap duration
-	if highlight.duration > max_duration:
-		highlight.end_time = highlight.start_time + max_duration
-		highlight.duration = max_duration
-
-	# Generate title
-	highlight.title = _generate_title(event)
-
-	# Thumbnail at peak moment
-	highlight.thumbnail_time = event.timestamp
-
+	if highlight.duration < 1.0:
+		return
+	highlight.importance = importance
+	highlight.category = category
+	highlight.thumbnail_time = clampf(at, highlight.start_time, highlight.end_time)
+	highlight.title = "%s - %s" % [section_name(_height_at(at)), what] if neutral_titles else what
+	highlights.append(highlight)
 	highlight_generated.emit(highlight)
-	return highlight
 
 
-func _get_category(event: RecordingService.RecordedEvent) -> String:
-	match event.event_type:
-		"slide_started", "slide_ended":
-			return "descent"
-		"rope_deployed":
-			return "technical"
-		"injury":
-			return "challenge"
-		"decision":
-			return "choice"
-		"weather_changed":
-			return "conditions"
-		_:
-			return "moment"
+## A change of weather worth a title ("" when it is not: small shifts)
+func _weather_title(from: String, to: String) -> String:
+	if not GameEnums.WeatherState.has(from) or not GameEnums.WeatherState.has(to):
+		return ""
+	var before := WeatherService.weather_rung(GameEnums.WeatherState[from])
+	var after := WeatherService.weather_rung(GameEnums.WeatherState[to])
+	if after > before and after >= WeatherService.SNOW_RUNG:
+		return "Weather Turn"
+	if after < before and before >= WeatherService.SNOW_RUNG:
+		return "Sky Clearing"
+	return ""
 
 
-func _generate_title(event: RecordingService.RecordedEvent) -> String:
-	if not neutral_titles:
-		return event.event_type.capitalize().replace("_", " ")
+## The climber's height at a moment of the recording
+func _height_at(timestamp: float) -> float:
+	var frames := recording.frames
+	var low := 0
+	var high := frames.size() - 1
+	while low < high:
+		var mid := (low + high + 1) / 2
+		if frames[mid].timestamp <= timestamp:
+			low = mid
+		else:
+			high = mid - 1
+	return frames[low].player_position.y
 
-	# Ethical neutral titles
-	match event.event_type:
-		"slide_started":
-			return "Slope Navigation"
-		"slide_ended":
-			var outcome: String = event.data.get("outcome", "")
-			match outcome:
-				"CLEAN_STOP":
-					return "Controlled Descent"
-				"TUMBLE_STOP":
-					return "Recovery Moment"
-				"TERRAIN_CATCH":
-					return "Terrain Interaction"
-				_:
-					return "Descent Sequence"
-		"rope_deployed":
-			return "Technical Section"
-		"injury":
-			return "Challenging Terrain"
-		"decision":
-			return "Key Decision Point"
-		"weather_changed":
-			return "Conditions Change"
-		_:
-			return "Mountain Moment"
+
+## The part of the mountain a height is on ("Upper Face")
+func section_name(height: float) -> String:
+	if _top - _bottom < 1.0:
+		return "The Mountain"
+	var share := (height - _bottom) / (_top - _bottom)
+	for section in SECTIONS:
+		if share >= float(section[0]):
+			return section[1]
+	return "Run-Out"
 
 
 func _merge_overlapping() -> void:
@@ -268,14 +277,14 @@ func _merge_overlapping() -> void:
 
 		# Check for overlap or small gap
 		if next.start_time - current.end_time < min_gap:
-			# Merge - extend current
+			# Merge - extend current, keep the title of the more important one
+			if next.importance > current.importance:
+				current.title = next.title
+				current.category = next.category
+				current.thumbnail_time = next.thumbnail_time
 			current.end_time = maxf(current.end_time, next.end_time)
 			current.duration = current.end_time - current.start_time
 			current.importance = maxf(current.importance, next.importance)
-
-			# Keep better title
-			if next.importance > current.importance:
-				current.title = next.title
 		else:
 			merged.append(current)
 			current = next
@@ -316,7 +325,7 @@ func _get_marker_color(category: String) -> String:
 			return "#9b59b6"
 		"challenge":
 			return "#e74c3c"
-		"choice":
+		"recovery", "return":
 			return "#f1c40f"
 		"conditions":
 			return "#1abc9c"

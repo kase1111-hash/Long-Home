@@ -18,6 +18,8 @@ signal drone_mode_changed(mode: GameEnums.DroneMode)
 signal shot_executed(shot_type: String)
 signal subject_lost()
 signal subject_acquired()
+## The screen now shows what the drone sees (true) or the climber's own camera
+signal view_changed(through_drone: bool)
 
 # =============================================================================
 # CONFIGURATION
@@ -68,6 +70,17 @@ var shot_time: float = 0.0
 ## Last subject position (for lost detection)
 var last_subject_position: Vector3 = Vector3.ZERO
 
+## True while the screen shows the drone's camera instead of the climber's
+var drone_view: bool = false
+
+## True from the start of a fatal event until the next run: the sequence is
+## watched through the drone, in one take, and the view cannot be switched
+var fatal_view: bool = false
+
+## True from the start of a fatal event until the next run, whichever camera
+## is on screen: the drone stops keeping station on the climber
+var fatal_sequence: bool = false
+
 
 # =============================================================================
 # INITIALIZATION
@@ -89,6 +102,16 @@ func _connect_events() -> void:
 	EventBus.slide_ended.connect(_on_slide_ended)
 	EventBus.fatal_event_started.connect(_on_fatal_event_started)
 	EventBus.fatal_phase_changed.connect(_on_fatal_phase_changed)
+
+
+## The drone-view key (B): look through the director's drone, and back
+func _unhandled_input(event: InputEvent) -> void:
+	if not InputMap.has_action("drone_view") or not event.is_action_pressed("drone_view"):
+		return
+	if GameStateManager.current_state != GameEnums.GameState.DESCENT:
+		return
+	toggle_view()
+	get_viewport().set_input_as_handled()
 
 
 ## Initialize the drone system
@@ -113,6 +136,7 @@ func _spawn_drone() -> void:
 	drone.name = "DroneEntity"
 	add_child(drone)
 	_default_drone_speed = drone.max_speed
+	drone.drone_grounded.connect(_on_drone_grounded)
 
 	# Create drone camera
 	drone_camera = DroneCamera.new()
@@ -185,6 +209,67 @@ func deactivate() -> void:
 		drone.deactivate("service_request")
 
 
+# =============================================================================
+# WHICH CAMERA IS ON SCREEN
+# =============================================================================
+
+## Show what the drone sees. False when there is no drone in the air to show.
+func show_drone_view() -> bool:
+	if drone == null or drone_camera == null or not drone.is_active:
+		return false
+	drone_camera.make_current()
+	if not drone_view:
+		drone_view = true
+		view_changed.emit(true)
+	return true
+
+
+## Back to the climber's own camera
+func show_climber_view() -> void:
+	var camera := _climber_camera()
+	if camera != null:
+		camera.make_current()
+	if drone_view:
+		drone_view = false
+		view_changed.emit(false)
+
+
+## Flip between the two. A fatal sequence is one take: no switching.
+func toggle_view() -> void:
+	if fatal_view:
+		return
+	if drone_view:
+		show_climber_view()
+	else:
+		show_drone_view()
+
+
+func is_drone_view() -> bool:
+	return drone_view
+
+
+func _climber_camera() -> Camera3D:
+	var player := ServiceLocator.get_service("PlayerController") as PlayerController
+	if player == null or not is_instance_valid(player):
+		return null
+	var pivot := player.camera_pivot as PlayerCamera
+	return pivot.camera if pivot != null else null
+
+
+func _end_fatal_sequence() -> void:
+	fatal_view = false
+	fatal_sequence = false
+	if drone:
+		drone.let_subject_go = false
+		drone.speed_scale = 1.0
+
+
+func _on_drone_grounded(_reason: String) -> void:
+	# Nothing to look through any more
+	if drone_view and not fatal_view:
+		show_climber_view()
+
+
 ## Switch drone mode
 func set_mode(mode: GameEnums.DroneMode) -> void:
 	if drone:
@@ -211,7 +296,9 @@ func set_shot_intent(intent: GameEnums.ShotIntent) -> void:
 	if drone_camera:
 		drone_camera.set_shot_intent(intent)
 
-	if drone and drone.controller:
+	# In a fatal sequence a shot is a lens and a way of holding the camera,
+	# not somewhere to fly: the drone stays back (FatalPhaseHandler moves it)
+	if drone and drone.controller and not fatal_sequence:
 		drone.controller.position_for_intent(intent)
 
 	shot_executed.emit(GameEnums.ShotIntent.keys()[intent])
@@ -328,13 +415,15 @@ func hesitate(duration: float = 0.2) -> void:
 
 ## Execute slide entry sequence
 func execute_slide_sequence() -> void:
+	if fatal_sequence:
+		return
 	# Pull back for slide
 	execute_commitment_shot()
 
 	# After slide starts, track from side
 	await get_tree().create_timer(0.5).timeout
-	if drone and drone.controller:
-		drone.controller.move_to_subject_offset(Vector3(8, 3, 5), 0.8)
+	if drone and drone.controller and not fatal_sequence:
+		drone.controller.follow_subject(Vector3(8, 3, 5), 0.8)
 
 
 ## Execute fatal event sequence
@@ -370,6 +459,9 @@ func _on_game_state_changed(old_state: GameEnums.GameState, new_state: GameEnums
 			if auto_activate:
 				activate(default_mode)
 		GameEnums.GameState.MAIN_MENU:
+			# The next run starts in the climber's own view
+			_end_fatal_sequence()
+			show_climber_view()
 			deactivate()
 		GameEnums.GameState.RESOLUTION:
 			# Keep drone for resolution replay
@@ -391,6 +483,12 @@ func _on_descent_ready() -> void:
 		is_tracking = true
 		if _default_drone_speed > 0.0:
 			drone.max_speed = _default_drone_speed
+		# A new run somewhere else on the mountain: take off beside the climber
+		drone.reposition_to_subject()
+
+	# Every run starts in the climber's own view
+	_end_fatal_sequence()
+	show_climber_view()
 
 	# Start with context shot
 	execute_context_shot()
@@ -416,6 +514,22 @@ func _on_slide_ended(outcome: GameEnums.SlideOutcome, final_speed: float) -> voi
 
 
 func _on_fatal_event_started(phase: GameEnums.FatalPhase) -> void:
+	# From here the drone keeps its distance: no station on the climber, no
+	# closing in when they drop out of range
+	fatal_sequence = true
+	if drone:
+		drone.let_subject_go = true
+		if drone.controller:
+			drone.controller.hold_position()
+	# The sequence is watched through the drone: it does not follow the
+	# climber down, and the climber's own camera would
+	fatal_view = true
+	if not show_drone_view():
+		fatal_view = false
+	elif drone_view:
+		# Already through the drone: say again which view this is (it is now
+		# one take, with nothing to press)
+		view_changed.emit(true)
 	execute_fatal_sequence()
 
 

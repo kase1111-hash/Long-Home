@@ -28,6 +28,13 @@ const TopoReplayScene := preload("res://src/ui/analysis/topo_replay_visualizatio
 const StreamingSettingsScene := preload("res://src/ui/settings/streaming_settings.tscn")
 const OBSIntegrationScene := preload("res://src/systems/streaming/obs_integration.tscn")
 
+## Key of the world a resumed run was saved in, carried on the run from
+## Continue until the descent is built (see _on_continue_pressed)
+const RESUME_META := "resume_world"
+
+## A run on skis can be saved when it is going no faster than this (m/s)
+const SUSPEND_MAX_GLIDE_SPEED := 1.0
+
 ## Active main menu instance
 var main_menu: MainMenu = null
 
@@ -60,6 +67,17 @@ var self_check_screen: SelfCheckScreen = null
 
 ## Active topo replay visualization
 var topo_replay: TopoReplayVisualization = null
+
+## The replay on the mountain: its stage (in the world) and its controls
+var replay_stage: ReplayStage = null
+var replay_screen: ReplayScreen = null
+var _world_visible_before_replay: bool = true
+
+## Lifetime record (main menu > Logbook)
+var stats_display: StatsDisplay = null
+
+## Sound, display and camera settings (main menu and pause menu > Settings)
+var settings_screen: SettingsScreen = null
 
 ## Active streaming settings screen
 var streaming_settings: StreamingSettings = null
@@ -170,6 +188,9 @@ func _bootstrap_core_services() -> void:
 		var audio := AudioInitializer.new()
 		audio.name = "AudioInitializer"
 		add_child(audio)
+
+	# The player's settings (after the audio stack: it sets the sound levels)
+	_bootstrap_service("GameSettings", GameSettings, self)
 
 	# Camera Director AI (components resolve each other via ServiceLocator)
 	_bootstrap_service("SignalDetector", SignalDetector, self)
@@ -392,6 +413,201 @@ func _on_player_position_updated(position: Vector3, _velocity: Vector3) -> void:
 
 
 # =============================================================================
+# SAVE AND QUIT, CONTINUE (a run set aside part-way)
+# =============================================================================
+
+## Why the run cannot be saved right now ("" when it can). A run is saved
+## standing on the mountain and in control, never part-way through something
+## the save could not put back (a rope, a slide, moving snow).
+func get_suspend_block_reason() -> String:
+	var run := GameStateManager.current_run
+	if run == null or run.is_complete or player == null or not is_instance_valid(player) or environment_service == null:
+		return "There is no descent to save."
+	var fatal := ServiceLocator.get_service("FatalEventManager") as FatalEventManager
+	if fatal != null and fatal.is_fatal_active:
+		return "Not now."
+	var ropes := ServiceLocator.get_service("RopeService") as RopeService
+	if ropes != null and (ropes.rope_in_use or ropes.phase != RopeService.RopePhase.NONE):
+		return "Finish with the rope first."
+	var avalanches := ServiceLocator.get_service("AvalancheSystem") as AvalancheSystem
+	if avalanches != null and (avalanches.is_caught() or not avalanches.flows.is_empty()):
+		return "Not while the snow is moving."
+	var crevasses := ServiceLocator.get_service("CrevasseSystem") as CrevasseSystem
+	if crevasses != null and crevasses.in_crevasse != null:
+		return "Climb out of the crevasse first."
+	if player.gear_action != &"":
+		return "Finish changing what is on your feet first."
+	match player.current_state:
+		GameEnums.PlayerMovementState.STANDING, GameEnums.PlayerMovementState.WALKING, GameEnums.PlayerMovementState.RESTING:
+			pass
+		GameEnums.PlayerMovementState.SKIING:
+			if player.velocity.length() > SUSPEND_MAX_GLIDE_SPEED:
+				return "Come to a stop first."
+		_:
+			return "Get to ground you can stand on first."
+	if not player.is_grounded:
+		return "Get to ground you can stand on first."
+	return ""
+
+
+## There is one place for a run set aside: say so when saving this one
+## would replace another ("" when it would not)
+func _suspend_replaces_note() -> String:
+	var saves := ServiceLocator.get_service("SaveManager") as SaveManager
+	var summary: Dictionary = saves.get_suspended_run_summary() if saves != null else {}
+	if summary.is_empty():
+		return ""
+	var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
+	var mountain: MountainDatabase.MountainData = mountain_db.get_mountain(str(summary.get("mountain_id", ""))) if mountain_db != null else null
+	return "Saving replaces the descent you set aside%s." % ((" on %s" % mountain.name) if mountain != null else "")
+
+
+## The run as it stands and the world around it, as plain data for
+## SaveManager.save_suspended_run
+func _capture_suspended_run() -> Dictionary:
+	var run := GameStateManager.current_run
+	run.position = player.global_position
+	run.current_elevation = player.global_position.y
+	return {
+		"saved_at": Time.get_datetime_string_from_system(),
+		"run": run.to_save(),
+		"world": {
+			"player": {
+				"position": player.global_position,
+				"yaw": player.rotation.y,
+				"footwear": int(player.footwear),
+			},
+			"environment": environment_service.to_save(),
+			"mountain": _capture_mountain(),
+			"recording": _capture_recording(),
+		},
+	}
+
+
+## The recording of the run so far, so that the replay of a run that was set
+## aside and continued is whole
+func _capture_recording() -> Dictionary:
+	var recorder := ServiceLocator.get_service("RecordingService") as RecordingService
+	return recorder.to_save() if recorder != null else {}
+
+
+## What has changed on the mountain since the day began (ground that slid or
+## opened, what the avalanches left to be seen, the climber's probe holes)
+func _capture_mountain() -> Dictionary:
+	var data := {}
+	if terrain_service != null:
+		data["terrain"] = terrain_service.get_changes()
+	var avalanche_system := ServiceLocator.get_service("AvalancheSystem") as AvalancheSystem
+	if avalanche_system != null:
+		data["avalanches"] = avalanche_system.to_save()
+	var crevasse_system := ServiceLocator.get_service("CrevasseSystem") as CrevasseSystem
+	if crevasse_system != null:
+		data["crevasses"] = crevasse_system.to_save()
+	return data
+
+
+## Pause menu > Save and Quit: write the run to disk, set it aside and go to
+## the main menu. Nothing is recorded: the run has no outcome yet.
+func _on_save_and_quit() -> void:
+	if GameStateManager.current_state != GameEnums.GameState.PAUSED or not get_suspend_block_reason().is_empty():
+		return
+	var saves := ServiceLocator.get_service("SaveManager") as SaveManager
+	if saves == null or not saves.save_suspended_run(_capture_suspended_run()):
+		# Still on the mountain, still paused: say so rather than lose the run
+		if pause_menu != null:
+			pause_menu.set_save_quit_blocked("The descent could not be saved.")
+		return
+	print("[Main] Run saved; leaving for the main menu")
+	GameStateManager.suspend_run()
+	GameStateManager.transition_to(GameEnums.GameState.MAIN_MENU)
+
+
+## The window is being closed with a descent on: keep it, if it can be kept.
+## Never in place of a run already set aside (nobody was asked), and never
+## where Save and Quit would be refused. Returns whether the run was written.
+func save_run_on_close() -> bool:
+	if not GameStateManager.is_run_active() or not get_suspend_block_reason().is_empty():
+		return false
+	var saves := ServiceLocator.get_service("SaveManager") as SaveManager
+	if saves == null or saves.has_suspended_run():
+		return false
+	var written := saves.save_suspended_run(_capture_suspended_run())
+	if written:
+		print("[Main] Window closed on a descent: run saved for Continue")
+	return written
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		save_run_on_close()
+
+
+## Main menu > Continue: load the run that was set aside and carry on with it
+func _on_continue_pressed() -> void:
+	# Only from the menu, and only once (a second press finds a descent under way)
+	if GameStateManager.current_state != GameEnums.GameState.MAIN_MENU:
+		return
+	var saves := ServiceLocator.get_service("SaveManager") as SaveManager
+	var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
+	var record: Dictionary = saves.load_suspended_run() if saves != null else {}
+	var run: RunContext = RunContext.from_save(record["run"]) if not record.is_empty() else null
+	if run == null or mountain_db == null or not mountain_db.select_mountain(run.mountain_id, true):
+		push_warning("[Main] There is no run to continue")
+		if main_menu != null:
+			main_menu.refresh()
+		return
+
+	# The mountain, the way round it and the day's snowpack, as they were
+	if run.is_full_route() and not mountain_db.set_route_mode(GameEnums.RouteMode.FULL_ROUTE):
+		mountain_db.full_route_override = true
+		mountain_db.set_route_mode(GameEnums.RouteMode.FULL_ROUTE)
+	elif not run.is_full_route():
+		mountain_db.set_route_mode(GameEnums.RouteMode.DESCENT)
+	run.start_conditions.avalanche = StartConditions.avalanche_from_save(
+		record["run"]["start_conditions"], mountain_db.get_mountain(run.mountain_id))
+	var avalanches := ServiceLocator.get_service("AvalancheService") as AvalancheService
+	if avalanches != null and run.start_conditions.avalanche != null:
+		avalanches.set_today(run.mountain_id, run.start_conditions.avalanche)
+
+	var world_saved: Variant = record.get("world")
+	run.set_meta(RESUME_META, world_saved if world_saved is Dictionary else {})
+	# The recording goes on from where it was (the recorder takes it up when
+	# the run starts)
+	var recorder := ServiceLocator.get_service("RecordingService") as RecordingService
+	if recorder != null and world_saved is Dictionary and world_saved.get("recording") is Dictionary:
+		recorder.pending_restore = world_saved["recording"]
+	GameStateManager.resume_run(run)
+	GameStateManager.transition_to(GameEnums.GameState.DESCENT)
+
+
+## Stand the climber where the run was saved, facing the way they faced and
+## with the same things on their feet. Returns the position used (fallback
+## when the save names none, or one that is no longer on the mountain).
+func _place_resumed_player(saved: Dictionary, fallback: Vector3) -> Vector3:
+	var spot := fallback
+	if saved.get("position") is Vector3:
+		spot = saved["position"]
+	if terrain_service != null:
+		var low := terrain_service.terrain_bounds_min
+		var high := terrain_service.terrain_bounds_max
+		if spot.x < low.x or spot.x > high.x or spot.z < low.z or spot.z > high.z:
+			spot = fallback
+		# Never under the snow (a mountain whose shape changed between versions)
+		spot.y = maxf(spot.y, terrain_service.get_height_at(spot) + 0.3)
+	player.global_position = spot
+	player.rotation = Vector3(0.0, float(saved.get("yaw", player.rotation.y)), 0.0)
+	player.velocity = Vector3.ZERO
+	player.last_position = spot
+	var footwear := int(saved.get("footwear", player.footwear))
+	if footwear >= 0 and footwear < GameEnums.Footwear.size():
+		player.set_footwear(footwear as GameEnums.Footwear)
+	var pivot := player.camera_pivot as PlayerCamera
+	if pivot != null:
+		pivot.snap_behind_player()
+	return spot
+
+
+# =============================================================================
 # STATE HANDLERS
 # =============================================================================
 
@@ -412,9 +628,15 @@ func _show_main_menu() -> void:
 	# Create main menu if not exists
 	if main_menu == null:
 		main_menu = MainMenuScene.instantiate()
+		main_menu.logbook_pressed.connect(_show_logbook)
+		main_menu.settings_pressed.connect(_show_settings)
+		main_menu.continue_pressed.connect(_on_continue_pressed)
 		ui.add_child(main_menu)
 	else:
 		main_menu.show_menu()
+
+	# Keys and gamepads: the menu starts on the run to continue, else on a new one
+	UIFocus.take(main_menu.continue_button if main_menu.has_save else main_menu.new_descent_button)
 
 	print("[Main] Main menu loaded")
 
@@ -436,6 +658,8 @@ func _show_mountain_select() -> void:
 	else:
 		mountain_select_screen.visible = true
 		mountain_select_screen.refresh()
+
+	mountain_select_screen.focus_default()
 
 	print("[Main] Mountain select loaded")
 
@@ -463,6 +687,8 @@ func _show_loadout_config() -> void:
 		var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
 		if mountain_db != null:
 			loadout_config_screen.set_mountain(mountain_db.get_selected_mountain())
+
+	UIFocus.take(loadout_config_screen.find_child("StartButton", true, false) as Control)
 
 	print("[Main] Loadout config loaded")
 
@@ -494,11 +720,20 @@ func _show_planning() -> void:
 	# Create planning screen if not exists
 	if planning_screen == null:
 		planning_screen = PlanningScene.instantiate()
+		# Planning again after a run picked up from a save: start from the
+		# day that run was (the screen has not seen it this session)
+		var last := GameStateManager.current_run
+		if last != null and last.start_conditions != null and not last.start_conditions.weather_id.is_empty():
+			planning_screen.weather_id = last.start_conditions.weather_id
+			if not last.start_conditions.climb_id.is_empty():
+				planning_screen.climb_id = last.start_conditions.climb_id
 		ui.add_child(planning_screen)
 		planning_screen.planning_complete.connect(_on_planning_complete)
 	else:
 		planning_screen.visible = true
 		planning_screen.refresh()
+
+	UIFocus.take(planning_screen.confirm_button)
 
 	print("[Main] Planning screen loaded")
 
@@ -522,10 +757,16 @@ func _on_planning_complete(route: PackedVector3Array) -> void:
 	if loadout_config_screen != null:
 		loadout = loadout_config_screen.get_loadout()
 	else:
-		loadout = GearState.create_standard_loadout()
+		# No loadout screen this session (the last run was picked up from a
+		# save and is being tried again): the pack that run set out with
+		var last := GameStateManager.current_run
+		loadout = last.start_conditions.gear_state.duplicate_state() \
+			if last != null and last.start_conditions != null and last.start_conditions.gear_state != null \
+			else GearState.create_standard_loadout()
 
-	# Create start conditions
-	var conditions := StartConditions.create_moderate()
+	# The day chosen at the hut: how the climb went and the weather window
+	var conditions := StartConditions.create_for_day(planning_screen.climb_id, planning_screen.weather_id) \
+		if planning_screen != null else StartConditions.create_for_day()
 	conditions.gear_state = loadout
 	conditions.mountain_id = mountain.id
 	conditions.knowledge_level = mountain_db.get_knowledge_level(mountain.id)
@@ -583,11 +824,22 @@ func _initialize_descent_systems() -> void:
 	# 1. Initialize terrain
 	await _setup_terrain(run.mountain_id)
 
+	# 1b. A run picked up again: the mountain as it was left (debris, beds,
+	# opened crevasses), before anyone stands on it
+	var world_saved: Dictionary = run.get_meta(RESUME_META, {})
+	var mountain_saved: Dictionary = world_saved["mountain"] if world_saved.get("mountain") is Dictionary else {}
+	if mountain_saved.get("terrain") is Dictionary and terrain_service != null:
+		terrain_service.restore_changes(mountain_saved["terrain"])
+
 	# 2. Initialize environment services
 	_setup_environment(run)
 
 	# 2b. Create gameplay simulation systems (body, sliding, rope, risk, fatal, tutorial)
 	_bootstrap_descent_systems()
+	if mountain_saved.get("avalanches") is Dictionary:
+		var avalanche_system := ServiceLocator.get_service("AvalancheSystem") as AvalancheSystem
+		if avalanche_system != null:
+			avalanche_system.pending_restore = mountain_saved["avalanches"]
 
 	# 3. Spawn player at start position
 	_spawn_player(run)
@@ -603,8 +855,22 @@ func _initialize_descent_systems() -> void:
 	# 5. Setup HUD elements
 	_setup_hud()
 
+	# A run picked up again is on the mountain now: the save has done its job
+	# (there is no going back to it after a bad turn)
+	if run.has_meta(RESUME_META):
+		run.remove_meta(RESUME_META)
+		var saves := ServiceLocator.get_service("SaveManager") as SaveManager
+		if saves != null:
+			saves.clear_suspended_run()
+
 	# Emit descent ready signal
 	EventBus.descent_ready.emit()
+
+	# The climber's own marks on the glacier, once its systems are ready
+	if mountain_saved.get("crevasses") is Dictionary:
+		var crevasse_system := ServiceLocator.get_service("CrevasseSystem") as CrevasseSystem
+		if crevasse_system != null:
+			crevasse_system.restore(mountain_saved["crevasses"])
 
 
 func _setup_terrain(mountain_id: String) -> void:
@@ -647,12 +913,16 @@ func _setup_environment(run: RunContext) -> void:
 	weather_service = ServiceLocator.get_service("WeatherService") as WeatherService
 
 	# Seed the run's environment from the start conditions
-	var config := EnvironmentService.EnvironmentConfig.new()
-	config.start_hour = run.start_conditions.time_of_day
-	config.difficulty = run.start_conditions.get_difficulty_score()
-	config.start_weather = run.start_conditions.weather
+	var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
+	var mountain: MountainDatabase.MountainData = mountain_db.get_mountain(run.mountain_id) if mountain_db != null else null
+	var config := EnvironmentService.EnvironmentConfig.from_conditions(run.start_conditions, mountain)
 	config.start_elevation = _get_start_position().y
-	environment_service.initialize_run(config)
+	var resumed: Dictionary = run.get_meta(RESUME_META, {})
+	if resumed.get("environment") is Dictionary:
+		config.start_elevation = run.current_elevation
+		environment_service.resume_run(config, resumed["environment"])
+	else:
+		environment_service.initialize_run(config)
 
 
 func _spawn_player(run: RunContext) -> void:
@@ -690,9 +960,25 @@ func _spawn_player(run: RunContext) -> void:
 	else:
 		player.reset_for_new_run()
 
-	# Link run context to player
+	# Link run context to player. Handing over the pack puts the day's
+	# footwear on: that is the start of the day, not a decision made in it
+	var logged := run.decisions.size()
 	player.body_state = run.body_state
 	player.gear_state = run.gear_state
+
+	# A run picked up again stands where it was saved, with the same things
+	# on its feet; its own record of the day so far is left as it is
+	var resumed: Dictionary = run.get_meta(RESUME_META, {})
+	if resumed.get("player") is Dictionary:
+		start_pos = _place_resumed_player(resumed["player"], start_pos)
+		run.decisions.resize(logged)
+		run.position = start_pos
+		run.current_elevation = start_pos.y
+		run.target_elevation = goal_pos.y
+		run.reset_position_tracking()
+		print("[Main] Player back at: %s" % start_pos)
+		return
+	run.decisions.resize(logged)
 
 	# Update run context with start position
 	run.position = start_pos
@@ -834,8 +1120,61 @@ func _hide_resolution_screen() -> void:
 
 
 func _hide_main_menu() -> void:
+	_hide_logbook()
+	_hide_settings()
 	if main_menu != null:
 		main_menu.hide_menu()
+
+
+## The lifetime record, over the main menu
+func _show_logbook() -> void:
+	if stats_display == null:
+		stats_display = StatsDisplay.new()
+		stats_display.name = "Logbook"
+		stats_display.close_requested.connect(_hide_logbook)
+		ui.add_child(stats_display)
+	else:
+		stats_display.refresh()
+	stats_display.visible = true
+	UIFocus.take(stats_display.find_child("CloseButton", true, false) as Control)
+
+
+func _hide_logbook() -> void:
+	if stats_display != null:
+		if stats_display.visible and main_menu != null and main_menu.visible:
+			UIFocus.take(main_menu.logbook_button)
+		stats_display.visible = false
+
+
+## The settings screen, over the main menu or in place of the pause menu
+func _show_settings() -> void:
+	# From the pause menu: put it away but stay paused
+	if pause_menu != null and pause_menu.visible:
+		pause_menu.visible = false
+	if settings_screen == null:
+		settings_screen = SettingsScreen.new()
+		settings_screen.name = "SettingsScreen"
+		settings_screen.close_requested.connect(_on_settings_closed)
+		ui.add_child(settings_screen)
+	# Above whatever was added since (the descent's HUD)
+	ui.move_child(settings_screen, -1)
+	settings_screen.show_settings()
+
+
+func _hide_settings() -> void:
+	if settings_screen != null:
+		settings_screen.hide_settings()
+
+
+func _on_settings_closed() -> void:
+	_hide_settings()
+	# Back to the pause menu when that is where it was opened from
+	if pause_menu != null and GameStateManager.current_state == GameEnums.GameState.PAUSED:
+		pause_menu.visible = true
+		pause_menu.show_menu()
+	elif main_menu != null and main_menu.visible:
+		# Back on the main menu, where the focus was
+		UIFocus.take(main_menu.settings_button)
 
 
 func _show_resolution() -> void:
@@ -854,6 +1193,8 @@ func _show_resolution() -> void:
 
 	# Show with run results
 	resolution_screen.show_resolution(run, run.outcome)
+
+	UIFocus.take(resolution_screen.continue_button)
 
 	print("[Main] Resolution screen shown: %s" % GameEnums.ResolutionType.keys()[run.outcome])
 
@@ -874,21 +1215,102 @@ func _show_post_game() -> void:
 	if post_game_screen == null:
 		post_game_screen = PostGameScreenScene.instantiate()
 		post_game_screen.view_replay_pressed.connect(_on_view_replay_pressed)
+		post_game_screen.watch_replay_pressed.connect(_show_replay)
 		ui.add_child(post_game_screen)
 
 	# Show analysis
 	post_game_screen.show_analysis(run)
+	post_game_screen.set_replay_available(_recording_of(run) != null)
+
+	UIFocus.take(post_game_screen.return_button)
 
 	print("[Main] Post-game analysis shown")
 
 
 func _hide_post_game_screen() -> void:
+	_hide_topo_replay()
+	_hide_replay(false)
 	if post_game_screen != null:
 		post_game_screen.hide_analysis()
 
 
 func _on_view_replay_pressed() -> void:
 	_show_topo_replay()
+
+
+# =============================================================================
+# REPLAY ON THE MOUNTAIN
+# =============================================================================
+
+## The recording of a run, when the recorder still holds it and it is worth
+## watching (null otherwise)
+func _recording_of(run: RunContext) -> RecordingService.RecordingData:
+	var recorder := ServiceLocator.get_service("RecordingService") as RecordingService
+	var recording: RecordingService.RecordingData = recorder.get_current_recording() if recorder != null else null
+	if run == null or recording == null or recording.run_id != run.run_id or recording.frames.size() < 2:
+		return null
+	return recording
+
+
+## Post-game > Watch it again: the run just finished, replayed on the
+## mountain. The climber is moved through the recording, the hour and the
+## weather are the recording's, and ReplayPlayer keeps to the rules for a run
+## that ended in a fatal event.
+func _show_replay() -> void:
+	if replay_screen != null and replay_screen.visible:
+		return
+	var run := post_game_screen.get_run_context() if post_game_screen != null else GameStateManager.current_run
+	var recording := _recording_of(run)
+	var replays := ServiceLocator.get_service("ReplayPlayer") as ReplayPlayer
+	if recording == null or replays == null:
+		return
+	if replay_stage == null:
+		replay_stage = ReplayStage.new()
+		replay_stage.name = "ReplayStage"
+		world.add_child(replay_stage)
+	if not replay_stage.begin(recording, run):
+		return
+	if not replays.open(recording, replay_stage):
+		replay_stage.end()
+		return
+	print("[Main] Showing the replay (%d frames, %.0f s)" % [recording.frames.size(), recording.get_duration()])
+
+	_world_visible_before_replay = world.visible
+	world.visible = true
+	_hide_topo_replay()
+	post_game_screen.visible = false
+	if replay_screen == null:
+		replay_screen = ReplayScreen.new()
+		replay_screen.name = "ReplayScreen"
+		replay_screen.close_requested.connect(_hide_replay)
+		replay_screen.map_replay_requested.connect(func() -> void:
+			_hide_replay()
+			_show_topo_replay())
+		ui.add_child(replay_screen)
+	var highlights: Array = []
+	var generator := ServiceLocator.get_service("HighlightGenerator") as HighlightGenerator
+	if generator != null and terrain_service != null:
+		highlights = generator.generate_highlights(recording, terrain_service.start_position.y, terrain_service.goal_position.y)
+	replay_screen.open(replays, run, highlights)
+	replays.play()
+
+
+## Put the mountain away again and go back to the day's summary
+## (back_to_summary false: the summary itself is being left)
+func _hide_replay(back_to_summary: bool = true) -> void:
+	if replay_screen == null or not replay_screen.visible:
+		return
+	replay_screen.close()
+	var replays := ServiceLocator.get_service("ReplayPlayer") as ReplayPlayer
+	if replays != null:
+		replays.close()
+	if replay_stage != null:
+		replay_stage.end()
+	world.visible = _world_visible_before_replay
+	if back_to_summary and post_game_screen != null:
+		post_game_screen.visible = true
+		post_game_screen.modulate.a = 1.0
+		UIFocus.take(post_game_screen.watch_button)
 
 
 func _show_topo_replay() -> void:
@@ -908,6 +1330,7 @@ func _show_topo_replay() -> void:
 
 	# Show visualization
 	topo_replay.show_visualization(run)
+	UIFocus.take(topo_replay.play_button)
 
 	print("[Main] Topo replay shown")
 
@@ -944,8 +1367,11 @@ func _show_pause_menu() -> void:
 		pause_menu = PauseMenuScene.instantiate()
 		pause_menu.self_check_pressed.connect(_on_self_check_pressed)
 		pause_menu.streaming_settings_pressed.connect(_on_streaming_settings_pressed)
+		pause_menu.settings_pressed.connect(_show_settings)
+		pause_menu.save_quit_pressed.connect(_on_save_and_quit)
 		ui.add_child(pause_menu)
 
+	pause_menu.set_save_quit_blocked(get_suspend_block_reason(), _suspend_replaces_note())
 	pause_menu.show_menu()
 	print("[Main] Game paused")
 
@@ -1059,8 +1485,8 @@ func _on_return_to_pause_from_map() -> void:
 # =============================================================================
 
 func _unhandled_input(event: InputEvent) -> void:
-	# Pause toggle during descent
-	if event.is_action_pressed("ui_cancel"):
+	# Pause toggle during descent ("cancel" only folds the map away)
+	if event.is_action_pressed("pause") or event.is_action_pressed("ui_cancel"):
 		var state := GameStateManager.current_state
 		if state == GameEnums.GameState.DESCENT:
 			# Close physical map first if open
@@ -1068,8 +1494,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				physical_map.close_map()
 				get_viewport().set_input_as_handled()
 				return
-			GameStateManager.toggle_pause()
-			get_viewport().set_input_as_handled()
+			if event.is_action_pressed("pause"):
+				GameStateManager.toggle_pause()
+				get_viewport().set_input_as_handled()
 
 	# Physical map toggle during descent
 	if event.is_action_pressed("open_map"):

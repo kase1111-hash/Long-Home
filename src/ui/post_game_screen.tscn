@@ -99,6 +99,11 @@ text = "You were moving fast when you needed margin."
 horizontal_alignment = 1
 autowrap_mode = 2
 
+[node name="ReplayButton" type="Button" parent="HSplitContainer/MomentsPanel/Layout"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+text = "Replay on the map"
+
 [node name="ButtonContainer" type="HBoxContainer" parent="HSplitContainer/MomentsPanel/Layout"]
 layout_mode = 2
 alignment = 1

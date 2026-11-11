@@ -44,6 +44,33 @@ class GDScriptValidator:
         """Find all .gd files in the source directory."""
         return list(self.src_dir.rglob("*.gd"))
 
+    @staticmethod
+    def code_only(line: str) -> str:
+        """A line without its string literals and its trailing comment.
+
+        Braces and parentheses are only counted in what is left: a string may
+        hold a lone one ('text.contains("{")'), and so may a comment.
+        """
+        out = []
+        quote = None
+        i = 0
+        while i < len(line):
+            ch = line[i]
+            if quote:
+                if ch == '\\':
+                    i += 2
+                    continue
+                if ch == quote:
+                    quote = None
+            elif ch in ('"', "'"):
+                quote = ch
+            elif ch == '#':
+                break
+            else:
+                out.append(ch)
+            i += 1
+        return ''.join(out)
+
     def parse_file(self, path: Path) -> GDScriptFile:
         """Parse a GDScript file and extract metadata."""
         content = path.read_text()
@@ -132,9 +159,10 @@ class GDScriptValidator:
                         gd_file.enums_used.append(f"{enum_type}.{enum_value}")
 
             # Basic syntax checks
-            # Unmatched braces/parens (simple check)
-            brace_depth += stripped.count('{') - stripped.count('}')
-            paren_depth += stripped.count('(') - stripped.count(')')
+            # Unmatched braces/parens (simple check), outside strings and comments
+            code = self.code_only(stripped)
+            brace_depth += code.count('{') - code.count('}')
+            paren_depth += code.count('(') - code.count(')')
 
             # Check for common issues
             if 'var ' in stripped and '=' not in stripped and ':' not in stripped:

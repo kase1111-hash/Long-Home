@@ -287,6 +287,64 @@ func get_status_messages() -> Array[String]:
 	return messages
 
 
+## This body as plain data (numbers, dictionaries, arrays), for a suspended
+## run's save file
+func to_save() -> Dictionary:
+	var hurt: Array = []
+	for injury in injuries:
+		hurt.append({
+			"type": int(injury.type),
+			"severity": injury.severity,
+			"location": int(injury.location),
+			"time": injury.time_occurred,
+			"treated": injury.is_treated,
+		})
+	return {
+		"fatigue": fatigue,
+		"cold_exposure": cold_exposure,
+		"hydration": hydration,
+		"mental_state": mental_state,
+		"extremity_cold": extremity_cold.duplicate(),
+		"injuries": hurt,
+	}
+
+
+## A body from to_save() data. Anything missing or out of range takes the
+## value of a fresh body.
+static func from_save(data: Dictionary) -> BodyState:
+	var state := BodyState.new()
+	state.fatigue = _unit(data.get("fatigue"), state.fatigue)
+	state.cold_exposure = _unit(data.get("cold_exposure"), state.cold_exposure)
+	state.hydration = _unit(data.get("hydration"), state.hydration)
+	state.mental_state = _unit(data.get("mental_state"), state.mental_state)
+	var cold: Variant = data.get("extremity_cold")
+	if cold is Dictionary:
+		for part in state.extremity_cold.keys():
+			if (cold as Dictionary).has(part):
+				state.extremity_cold[part] = _unit(cold[part], state.extremity_cold[part])
+	var hurt: Variant = data.get("injuries")
+	if hurt is Array:
+		for entry in hurt:
+			if not (entry is Dictionary):
+				continue
+			var type := int(entry.get("type", GameEnums.InjuryType.NONE))
+			var location := int(entry.get("location", GameEnums.BodyPart.TORSO))
+			if type < 0 or type >= GameEnums.InjuryType.size() or location < 0 or location >= GameEnums.BodyPart.size():
+				continue
+			var injury := Injury.new(type as GameEnums.InjuryType, _unit(entry.get("severity"), 0.0),
+				location as GameEnums.BodyPart, float(entry.get("time", 0.0)))
+			injury.is_treated = bool(entry.get("treated", false))
+			state.injuries.append(injury)
+	return state
+
+
+## A saved 0-1 value, or the fallback when it is not a number
+static func _unit(value: Variant, fallback: float) -> float:
+	if not (value is float or value is int) or is_nan(float(value)):
+		return fallback
+	return clampf(float(value), 0.0, 1.0)
+
+
 ## Create a copy of this body state
 func duplicate_state() -> BodyState:
 	var copy := BodyState.new()
