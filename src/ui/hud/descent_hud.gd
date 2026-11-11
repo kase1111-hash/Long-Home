@@ -123,6 +123,8 @@ var _feet_value: Label
 var _time_value: Label
 var _timer_caption: Label
 var _timer_value: Label
+var _split_caption: Label
+var _split_value: Label
 var _temp_caption: Label
 var _temp_value: Label
 var _descended_caption: Label
@@ -284,11 +286,16 @@ func _build_run_panel() -> void:
 	_feet_value = _add_row("Feet")
 	_time_value = _add_row("Time")
 
-	# The run timer: only when the player has asked for it (settings)
+	# The run timer: only when the player has asked for it (settings); the
+	# last split under it, once there is one
 	_timer_value = _add_row("Timer")
 	_timer_caption = _rows.get_node("TimerCaption") as Label
 	_timer_caption.visible = false
 	_timer_value.visible = false
+	_split_value = _add_row("Split")
+	_split_caption = _rows.get_node("SplitCaption") as Label
+	_split_caption.visible = false
+	_split_value.visible = false
 
 	# Temperature row stays hidden until a source provides a value
 	_temp_caption = _make_label("TempCaption", "Temp", VALUE_FONT_SIZE, CAPTION_COLOR)
@@ -677,14 +684,30 @@ func _update_timer_row(run: RunContext) -> void:
 	var wanted := run != null and settings != null and bool(settings.get_value("show_timer"))
 	_timer_caption.visible = wanted
 	_timer_value.visible = wanted
+	var timer := ServiceLocator.get_service("SpeedrunTimer") as SpeedrunTimer
+	var splits: Array[SpeedrunTimer.Split] = timer.get_current_splits() if (wanted and timer != null) else ([] as Array[SpeedrunTimer.Split])
+	_split_caption.visible = not splits.is_empty()
+	_split_value.visible = not splits.is_empty()
 	if not wanted:
 		return
 	var text := SpeedrunTimer.format_clock(run.real_time_elapsed)
-	var timer := ServiceLocator.get_service("SpeedrunTimer") as SpeedrunTimer
 	var best := timer.get_personal_best(run.mountain_id, run.is_full_route()) if timer != null else -1.0
 	if best > 0.0:
 		text += "  (best %s)" % SpeedrunTimer.format_clock(best)
 	_timer_value.text = text
+	if not splits.is_empty():
+		_split_value.text = split_text(splits[splits.size() - 1], true)
+
+
+## A split as the HUD and the end-of-run screen print it: where, when, and
+## how that compares with the best run ("50%  6:12  (-0:14)")
+static func split_text(split: SpeedrunTimer.Split, with_place: bool) -> String:
+	var text := SpeedrunTimer.format_clock(split.time)
+	if with_place:
+		text = "%s  %s" % [split.short_name, text]
+	if split.has_comparison:
+		text += "  (%s)" % SpeedrunTimer.format_delta(split.comparison)
+	return text
 
 
 func _update_temperature_row() -> void:

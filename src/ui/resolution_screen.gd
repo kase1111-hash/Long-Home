@@ -151,6 +151,10 @@ func _build_stats() -> void:
 			elif best > 0.0:
 				played += "  (fastest %s)" % SpeedrunTimer.format_clock(best)
 		_add_stat("Played", played)
+		# The splits on the way, each against the best run's
+		if timer != null:
+			for split in timer.get_current_splits():
+				_add_stat(split.name, DescentHUD.split_text(split, false))
 
 	# Distance traveled
 	_add_stat("Distance", "%.0f m" % run_context.distance_traveled)

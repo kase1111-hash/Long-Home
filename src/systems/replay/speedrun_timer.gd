@@ -15,6 +15,14 @@ extends Node
 ##   timer.get_personal_best(mountain_id, full)     # seconds, -1 when none
 ##   SpeedrunTimer.format_clock(754.0)              # "12:34"
 ##
+## Splits are noted at fixed shares of the height between the summit and base
+## camp (SPLIT_MARKS), so they mean the same on whatever line is taken; on a
+## full route the summit is one. Each is compared with the same split of the
+## best run on that mountain. They are kept on the run (its "timer_splits"
+## meta), so they survive Save and Quit.
+##   timer.get_current_splits()                     # Array[Split], in order
+##   timer.split_recorded                           # (name, time, comparison)
+##
 ## Categories:
 ## - Any%: Reach base by any means
 ## - Clean Return: No injuries, good margin
@@ -68,25 +76,43 @@ const DATA_PATH := "user://speedrun_data.json"
 ## Decimal precision for display
 @export var decimal_places: int = 2
 
-@export_group("Auto-Split")
-## Auto-split on altitude milestones
-@export var auto_split_altitude: bool = true
-## Altitude interval for auto-splits (meters)
-@export var altitude_split_interval: float = 500.0
+## Where the time is noted on the way. share: how much of the leg's height is
+## behind the climber (0-1); phase: the leg it belongs to. The summit of a
+## full route is noted when it is reached (EventBus.summit_reached).
+## short: the label for the HUD.
+const SPLIT_MARKS := {
+	GameEnums.RouteMode.DESCENT: [
+		{"id": "down_25", "label": "Quarter way down", "short": "25%", "phase": GameEnums.RunPhase.DESCENT, "share": 0.25},
+		{"id": "down_50", "label": "Halfway down", "short": "50%", "phase": GameEnums.RunPhase.DESCENT, "share": 0.5},
+		{"id": "down_75", "label": "Three quarters down", "short": "75%", "phase": GameEnums.RunPhase.DESCENT, "share": 0.75},
+	],
+	GameEnums.RouteMode.FULL_ROUTE: [
+		{"id": "up_50", "label": "Halfway up", "short": "Up 50%", "phase": GameEnums.RunPhase.ASCENT, "share": 0.5},
+		{"id": "summit", "label": "Summit", "short": "Summit", "phase": GameEnums.RunPhase.ASCENT, "share": 2.0},
+		{"id": "down_50", "label": "Halfway down", "short": "Down 50%", "phase": GameEnums.RunPhase.DESCENT, "share": 0.5},
+	],
+}
+
+## Key of the splits kept on a run (plain data: [{"id", "time"}])
+const SPLITS_META := "timer_splits"
 
 # =============================================================================
 # SPLIT DATA
 # =============================================================================
 
 class Split:
-	var name: String
+	var id: String            # Which mark (SPLIT_MARKS)
+	var name: String          # Its label ("Halfway down")
+	var short_name: String    # Its label on the HUD ("50%")
 	var time: float           # Time at this split
 	var segment_time: float   # Time since last split
-	var comparison: float     # Difference from PB
+	var comparison: float     # Difference from the best run's same split
+	var has_comparison: bool  # There is a best run with this split to compare with
 	var is_gold: bool         # Best segment ever
 
 	func to_dict() -> Dictionary:
 		return {
+			"id": id,
 			"name": name,
 			"time": time,
 			"segment": segment_time,
@@ -169,12 +195,6 @@ var personal_bests: Dictionary = {}  # "mountain:category" -> RunData
 ## Gold splits (best segments ever)
 var gold_splits: Dictionary = {}  # "mountain:split_name" -> float
 
-## Starting altitude (for split calculation)
-var start_altitude: float = 0.0
-
-## Last split altitude
-var last_split_altitude: float = 0.0
-
 ## Has used rope this run (for No Rope category)
 var rope_used: bool = false
 
@@ -200,6 +220,7 @@ func _connect_events() -> void:
 	EventBus.run_started.connect(_on_run_started)
 	EventBus.run_ended.connect(_on_run_ended)
 	EventBus.run_suspended.connect(_on_run_suspended)
+	EventBus.summit_reached.connect(_on_summit_reached)
 	EventBus.game_state_changed.connect(_on_game_state_changed)
 	EventBus.player_position_updated.connect(_on_player_position)
 	EventBus.rope_deployment_started.connect(_on_rope_deployed)
@@ -237,9 +258,6 @@ func start_timer(run_category: Category = Category.ANY_PERCENT, mountain: String
 	elapsed_time = 0.0
 	pause_accumulator = 0.0
 	last_split_time = 0.0
-	# Splits are measured down from where this run starts
-	start_altitude = 0.0
-	last_split_altitude = 0.0
 	is_valid = true
 	invalidation_reason = ""
 	last_was_best = false
@@ -296,44 +314,103 @@ func reset_timer() -> void:
 # SPLITS
 # =============================================================================
 
-func record_split(split_name: String) -> void:
-	if state != TimerState.RUNNING:
+## Note the time at a mark of this run's SPLIT_MARKS (once: a mark already
+## passed is not noted again)
+func record_split(split_id: String) -> void:
+	if state != TimerState.RUNNING or _has_split(split_id):
 		return
+	var run := GameStateManager.current_run
+	if run != null:
+		elapsed_time = run.real_time_elapsed
 
-	var split := Split.new()
-	split.name = split_name
-	split.time = elapsed_time
-	split.segment_time = elapsed_time - last_split_time
-
-	# Compare to PB split
-	var pb := _get_pb_split(split_name)
-	if pb > 0:
-		split.comparison = split.time - pb
+	var split := _make_split(split_id, elapsed_time, last_split_time)
 
 	# Check for gold split
-	var gold := _get_gold_split(split_name)
+	var gold := _get_gold_split(split_id)
 	if gold <= 0 or split.segment_time < gold:
 		split.is_gold = true
-		_save_gold_split(split_name, split.segment_time)
-		gold_split.emit(split_name, split.segment_time)
+		_save_gold_split(split_id, split.segment_time)
+		gold_split.emit(split.name, split.segment_time)
 
 	current_splits.append(split)
 	last_split_time = elapsed_time
+	_keep_splits_on(run)
 
-	split_recorded.emit(split_name, split.time, split.comparison)
+	split_recorded.emit(split.name, split.time, split.comparison)
 
 
-func _check_altitude_split(altitude: float) -> void:
-	if not auto_split_altitude:
+## A split of the run being timed, compared with the best run's
+func _make_split(split_id: String, time: float, previous_time: float) -> Split:
+	var split := Split.new()
+	split.id = split_id
+	split.name = split_id
+	split.short_name = split_id
+	for mark in SPLIT_MARKS.get(GameEnums.RouteMode.FULL_ROUTE if full_route else GameEnums.RouteMode.DESCENT, []):
+		if mark["id"] == split_id:
+			split.name = mark["label"]
+			split.short_name = mark["short"]
+	split.time = time
+	split.segment_time = time - previous_time
+	var best := _get_pb_split(split_id)
+	if best > 0.0:
+		split.comparison = time - best
+		split.has_comparison = true
+	return split
+
+
+func _has_split(split_id: String) -> bool:
+	for split in current_splits:
+		if split.id == split_id:
+			return true
+	return false
+
+
+## The splits so far go with the run, as plain data, so that a run set aside
+## and picked up again still has them
+func _keep_splits_on(run: RunContext) -> void:
+	if run == null:
 		return
+	var kept: Array = []
+	for split in current_splits:
+		kept.append({"id": split.id, "time": split.time})
+	run.set_meta(SPLITS_META, kept)
 
-	var altitude_dropped := start_altitude - altitude
-	var splits_expected := int(altitude_dropped / altitude_split_interval)
-	var current_split_count := current_splits.size()
 
-	if splits_expected > current_split_count:
-		var split_altitude := start_altitude - (splits_expected * altitude_split_interval)
-		record_split("Alt_%dm" % int(split_altitude))
+## Take up the splits a run already has (it was set aside and picked up again)
+func _take_splits_from(run: RunContext) -> void:
+	current_splits.clear()
+	last_split_time = 0.0
+	if run == null:
+		return
+	var kept: Variant = run.get_meta(SPLITS_META, [])
+	if not (kept is Array):
+		return
+	for entry in kept:
+		if not (entry is Dictionary) or str(entry.get("id", "")).is_empty() or _has_split(str(entry["id"])):
+			continue
+		var time := float(entry.get("time", 0.0))
+		current_splits.append(_make_split(str(entry["id"]), time, last_split_time))
+		last_split_time = time
+
+
+## Note the marks the climber has passed: a share of the height between the
+## summit and base camp, on the leg they are on
+func _check_marks(position: Vector3) -> void:
+	var run := GameStateManager.current_run
+	var terrain := ServiceLocator.get_service("TerrainService") as TerrainService
+	if run == null or terrain == null or terrain.current_mountain != run.mountain_id:
+		return
+	var top := terrain.start_position.y
+	var bottom := terrain.goal_position.y
+	if top - bottom < 1.0:
+		return
+	var up_share := clampf((position.y - bottom) / (top - bottom), 0.0, 1.0)
+	for mark in SPLIT_MARKS.get(run.route_mode, []):
+		if int(mark["phase"]) != int(run.phase) or _has_split(mark["id"]):
+			continue
+		var share := up_share if int(mark["phase"]) == GameEnums.RunPhase.ASCENT else 1.0 - up_share
+		if share >= float(mark["share"]):
+			record_split(mark["id"])
 
 
 # =============================================================================
@@ -409,21 +486,26 @@ static func _best_key(mount_id: String, full: bool, cat: Category) -> String:
 	return "%s|%s|%s" % [mount_id, "full" if full else "descent", Category.keys()[cat]]
 
 
-func get_pb_splits(mount_id: String = "", cat: Category = Category.ANY_PERCENT) -> Array[Dictionary]:
+## The splits of the best run on a mountain ([{"id", "name", "time", ...}];
+## empty when there is none). No mountain: the current one.
+func get_pb_splits(mount_id: String = "", full: bool = false, cat: Category = Category.ANY_PERCENT) -> Array[Dictionary]:
 	if mount_id.is_empty():
 		mount_id = mountain_id
+		full = full_route
 
-	var key := "%s:%s" % [mount_id, Category.keys()[cat]]
 	var splits: Array[Dictionary] = []
-	splits.assign(personal_bests.get(key, {}).get("splits", []))
+	var kept: Variant = personal_bests.get(_best_key(mount_id, full, cat), {}).get("splits", [])
+	if kept is Array:
+		for entry in kept:
+			if entry is Dictionary:
+				splits.append(entry)
 	return splits
 
 
-func _get_pb_split(split_name: String) -> float:
-	var pb_splits := get_pb_splits()
-	for split in pb_splits:
-		if split.get("name") == split_name:
-			return split.get("time", 0.0)
+func _get_pb_split(split_id: String) -> float:
+	for split in get_pb_splits():
+		if str(split.get("id", "")) == split_id:
+			return float(split.get("time", 0.0))
 	return 0.0
 
 
@@ -431,15 +513,17 @@ func _get_pb_split(split_name: String) -> float:
 # GOLD SPLITS
 # =============================================================================
 
-func _get_gold_split(split_name: String) -> float:
-	var key := "%s:%s" % [mountain_id, split_name]
-	return gold_splits.get(key, 0.0)
+func _get_gold_split(split_id: String) -> float:
+	return float(gold_splits.get(_gold_key(split_id), 0.0))
 
 
-func _save_gold_split(split_name: String, time: float) -> void:
-	var key := "%s:%s" % [mountain_id, split_name]
-	gold_splits[key] = time
+func _save_gold_split(split_id: String, time: float) -> void:
+	gold_splits[_gold_key(split_id)] = time
 	_save_data()
+
+
+func _gold_key(split_id: String) -> String:
+	return "%s|%s|%s" % [mountain_id, "full" if full_route else "descent", split_id]
 
 
 # =============================================================================
@@ -491,6 +575,7 @@ func _on_run_started(run_context: RunContext) -> void:
 	start_timer(category, mountain_id)
 	if run_context != null:
 		elapsed_time = run_context.real_time_elapsed
+		_take_splits_from(run_context)
 
 
 func _on_run_suspended(_run_context: RunContext) -> void:
@@ -520,14 +605,12 @@ func _on_game_state_changed(_old_state: GameEnums.GameState, new_state: GameEnum
 func _on_player_position(position: Vector3, _velocity: Vector3) -> void:
 	if state != TimerState.RUNNING:
 		return
+	_check_marks(position)
 
-	# Initialize start altitude
-	if start_altitude == 0.0:
-		start_altitude = position.y
-		last_split_altitude = position.y
 
-	# Check for altitude splits
-	_check_altitude_split(position.y)
+## Full route: the summit is a split of its own
+func _on_summit_reached(_run_context: RunContext) -> void:
+	record_split("summit")
 
 
 func _on_rope_deployed(_quality: GameEnums.AnchorQuality) -> void:
@@ -573,8 +656,13 @@ func format_time(time: float) -> String:
 
 
 func format_comparison(delta: float) -> String:
-	var prefix := "+" if delta > 0 else ""
+	var prefix := "+" if delta > 0 else "-"
 	return prefix + format_time(absf(delta))
+
+
+## A difference in seconds as a signed clock: "+0:05", "-0:14"
+static func format_delta(seconds: float) -> String:
+	return ("+" if seconds >= 0.0 else "-") + format_clock(absf(seconds))
 
 
 # =============================================================================

@@ -53,6 +53,11 @@ var _main: Node = null
 var _failures: Array[String] = []
 var _checks: int = 0
 
+## The run timer's own file and bests, put back when the test ends
+var _real_timer_path: String = ""
+var _real_timer_bests: Dictionary = {}
+var _real_timer_golds: Dictionary = {}
+
 
 func _init() -> void:
 	call_deferred("_run")
@@ -417,19 +422,28 @@ func _test_run_timer_rules() -> void:
 	_expect(timer.format_clock(754.9) == "12:34" and timer.format_clock(3723.0) == "1:02:03" and timer.format_clock(-5.0) == "0:00",
 		"times read as a clock (%s, %s)" % [timer.format_clock(754.9), timer.format_clock(3723.0)])
 
-	var real_path: String = timer.data_path
-	var real_bests: Dictionary = timer.personal_bests.duplicate(true)
+	# From here to the end of the test the timer keeps its bests in a file of
+	# the test's own (the descents further down note splits and best segments)
+	_real_timer_path = timer.data_path
+	_real_timer_bests = timer.personal_bests.duplicate(true)
+	_real_timer_golds = timer.gold_splits.duplicate(true)
 	timer.data_path = TEST_TIMER_DATA
+	timer.personal_bests = {}
+	timer.gold_splits = {}
 	var peak := "a_peak_of_the_tests_own"
 	var outcomes: Dictionary = _enums.ResolutionType
 	var conditions_script: GDScript = load("res://src/core/data/start_conditions.gd") as GDScript
 	var context_script: GDScript = load("res://src/core/data/run_context.gd") as GDScript
-	var finish := func(seconds: float, outcome: String, full: bool) -> void:
+	# halfway: seconds on the clock at the halfway split (0: the run notes none)
+	var finish := func(seconds: float, outcome: String, full: bool, halfway: float = 0.0) -> void:
 		var conditions: Object = conditions_script.create_moderate()
 		if full:
 			conditions.apply_route_mode(int(_enums.RouteMode["FULL_ROUTE"]))
 		var run: Object = context_script.create_new_run(peak, conditions)
 		timer._on_run_started(run)
+		if halfway > 0.0:
+			timer.elapsed_time = halfway
+			timer.record_split("down_50")
 		run.real_time_elapsed = seconds
 		timer._on_run_ended(run, int(outcomes[outcome]))
 
@@ -449,16 +463,36 @@ func _test_run_timer_rules() -> void:
 	_expect(is_equal_approx(timer.get_personal_best(peak, true), 1500.0) and is_equal_approx(timer.get_personal_best(peak, false), 540.0),
 		"the full route keeps a best of its own")
 
+	# Splits: each is compared with the same split of the best run so far
+	_expect(timer.format_delta(-14.2) == "-0:14" and timer.format_delta(65.0) == "+1:05", "a difference reads with its sign (%s, %s)" % [timer.format_delta(-14.2), timer.format_delta(65.0)])
+	finish.call(500.0, "CLEAN_RETURN", false, 260.0)
+	var first_splits: Array = timer.get_current_splits()
+	_expect(first_splits.size() == 1 and first_splits[0].id == "down_50" and first_splits[0].name == "Halfway down" \
+		and is_equal_approx(first_splits[0].time, 260.0) and not first_splits[0].has_comparison,
+		"the first run to note a split has nothing to compare it with")
+	_expect(timer.get_pb_splits(peak, false).size() == 1, "the best run keeps its splits")
+	finish.call(520.0, "CLEAN_RETURN", false, 245.0)
+	var later_splits: Array = timer.get_current_splits()
+	_expect(later_splits.size() == 1 and later_splits[0].has_comparison and is_equal_approx(later_splits[0].comparison, -15.0) and later_splits[0].is_gold,
+		"a later run is told how its split compares, and when a stretch was its fastest (%s)" % timer.format_delta(later_splits[0].comparison if later_splits.size() == 1 else 0.0))
+	_expect(is_equal_approx(timer.get_personal_best(peak, false), 500.0) and is_equal_approx(float(timer.get_pb_splits(peak, false)[0]["time"]), 260.0),
+		"a faster split in a slower run does not change the best run")
+	var twice: Object = context_script.create_new_run(peak, conditions_script.create_moderate())
+	timer._on_run_started(twice)
+	timer.elapsed_time = 100.0
+	timer.record_split("down_25")
+	timer.elapsed_time = 130.0
+	timer.record_split("down_25")
+	_expect(timer.get_current_splits().size() == 1 and is_equal_approx(timer.get_current_splits()[0].time, 100.0), "a mark is noted once, the first time it is passed")
+	timer._on_run_ended(twice, int(outcomes["FATALITY"]))
+
 	# Kept on disk, in the test's own file; the old layout's entries are not read
+	var kept_bests: Dictionary = timer.personal_bests.duplicate(true)
 	timer.personal_bests = {"%s:ANY_PERCENT" % peak: {"final_time": 12.0}}
 	_expect(timer.get_personal_best(peak, false) < 0.0, "a best filed the old way (any ended run counted) is not believed")
 	timer.personal_bests = {}
 	timer._load_data()
-	_expect(is_equal_approx(timer.get_personal_best(peak, false), 540.0), "bests are read back from disk")
-	if FileAccess.file_exists(TEST_TIMER_DATA):
-		DirAccess.remove_absolute(TEST_TIMER_DATA)
-	timer.data_path = real_path
-	timer.personal_bests = real_bests
+	_expect(is_equal_approx(timer.get_personal_best(peak, false), 500.0) and timer.personal_bests.size() == kept_bests.size(), "bests are read back from disk")
 	timer.reset_timer()
 
 
@@ -700,6 +734,26 @@ func _test_save_and_continue() -> bool:
 		_expect(run.real_time_elapsed > 4.0 and absf(timer.get_elapsed_time() - run.real_time_elapsed) < 0.5,
 			"and it is the run's own clock (%.1f s, run %.1f s)" % [timer.get_elapsed_time(), run.real_time_elapsed])
 
+		# Splits: marks at shares of the height between the summit and base camp
+		var split_caption: Label = hud_now.find_child("SplitCaption", true, false)
+		var split_value: Label = hud_now.find_child("SplitValue", true, false)
+		var heights: Object = _locator.get_service("TerrainService")
+		var top: float = heights.start_position.y
+		var bottom: float = heights.goal_position.y
+		_expect(timer.get_current_splits().is_empty() and split_caption != null and not split_caption.visible,
+			"near the summit no split has been noted and the HUD shows none")
+		timer._check_marks(Vector3(0.0, top - 0.3 * (top - bottom), 0.0))
+		var noted: Array = timer.get_current_splits()
+		_expect(noted.size() == 1 and noted[0].id == "down_25" and absf(noted[0].time - run.real_time_elapsed) < 0.5,
+			"a quarter of the way down is noted with the time on the clock")
+		timer._check_marks(Vector3(0.0, top - 0.8 * (top - bottom), 0.0))
+		timer._check_marks(Vector3(0.0, top - 0.1 * (top - bottom), 0.0))
+		noted = timer.get_current_splits()
+		_expect(noted.size() == 3 and noted[2].id == "down_75", "the marks are noted in order, once each, whatever comes after (%d)" % noted.size())
+		hud_now.refresh()
+		_expect(split_caption.visible and split_value != null and split_value.text.begins_with("75%"), "the HUD shows the last split (%s)" % (split_value.text if split_value != null else ""))
+		_expect((run.get_meta("timer_splits", []) as Array).size() == 3, "and the run carries its splits")
+
 	# --- when it can and cannot be saved -------------------------------------
 	_expect(_main.get_suspend_block_reason() == "", "standing on the mountain, the run can be saved (%s)" % _main.get_suspend_block_reason())
 	player.gear_action = &"crampons"
@@ -842,6 +896,10 @@ func _test_save_and_continue() -> bool:
 	if timer != null:
 		_expect(back.real_time_elapsed >= run.real_time_elapsed and absf(timer.get_elapsed_time() - back.real_time_elapsed) < 0.5,
 			"the run timer goes on from where it was (%.1f s, was %.1f)" % [timer.get_elapsed_time(), run.real_time_elapsed])
+		var kept_splits: Array = timer.get_current_splits()
+		var before_splits: Array = run.get_meta("timer_splits", [])
+		_expect(kept_splits.size() == 3 and before_splits.size() == 3 and is_equal_approx(kept_splits[0].time, float(before_splits[0]["time"])) \
+			and kept_splits[2].id == "down_75", "with the splits it had already noted, at the times they were noted")
 	var hud: Node = _main.get("descent_hud")
 	_expect(hud != null and (_main.get("world") as Node3D).visible, "the mountain and the HUD are back")
 	_expect(root.get_viewport().get_camera_3d() == player.camera_pivot.camera, "seen through the climber's own camera")
@@ -1004,6 +1062,12 @@ func _test_drone() -> void:
 			if (label as Label).text == "Played:":
 				played_shown = true
 	_expect(played_shown, "with the timer asked for, the resolution screen says how long was played")
+	var splits_shown := 0
+	if resolution != null:
+		for label in resolution.stats_container.find_children("*", "Label", true, false):
+			if (label as Label).text in ["Quarter way down:", "Halfway down:", "Three quarters down:"]:
+				splits_shown += 1
+	_expect(splits_shown == 3, "and the splits on the way (%d)" % splits_shown)
 	var timer_settings: Object = _locator.get_service("GameSettings")
 	if timer_settings != null:
 		timer_settings.set_value("show_timer", false)
@@ -1063,6 +1127,14 @@ func _expect(condition: bool, what: String) -> void:
 func _finish(fatal: String) -> void:
 	if fatal != "":
 		_failures.append(fatal)
+	# The run timer goes back to the file and the bests of whoever runs this
+	var timer: Node = _locator.get_service("SpeedrunTimer") as Node if _locator != null else null
+	if timer != null and not _real_timer_path.is_empty():
+		timer.data_path = _real_timer_path
+		timer.personal_bests = _real_timer_bests
+		timer.gold_splits = _real_timer_golds
+		if FileAccess.file_exists(TEST_TIMER_DATA):
+			DirAccess.remove_absolute(TEST_TIMER_DATA)
 	if _failures.is_empty():
 		print("[test_front_end] PASS (%d checks)" % _checks)
 		quit(0)
