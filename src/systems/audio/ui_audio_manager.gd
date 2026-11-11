@@ -7,6 +7,9 @@ extends Node
 ## - UI sounds are subtle and unobtrusive
 ## - Critical actions get confirmation sounds
 ## - Map/gear sounds are diegetic (in-world)
+##
+## Screens do not ask for their button sounds: every button that enters the
+## scene tree is given them here, so a new screen has sound without any code.
 
 # =============================================================================
 # CONFIGURATION
@@ -20,73 +23,50 @@ const VOLUME_DEFAULT := -8.0
 const VOLUME_SUBTLE := -14.0
 const VOLUME_FEEDBACK := -6.0
 
-## Sound definitions
+## Sound definitions: what the screens call a sound -> the library id, its
+## volume and how much its pitch may wander
 const UI_SOUNDS := {
 	# Menu sounds
-	"menu_select": {
-		"volume": VOLUME_SUBTLE,
-		"pitch_range": Vector2(0.98, 1.02),
-	},
-	"menu_confirm": {
-		"volume": VOLUME_DEFAULT,
-		"pitch_range": Vector2(1.0, 1.0),
-	},
-	"menu_back": {
-		"volume": VOLUME_SUBTLE,
-		"pitch_range": Vector2(0.95, 1.0),
-	},
-	"menu_error": {
-		"volume": VOLUME_FEEDBACK,
-		"pitch_range": Vector2(0.9, 0.95),
-	},
+	"menu_hover": {"id": "ui_hover", "volume": VOLUME_SUBTLE, "pitch_range": Vector2(0.97, 1.03)},
+	"menu_select": {"id": "ui_select", "volume": VOLUME_DEFAULT, "pitch_range": Vector2(0.98, 1.02)},
+	"menu_confirm": {"id": "ui_confirm", "volume": VOLUME_DEFAULT, "pitch_range": Vector2(1.0, 1.0)},
+	"menu_back": {"id": "ui_back", "volume": VOLUME_DEFAULT, "pitch_range": Vector2(0.97, 1.0)},
+	"menu_error": {"id": "ui_error", "volume": VOLUME_FEEDBACK, "pitch_range": Vector2(0.95, 1.0)},
+	"menu_toggle": {"id": "ui_toggle", "volume": VOLUME_DEFAULT, "pitch_range": Vector2(0.97, 1.03)},
 
 	# Map sounds
-	"map_open": {
-		"volume": VOLUME_DEFAULT,
-		"pitch_range": Vector2(0.98, 1.02),
-	},
-	"map_close": {
-		"volume": VOLUME_DEFAULT,
-		"pitch_range": Vector2(0.95, 1.0),
-	},
-	"map_rustle": {
-		"volume": VOLUME_SUBTLE,
-		"pitch_range": Vector2(0.9, 1.1),
-	},
+	"map_open": {"id": "map_unfold", "volume": VOLUME_FEEDBACK, "pitch_range": Vector2(0.97, 1.03)},
+	"map_close": {"id": "map_fold", "volume": VOLUME_FEEDBACK, "pitch_range": Vector2(0.96, 1.02)},
+	"map_rustle": {"id": "map_rustle", "volume": VOLUME_SUBTLE, "pitch_range": Vector2(0.92, 1.08)},
+	"page_turn": {"id": "page_turn", "volume": VOLUME_DEFAULT, "pitch_range": Vector2(0.95, 1.05)},
 
 	# Gear sounds
-	"watch_check": {
-		"volume": VOLUME_SUBTLE,
-		"pitch_range": Vector2(1.0, 1.0),
-	},
-	"compass_open": {
-		"volume": VOLUME_SUBTLE,
-		"pitch_range": Vector2(0.98, 1.02),
-	},
-
-	# Feedback sounds
-	"checkpoint": {
-		"volume": VOLUME_FEEDBACK,
-		"pitch_range": Vector2(1.0, 1.05),
-	},
-	"warning": {
-		"volume": VOLUME_FEEDBACK,
-		"pitch_range": Vector2(0.9, 0.95),
-	},
+	"watch_check": {"id": "watch_check", "volume": VOLUME_DEFAULT, "pitch_range": Vector2(1.0, 1.0)},
+	"compass_open": {"id": "compass_open", "volume": VOLUME_DEFAULT, "pitch_range": Vector2(0.98, 1.02)},
 }
+
+## Words on a button that mean going back, and going ahead
+const BACK_WORDS: Array[String] = ["back", "return", "cancel", "close", "abandon", "quit"]
+const CONFIRM_WORDS: Array[String] = ["begin", "start", "continue", "confirm", "new descent", "resume", "retry", "select"]
+
+## Seconds within which a second hover makes no sound (sweeping across a list)
+const HOVER_GAP := 0.06
+
+## Seconds after the map unfolds that the compass lid is flipped open
+const COMPASS_DELAY := 0.45
+
+## Pool size
+const POOL_SIZE := 4
+
+## Marks a button that already has its sounds
+const WIRED_META := &"ui_sound_wired"
 
 # =============================================================================
 # STATE
 # =============================================================================
 
-## Audio streams by name
-var audio_streams: Dictionary = {}
-
 ## Pool of audio players for one-shots
 var player_pool: Array[AudioStreamPlayer] = []
-
-## Pool size
-const POOL_SIZE := 4
 
 ## Current pool index
 var pool_index: int = 0
@@ -94,16 +74,23 @@ var pool_index: int = 0
 ## Is initialized
 var is_initialized: bool = false
 
+var _library: SoundLibrary
+var _last_hover_msec: int = 0
+var _next_map_rustle: float = 4.0
+var _map_open: bool = false
+
 # =============================================================================
 # LIFECYCLE
 # =============================================================================
 
 func _ready() -> void:
+	# Menus are used while the game is paused
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	_library = ServiceLocator.get_service("SoundLibrary") as SoundLibrary
 	_create_player_pool()
-	_load_audio_streams()
 	_connect_signals()
 	is_initialized = true
-	print("[UIAudioManager] Initialized with %d sounds" % audio_streams.size())
+	print("[UIAudioManager] Initialized with %d sounds" % UI_SOUNDS.size())
 
 
 func _create_player_pool() -> void:
@@ -114,73 +101,104 @@ func _create_player_pool() -> void:
 		player_pool.append(player)
 
 
-func _load_audio_streams() -> void:
-	# Get audio config if available
-	var audio_service = ServiceLocator.get_service("AudioService")
-	if audio_service and audio_service.has_method("get_audio_config"):
-		var config = audio_service.get_audio_config()
-		if config:
-			_load_from_config(config)
-			return
-
-	# Fall back to procedural audio
-	_generate_placeholder_streams()
-
-
-func _load_from_config(config: Resource) -> void:
-	# Load UI sounds from AudioConfig resource
-	if config.get("ui_menu_select"):
-		audio_streams["menu_select"] = config.ui_menu_select
-	if config.get("ui_menu_confirm"):
-		audio_streams["menu_confirm"] = config.ui_menu_confirm
-	if config.get("ui_map_unfold"):
-		audio_streams["map_open"] = config.ui_map_unfold
-	if config.get("ui_map_fold"):
-		audio_streams["map_close"] = config.ui_map_fold
-	if config.get("ui_watch_check"):
-		audio_streams["watch_check"] = config.ui_watch_check
-
-
-func _generate_placeholder_streams() -> void:
-	# Generate procedural placeholder sounds
-	audio_streams["menu_select"] = _generate_click_sound(0.05, 800.0)
-	audio_streams["menu_confirm"] = _generate_click_sound(0.08, 600.0)
-	audio_streams["menu_back"] = _generate_click_sound(0.04, 500.0)
-	audio_streams["menu_error"] = _generate_buzz_sound(0.1, 200.0)
-	audio_streams["map_open"] = _generate_rustle_sound(0.3)
-	audio_streams["map_close"] = _generate_rustle_sound(0.25)
-	audio_streams["map_rustle"] = _generate_rustle_sound(0.15)
-	audio_streams["watch_check"] = _generate_click_sound(0.03, 2000.0)
-	audio_streams["compass_open"] = _generate_click_sound(0.05, 1200.0)
-	audio_streams["checkpoint"] = _generate_tone_sound(0.2, 880.0)
-	audio_streams["warning"] = _generate_tone_sound(0.15, 440.0)
-
-
 func _connect_signals() -> void:
-	# Connect to UI-related EventBus signals
-	if EventBus.has_signal("ui_button_pressed"):
-		EventBus.ui_button_pressed.connect(_on_ui_button_pressed)
-	if EventBus.has_signal("map_opened"):
-		EventBus.map_opened.connect(_on_map_opened)
-	if EventBus.has_signal("map_closed"):
-		EventBus.map_closed.connect(_on_map_closed)
+	# Every button, wherever it is and whenever it appears
+	get_tree().node_added.connect(_on_node_added)
+	_wire_buttons_under(get_tree().root)
+
+	EventBus.map_opened.connect(_on_map_opened)
+	EventBus.map_closed.connect(_on_map_closed)
+
+
+func _process(delta: float) -> void:
+	# An open map is paper in the wind
+	if not _map_open or get_tree().paused:
+		return
+	_next_map_rustle -= delta
+	if _next_map_rustle <= 0.0:
+		_next_map_rustle = AudioService.roll_range(2.5, 6.0)
+		play_map_rustle()
+
+
+# =============================================================================
+# BUTTONS
+# =============================================================================
+
+func _wire_buttons_under(node: Node) -> void:
+	_on_node_added(node)
+	for child in node.get_children():
+		_wire_buttons_under(child)
+
+
+func _on_node_added(node: Node) -> void:
+	# A node that leaves the tree and comes back is "added" again: wire it once
+	if node.has_meta(WIRED_META):
+		return
+	# The tabs of the planning screen are pages of the guidebook
+	if node is TabContainer:
+		node.set_meta(WIRED_META, true)
+		(node as TabContainer).tab_clicked.connect(_on_tab_clicked)
+		return
+	var button := node as BaseButton
+	if button == null:
+		return
+	button.set_meta(WIRED_META, true)
+	button.pressed.connect(_on_button_pressed.bind(button))
+	button.mouse_entered.connect(_on_button_hovered.bind(button))
+
+
+func _on_tab_clicked(_tab: int) -> void:
+	play_sound("page_turn")
+
+
+func _on_button_pressed(button: BaseButton) -> void:
+	if not is_instance_valid(button):
+		return
+	play_sound(sound_for_button(button))
+
+
+func _on_button_hovered(button: BaseButton) -> void:
+	if not is_instance_valid(button) or button.disabled or not button.is_visible_in_tree():
+		return
+	var now := Time.get_ticks_msec()
+	if now - _last_hover_msec < int(HOVER_GAP * 1000.0):
+		return
+	_last_hover_msec = now
+	play_sound("menu_hover")
+
+
+## Which sound a button makes when pressed, judged by what kind it is and
+## what it says
+func sound_for_button(button: BaseButton) -> String:
+	if button.toggle_mode:
+		return "menu_toggle"
+	var label := ""
+	if button is Button:
+		label = (button as Button).text.to_lower()
+	label += " " + str(button.name).to_lower()
+	for word in BACK_WORDS:
+		if label.contains(word):
+			return "menu_back"
+	for word in CONFIRM_WORDS:
+		if label.contains(word):
+			return "menu_confirm"
+	return "menu_select"
 
 
 # =============================================================================
 # PLAYBACK
 # =============================================================================
 
-## Play a UI sound by name
+## Play a UI sound by name (a key of UI_SOUNDS, or a library id)
 func play_sound(sound_name: String) -> void:
-	if not is_initialized:
+	if not is_initialized or _library == null:
 		return
 
-	if not audio_streams.has(sound_name):
-		push_warning("[UIAudioManager] Unknown sound: %s" % sound_name)
-		return
-
-	var stream: AudioStream = audio_streams[sound_name]
 	var sound_data: Dictionary = UI_SOUNDS.get(sound_name, {})
+	var id: String = sound_data.get("id", sound_name)
+	var stream := _library.get_stream(id)
+	if stream == null:
+		return
 
 	# Get player from pool
 	var player := _get_next_player()
@@ -191,7 +209,7 @@ func play_sound(sound_name: String) -> void:
 
 	# Apply pitch variation
 	var pitch_range: Vector2 = sound_data.get("pitch_range", Vector2(1.0, 1.0))
-	player.pitch_scale = randf_range(pitch_range.x, pitch_range.y)
+	player.pitch_scale = AudioService.roll_range(pitch_range.x, pitch_range.y)
 
 	player.play()
 
@@ -219,6 +237,10 @@ func play_menu_error() -> void:
 ## Play map opening sound
 func play_map_open() -> void:
 	play_sound("map_open")
+	# The compass comes out with the map, when there is one in the pack
+	var run := GameStateManager.get_current_run()
+	if run != null and run.gear_state != null and run.gear_state.has_item(GameEnums.GearType.COMPASS):
+		get_tree().create_timer(COMPASS_DELAY).timeout.connect(func() -> void: play_sound("compass_open"))
 
 
 ## Play map closing sound
@@ -246,114 +268,12 @@ func _get_next_player() -> AudioStreamPlayer:
 # SIGNAL HANDLERS
 # =============================================================================
 
-func _on_ui_button_pressed(button_type: String) -> void:
-	match button_type:
-		"select":
-			play_menu_select()
-		"confirm":
-			play_menu_confirm()
-		"back":
-			play_menu_back()
-		"error":
-			play_menu_error()
-
-
+## The map makes its own unfold and fold sounds as it opens and closes
+## (PhysicalMap asks AudioService); these only track that it is out
 func _on_map_opened() -> void:
-	play_map_open()
+	_map_open = true
+	_next_map_rustle = AudioService.roll_range(2.5, 5.0)
 
 
 func _on_map_closed() -> void:
-	play_map_close()
-
-
-# =============================================================================
-# PROCEDURAL AUDIO GENERATION
-# =============================================================================
-
-func _generate_click_sound(duration: float, frequency: float) -> AudioStreamWAV:
-	var sample_rate := 44100
-	var samples := int(duration * sample_rate)
-	var data := PackedByteArray()
-	data.resize(samples * 2)
-
-	for i in samples:
-		var t := float(i) / sample_rate
-		var envelope := exp(-t * 30.0)  # Quick decay
-		var wave := sin(TAU * frequency * t) * envelope
-		var sample := int(wave * 32767 * 0.5)
-		data[i * 2] = sample & 0xFF
-		data[i * 2 + 1] = (sample >> 8) & 0xFF
-
-	var stream := AudioStreamWAV.new()
-	stream.format = AudioStreamWAV.FORMAT_16_BITS
-	stream.mix_rate = sample_rate
-	stream.data = data
-	return stream
-
-
-func _generate_buzz_sound(duration: float, frequency: float) -> AudioStreamWAV:
-	var sample_rate := 44100
-	var samples := int(duration * sample_rate)
-	var data := PackedByteArray()
-	data.resize(samples * 2)
-
-	for i in samples:
-		var t := float(i) / sample_rate
-		var envelope := 1.0 - (t / duration)
-		var wave := sin(TAU * frequency * t) + sin(TAU * frequency * 1.5 * t) * 0.5
-		wave *= envelope * 0.3
-		var sample := int(wave * 32767)
-		data[i * 2] = sample & 0xFF
-		data[i * 2 + 1] = (sample >> 8) & 0xFF
-
-	var stream := AudioStreamWAV.new()
-	stream.format = AudioStreamWAV.FORMAT_16_BITS
-	stream.mix_rate = sample_rate
-	stream.data = data
-	return stream
-
-
-func _generate_rustle_sound(duration: float) -> AudioStreamWAV:
-	var sample_rate := 44100
-	var samples := int(duration * sample_rate)
-	var data := PackedByteArray()
-	data.resize(samples * 2)
-
-	var last_value := 0.0
-	for i in samples:
-		var t := float(i) / sample_rate
-		var envelope := sin(PI * t / duration)  # Fade in/out
-		var noise := randf_range(-1.0, 1.0)
-		# Low-pass filter
-		last_value = last_value * 0.7 + noise * 0.3
-		var wave := last_value * envelope * 0.4
-		var sample := int(wave * 32767)
-		data[i * 2] = sample & 0xFF
-		data[i * 2 + 1] = (sample >> 8) & 0xFF
-
-	var stream := AudioStreamWAV.new()
-	stream.format = AudioStreamWAV.FORMAT_16_BITS
-	stream.mix_rate = sample_rate
-	stream.data = data
-	return stream
-
-
-func _generate_tone_sound(duration: float, frequency: float) -> AudioStreamWAV:
-	var sample_rate := 44100
-	var samples := int(duration * sample_rate)
-	var data := PackedByteArray()
-	data.resize(samples * 2)
-
-	for i in samples:
-		var t := float(i) / sample_rate
-		var envelope := sin(PI * t / duration)
-		var wave := sin(TAU * frequency * t) * envelope * 0.3
-		var sample := int(wave * 32767)
-		data[i * 2] = sample & 0xFF
-		data[i * 2 + 1] = (sample >> 8) & 0xFF
-
-	var stream := AudioStreamWAV.new()
-	stream.format = AudioStreamWAV.FORMAT_16_BITS
-	stream.mix_rate = sample_rate
-	stream.data = data
-	return stream
+	_map_open = false

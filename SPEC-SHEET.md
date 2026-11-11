@@ -1249,6 +1249,38 @@ camp at an alpine start (05:00), fresh, climb to the summit, then get home.
 
 **Silence is respect.**
 
+### Implemented Model
+
+- **The sounds.** 123 effects, synthesized (`tools/sfx`), in `assets/audio`. A file named
+  `<id>_<NN>.wav` is variant NN of sound `<id>`; the game asks for ids. No music anywhere.
+- **Wind.** Layers, each with its own curve of wind strength `w` (0 calm .. 1 severe):
+  - body `0.06 + 0.94 w^0.9`, rush (left and right, different takes) `0.05 + 0.95 w^1.25`, high
+    hiss `(0.03 + 0.6 w^1.5)` scaled by exposure (cliffs, rappel and downclimb ground count as
+    exposed)
+  - howl from `w` 0.5, full at 0.95 (storms raise it); whistle from 0.68, mostly on exposed ground
+  - spindrift from 13 m/s to 26 m/s on snow, the same thresholds as the particles
+  - Each layer drifts ±2.5 dB on its own, and all swell together in gusts, which come every 4 s
+    (storm) to 14 s (calm) and are also heard as a one-shot on the left, the right or the centre.
+  - Rarely the wind drops away for 1.5-4 s (a silence moment).
+- **Breath.** One inhale and one exhale at a time. Intensity is 75% of fatigue, plus work
+  (walking 0.08, downclimbing 0.15, skis 0.12), plus up to 0.12 for altitude above 3500 m; risk,
+  poor stability, a slide and any fright raise it. One breath takes 4.4 s when calm and 1.15 s
+  at the limit. Below 0.35 the calm set is used, to 0.75 the hard set, above that the gasps.
+- **Heart.** Heard only above a tension of 0.4, from 84 to 156 beats a minute: a slide that is
+  unstable or lost, a fall, being carried or buried. It rises at once and settles over seconds.
+  The slide's "warning" cues are this, never a tone: the spec asks for terrain cues only.
+- **Footsteps.** One per animation step. The sound is the surface's, replaced by crampons on ice
+  and firm snow, and overlaid by crampon scrape on rock and scree. A downclimb plants the axe on
+  every other step.
+- **Speed.** Slide, ski and air-rush loops rise in level and pitch with speed; the axe-drag loop
+  follows the brake and a biting self-arrest; the rope loop follows rappel speed.
+- **Buried and in a crevasse.** Caught in an avalanche, everything outside the climber goes
+  through a low-pass (cut-off down to 320 Hz with the head under); their own breath and heart do
+  not. In a crevasse their sounds get a reverb and the weather drops 9 dB.
+- **Fatal events.** The climber's audio is cut (not faded) and every one-shot stops; no impact
+  and no cry is played afterwards. The wind is driven by `FatalAudioController` and then fades.
+- **Not implemented.** Drone motor audio: the game is seen from the chase camera, not the drone.
+
 ---
 
 ## 17. Streaming & Replay System
