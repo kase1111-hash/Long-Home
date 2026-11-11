@@ -20,6 +20,10 @@ extends SceneTree
 ## stood, the clock, the weather and the rest of its day, the body, the pack
 ## and the day's record so far.
 ##
+## The mountain itself comes back as it was left: in the first launch an
+## avalanche runs and a snow bridge falls into its crevasse; in the second
+## the bed, the debris, the crown and the open slot are still there.
+##
 ## Both use a save file of the test's own (user://suspended_run_test_continue.dat):
 ## a run the person running this has set aside is not touched. What the
 ## first launch saw is handed to the second in user://test_continue_expect.dat;
@@ -92,6 +96,10 @@ func _save_phase(saves: Node) -> void:
 	if FileAccess.file_exists(EXPECT_PATH):
 		DirAccess.remove_absolute(EXPECT_PATH)
 
+	# A day on which slopes can release (High danger), so one can be set off
+	var bulletin: Object = _locator.get_service("AvalancheService")
+	bulletin.set_today(MOUNTAIN, bulletin.generate_with_danger(MOUNTAIN, 4, 11))
+
 	# Menu, mountain, pack and plan, as a player goes through them
 	var mountain_db: Object = _locator.get_service("MountainDatabase")
 	mountain_db.select_mountain(MOUNTAIN, true)
@@ -121,13 +129,15 @@ func _save_phase(saves: Node) -> void:
 		_finish("the descent did not start")
 		return
 
-	# The dice are put away; what happens next is what the test does
+	# The dice are put away; what happens next is what the test does (the
+	# snow can still run, but nothing sets it off by chance)
 	player.posture.micro_slip_probability_scale = 0.0
 	var weather: Node = _locator.get_service("WeatherService") as Node
 	weather.base_change_probability = 0.0
 	var avalanches: Object = _locator.get_service("AvalancheSystem")
 	if is_instance_valid(avalanches):
-		avalanches.active = false
+		avalanches.trigger_scale = 0.0
+		avalanches.natural_scale = 0.0
 
 	# Part of the way into the day: some ground covered, a body and a pack
 	# that are no longer the ones the day started with
@@ -144,6 +154,74 @@ func _save_phase(saves: Node) -> void:
 	run.body_state.add_injury(strain)
 	run.gear_state.damage_item(int(_enums.GearType["CRAMPONS"]), 0.35)
 	player.set_footwear(int(_enums.Footwear["BOOTS"]))
+	await _seconds(0.5)
+	# --- the mountain changes: an avalanche runs, a snow bridge falls ---------
+	var terrain: Object = _locator.get_service("TerrainService")
+	var mountain_expect := {}
+	_expect(is_instance_valid(avalanches) and avalanches.active and avalanches.field != null, "the day's snowpack is on the mountain")
+	if is_instance_valid(avalanches) and avalanches.active and avalanches.field != null:
+		var recents: int = avalanches._settled.size()
+		var flow: Object = null
+		var tries := 0
+		while flow == null and tries < 30:
+			tries += 1
+			var start_cell: int = avalanches.field.pick_start(avalanches._rng, 0.6)
+			if start_cell >= 0:
+				flow = avalanches.release(start_cell, true)
+		_expect(flow != null, "a slope releases")
+		_expect(_main.get_suspend_block_reason() != "", "the run cannot be saved while the snow is moving")
+		var waited_frames := 0
+		while not avalanches.flows.is_empty() and waited_frames < 60 * 180:
+			await physics_frame
+			waited_frames += 1
+		_expect(avalanches.flows.is_empty() and avalanches._settled.size() == recents + 1,
+			"the avalanche comes to rest (after %d frames; %d on the mountain with the earlier ones)" % [waited_frames, avalanches._settled.size()])
+		mountain_expect["settled"] = avalanches._settled.size()
+
+	var glacier: Object = terrain.glacier
+	_expect(glacier != null and glacier.count_bridged() > 0, "the mountain has a glacier with snow bridges")
+	if glacier != null:
+		for slot in glacier.crevasses:
+			if not slot.bridged or slot.width < 1.4 or slot.points.size() < 2:
+				continue
+			var centre: Vector2 = slot.points[0].lerp(slot.points[1], 0.5)
+			if centre.distance_to(Vector2(player.global_position.x, player.global_position.z)) < 30.0:
+				continue
+			var lip: float = terrain.get_height_at(Vector3(centre.x, 0.0, centre.y))
+			terrain.carve_crevasse_section(slot, centre, minf(6.0, slot.depth))
+			slot.probed = true
+			var crevasses: Object = _locator.get_service("CrevasseSystem")
+			crevasses._leave_probe_hole(centre + Vector2(1.5, 0.0))
+			var floor_height: float = terrain.get_height_at(Vector3(centre.x, 0.0, centre.y))
+			_expect(not slot.is_bridged_at(centre) and floor_height < lip - 2.0, "a snow bridge falls into its crevasse (%.1f m down)" % (lip - floor_height))
+			mountain_expect["crevasse_id"] = slot.id
+			mountain_expect["crevasse_centre"] = centre
+			mountain_expect["crevasse_floor"] = floor_height
+			mountain_expect["probe_holes"] = (crevasses.to_save()["probe_holes"] as PackedVector2Array).size()
+			break
+	_expect(mountain_expect.has("crevasse_id"), "a bridge was found to break")
+
+	# What the ground looks like now, where it changed most
+	var changes: Dictionary = terrain.get_changes()
+	var heights: Dictionary = changes["heights"]
+	var keys: Array = heights.keys()
+	keys.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return absf(heights[a]) > absf(heights[b]))
+	var samples: Array = []
+	for i in range(mini(12, keys.size())):
+		var at: Vector2 = terrain.vertex_position(keys[i])
+		samples.append([at, terrain.get_height_at(Vector3(at.x, 0.0, at.y))])
+	var debris_cells: Array = []
+	for key in (changes["debris"] as Dictionary).keys().slice(0, 6):
+		var at: Vector2 = terrain.vertex_position(key)
+		debris_cells.append([at, terrain.get_cell_at(Vector3(at.x, 0.0, at.y)).debris_depth])
+	var bed_cells: Array = []
+	for key in (changes["beds"] as Array).slice(0, 6):
+		bed_cells.append(terrain.vertex_position(key))
+	mountain_expect["changed"] = heights.size()
+	mountain_expect["samples"] = samples
+	mountain_expect["debris_cells"] = debris_cells
+	mountain_expect["bed_cells"] = bed_cells
+	_expect(heights.size() > 50 and not debris_cells.is_empty(), "the avalanche and the crevasse changed the ground (%d vertices, debris on %d)" % [heights.size(), (changes["debris"] as Dictionary).size()])
 	await _seconds(0.5)
 	_expect(_main.get_suspend_block_reason() == "", "the run can be saved where the climber stands (%s)" % _main.get_suspend_block_reason())
 
@@ -184,6 +262,11 @@ func _save_phase(saves: Node) -> void:
 		"avalanche_headline": str(run.start_conditions.avalanche.headline),
 		"start_elevation": float(run.start_elevation),
 		"planned": (run.get_meta("planned_route", PackedVector3Array()) as PackedVector3Array).size(),
+		"mountain": mountain_expect,
+		# (the body goes on tiring, resting and cooling while the avalanche runs)
+		"fatigue": float(run.body_state.fatigue),
+		"hydration": float(run.body_state.hydration),
+		"cold": float(run.body_state.cold_exposure),
 	}
 	_expect(expect["path"] > 3 and expect["distance"] > 3.0, "the day has a record so far (%d samples, %.0f m)" % [expect["path"], expect["distance"]])
 
@@ -252,8 +335,10 @@ func _continue_phase(saves: Node) -> void:
 	for window in weather.weather_windows:
 		windows.append([int(window.weather), int(window.wind_strength)])
 	_expect(windows == expect["windows"], "and the rest of its day is the same day (%d windows)" % windows.size())
-	_expect(absf(run.body_state.fatigue - 0.58) < 0.04 and absf(run.body_state.hydration - 0.44) < 0.04 and absf(run.body_state.cold_exposure - 0.21) < 0.04,
-		"the body is as it was (fatigue %.2f, water %.2f, cold %.2f)" % [run.body_state.fatigue, run.body_state.hydration, run.body_state.cold_exposure])
+	_expect(absf(run.body_state.fatigue - float(expect["fatigue"])) < 0.04 and absf(run.body_state.hydration - float(expect["hydration"])) < 0.04 \
+		and absf(run.body_state.cold_exposure - float(expect["cold"])) < 0.04,
+		"the body is as it was (fatigue %.2f, water %.2f, cold %.2f; were %.2f, %.2f, %.2f)" % [run.body_state.fatigue, run.body_state.hydration,
+			run.body_state.cold_exposure, float(expect["fatigue"]), float(expect["hydration"]), float(expect["cold"])])
 	_expect(run.body_state.injuries.size() == 1 and int(run.body_state.injuries[0].type) == int(_enums.InjuryType["STRAIN"]), "the strained arm is still strained")
 	var body_service: Node = _locator.get_service("BodyConditionService") as Node
 	_expect(body_service != null and body_service.body_state == run.body_state and player.body_state == run.body_state,
@@ -285,6 +370,44 @@ func _continue_phase(saves: Node) -> void:
 	var avalanches: Object = _locator.get_service("AvalancheSystem")
 	_expect(is_instance_valid(avalanches) and avalanches.conditions == run.start_conditions.avalanche, "which is the snowpack on the mountain")
 	_expect(is_equal_approx(run.start_elevation, expect["start_elevation"]), "progress is still measured from the summit")
+
+	# --- the mountain as it was left ---------------------------------------------
+	var left: Dictionary = expect.get("mountain", {})
+	var worst := 0.0
+	for sample in left.get("samples", []):
+		var at: Vector2 = sample[0]
+		worst = maxf(worst, absf(terrain.get_height_at(Vector3(at.x, 0.0, at.y)) - float(sample[1])))
+	_expect(not (left.get("samples", []) as Array).is_empty() and worst < 0.02,
+		"the ground is where the avalanche and the crevasse left it (worst of %d places %.3f m off)" % [(left.get("samples", []) as Array).size(), worst])
+	_expect((terrain.get_changes()["heights"] as Dictionary).size() == int(left.get("changed", -1)) and terrain.modified,
+		"all of it (%d vertices)" % (terrain.get_changes()["heights"] as Dictionary).size())
+	var debris_ok := not (left.get("debris_cells", []) as Array).is_empty()
+	for entry in left.get("debris_cells", []):
+		var at: Vector2 = entry[0]
+		var cell: Object = terrain.get_cell_at(Vector3(at.x, 0.0, at.y))
+		if cell == null or absf(cell.debris_depth - float(entry[1])) > 0.01 or int(cell.surface_type) != int(_enums.SurfaceType["SNOW_PACKED"]) and cell.debris_depth >= 0.05:
+			debris_ok = false
+	_expect(debris_ok, "the debris is debris: as deep as it was, and set hard")
+	var beds_ok := true
+	for at in left.get("bed_cells", []):
+		var cell: Object = terrain.get_cell_at(Vector3(at.x, 0.0, at.y))
+		if cell == null or not cell.avalanche_bed:
+			beds_ok = false
+	_expect(beds_ok, "the bed the slab slid off is still a bed")
+	_expect(avalanches._settled.size() == int(left.get("settled", -1)) and avalanches._visuals.size() == avalanches._settled.size(),
+		"every avalanche that had run is there to be read, and none was added (%d)" % avalanches._settled.size())
+	if left.has("crevasse_id"):
+		var slot: Object = null
+		for candidate in terrain.glacier.crevasses:
+			if candidate.id == left["crevasse_id"]:
+				slot = candidate
+		var centre: Vector2 = left["crevasse_centre"]
+		_expect(slot != null and not slot.is_bridged_at(centre) and slot.probed and slot.collapsed.size() == 1,
+			"the bridge that fell is still gone")
+		_expect(absf(terrain.get_height_at(Vector3(centre.x, 0.0, centre.y)) - float(left["crevasse_floor"])) < 0.02,
+			"and its crevasse is as deep as it was")
+		var crevasse_system: Object = _locator.get_service("CrevasseSystem")
+		_expect((crevasse_system.to_save()["probe_holes"] as PackedVector2Array).size() == int(left.get("probe_holes", -1)), "the probe hole beside it is still there")
 	_expect((run.get_meta("planned_route", PackedVector3Array()) as PackedVector3Array).size() == expect["planned"], "the planned line is still the plan")
 	_expect(not saves.has_suspended_run(), "the save is used up")
 	_expect(root.get_viewport().get_camera_3d() == player.camera_pivot.camera, "the view is the climber's own")

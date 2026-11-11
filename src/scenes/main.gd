@@ -473,8 +473,24 @@ func _capture_suspended_run() -> Dictionary:
 				"footwear": int(player.footwear),
 			},
 			"environment": environment_service.to_save(),
+			"mountain": _capture_mountain(),
 		},
 	}
+
+
+## What has changed on the mountain since the day began (ground that slid or
+## opened, what the avalanches left to be seen, the climber's probe holes)
+func _capture_mountain() -> Dictionary:
+	var data := {}
+	if terrain_service != null:
+		data["terrain"] = terrain_service.get_changes()
+	var avalanche_system := ServiceLocator.get_service("AvalancheSystem") as AvalancheSystem
+	if avalanche_system != null:
+		data["avalanches"] = avalanche_system.to_save()
+	var crevasse_system := ServiceLocator.get_service("CrevasseSystem") as CrevasseSystem
+	if crevasse_system != null:
+		data["crevasses"] = crevasse_system.to_save()
+	return data
 
 
 ## Pause menu > Save and Quit: write the run to disk, set it aside and go to
@@ -781,11 +797,22 @@ func _initialize_descent_systems() -> void:
 	# 1. Initialize terrain
 	await _setup_terrain(run.mountain_id)
 
+	# 1b. A run picked up again: the mountain as it was left (debris, beds,
+	# opened crevasses), before anyone stands on it
+	var world_saved: Dictionary = run.get_meta(RESUME_META, {})
+	var mountain_saved: Dictionary = world_saved["mountain"] if world_saved.get("mountain") is Dictionary else {}
+	if mountain_saved.get("terrain") is Dictionary and terrain_service != null:
+		terrain_service.restore_changes(mountain_saved["terrain"])
+
 	# 2. Initialize environment services
 	_setup_environment(run)
 
 	# 2b. Create gameplay simulation systems (body, sliding, rope, risk, fatal, tutorial)
 	_bootstrap_descent_systems()
+	if mountain_saved.get("avalanches") is Dictionary:
+		var avalanche_system := ServiceLocator.get_service("AvalancheSystem") as AvalancheSystem
+		if avalanche_system != null:
+			avalanche_system.pending_restore = mountain_saved["avalanches"]
 
 	# 3. Spawn player at start position
 	_spawn_player(run)
@@ -811,6 +838,12 @@ func _initialize_descent_systems() -> void:
 
 	# Emit descent ready signal
 	EventBus.descent_ready.emit()
+
+	# The climber's own marks on the glacier, once its systems are ready
+	if mountain_saved.get("crevasses") is Dictionary:
+		var crevasse_system := ServiceLocator.get_service("CrevasseSystem") as CrevasseSystem
+		if crevasse_system != null:
+			crevasse_system.restore(mountain_saved["crevasses"])
 
 
 func _setup_terrain(mountain_id: String) -> void:

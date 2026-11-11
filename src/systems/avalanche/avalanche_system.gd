@@ -130,6 +130,15 @@ var pit_timer: float = -1.0
 
 ## Storm loading during the run (instability multiplier)
 var loading: float = 1.0
+
+## What every avalanche that has come to rest left to be seen (crown, debris
+## blocks), as plain data: a run set aside saves it with the day's state
+## (to_save) and Continue hands it back (pending_restore)
+var _settled: Array[Dictionary] = []
+
+## to_save() data to take up at the next descent_ready instead of drawing
+## the day afresh (Main sets it when a run is picked up again)
+var pending_restore: Dictionary = {}
 var _natural_clock: float = 0.0
 var _icefall_clock: float = 0.0
 var _signs_left: int = 12
@@ -152,6 +161,9 @@ func _ready() -> void:
 
 func _on_descent_ready() -> void:
 	_reset()
+	# Only for the descent it was handed over for
+	var saved := pending_restore
+	pending_restore = {}
 	var run := GameStateManager.current_run
 	conditions = null
 	if run != null and run.start_conditions != null:
@@ -167,7 +179,12 @@ func _on_descent_ready() -> void:
 	field = AvalancheField.build(terrain_service, conditions)
 	_rng.seed = conditions.seed ^ 0x5A17
 	active = true
-	_place_recent_avalanches()
+	if saved.is_empty():
+		_place_recent_avalanches()
+	else:
+		# A run picked up again: the mountain already carries what slid (the
+		# terrain was put back as it was left); show it, and go on from there
+		_restore(saved)
 	if player != null and not player.landed.is_connected(_on_player_landed):
 		player.landed.connect(_on_player_landed)
 	print("[AvalancheSystem] %s danger (%s), %d start cells, %d icefall cells, ready in %d ms" % [
@@ -203,6 +220,7 @@ func _reset() -> void:
 	_natural_clock = 0.0
 	_icefall_clock = 0.0
 	_signs_left = 12
+	_settled.clear()
 	field = null
 	active = false
 
@@ -411,6 +429,74 @@ func _check_naturals(delta: float) -> void:
 			release_serac(field.icefall_cells[_rng.randi() % field.icefall_cells.size()])
 
 
+## The day's avalanche state as plain data, for a suspended run's save file
+func to_save() -> Dictionary:
+	return {
+		"settled": _settled.duplicate(true),
+		"next_id": _next_id,
+		"loading": loading,
+		"natural_clock": _natural_clock,
+		"icefall_clock": _icefall_clock,
+		"signs_left": _signs_left,
+		"rng_state": _rng.state,
+	}
+
+
+## Take up to_save() data: the crowns and debris of what has already slid,
+## and the day's clocks and dice where they were
+func _restore(data: Dictionary) -> void:
+	var settled: Variant = data.get("settled")
+	if settled is Array:
+		for entry in settled:
+			if not (entry is Dictionary) or not (entry.get("positions") is PackedVector3Array):
+				continue
+			var flow := AvalancheFlow.new()
+			flow.id = int(entry.get("id", _next_id))
+			flow.kind = clampi(int(entry.get("kind", AvalancheFlow.Kind.SLAB)), 0, AvalancheFlow.Kind.size() - 1) as AvalancheFlow.Kind
+			flow.size = int(entry.get("size", 1))
+			flow.slab_depth = float(entry.get("slab_depth", 0.0))
+			flow.positions = entry["positions"]
+			if entry.get("crown_points") is PackedVector2Array and entry.get("crown_downhill") is PackedVector2Array \
+					and (entry["crown_points"] as PackedVector2Array).size() == (entry["crown_downhill"] as PackedVector2Array).size():
+				flow.crown_points = entry["crown_points"]
+				flow.crown_downhill = entry["crown_downhill"]
+			_show_settled(flow)
+	_next_id = maxi(int(data.get("next_id", _next_id)), _next_id)
+	loading = maxf(float(data.get("loading", loading)), 0.0)
+	_natural_clock = float(data.get("natural_clock", 0.0))
+	_icefall_clock = float(data.get("icefall_clock", 0.0))
+	_signs_left = clampi(int(data.get("signs_left", _signs_left)), 0, 12)
+	if data.get("rng_state") is int:
+		_rng.state = data["rng_state"]
+	print("[AvalancheSystem] %d earlier avalanches back on the mountain" % _settled.size())
+
+
+## An avalanche that has come to rest, drawn as it lies (crown and debris
+## blocks), and remembered for a save
+func _show_settled(flow: AvalancheFlow) -> void:
+	var old: Node = _visuals.get(flow.id)
+	if old != null and is_instance_valid(old):
+		old.queue_free()
+	var visual := AvalancheVisual.new()
+	visual.name = "RecentAvalanche%d" % flow.id
+	add_child(visual)
+	visual.build_static(flow, terrain_service)
+	_visuals[flow.id] = visual
+	_remember_settled(flow)
+
+
+func _remember_settled(flow: AvalancheFlow) -> void:
+	_settled.append({
+		"id": flow.id,
+		"kind": int(flow.kind),
+		"size": flow.size,
+		"slab_depth": flow.slab_depth,
+		"positions": flow.positions,
+		"crown_points": flow.crown_points,
+		"crown_downhill": flow.crown_downhill,
+	})
+
+
 ## The last day's naturals: run them to the end before the climber arrives,
 ## leaving crowns and debris to be read. Kept clear of the summit and camp.
 func _place_recent_avalanches() -> void:
@@ -450,11 +536,7 @@ func _place_recent_avalanches() -> void:
 		return
 	_apply_terrain(finished)
 	for flow in finished:
-		var visual := AvalancheVisual.new()
-		visual.name = "RecentAvalanche%d" % flow.id
-		add_child(visual)
-		visual.build_static(flow, terrain_service)
-		_visuals[flow.id] = visual
+		_show_settled(flow)
 	print("[AvalancheSystem] %d recent avalanches on the mountain (%d ms)" % [finished.size(), Time.get_ticks_msec() - started])
 
 
@@ -641,6 +723,7 @@ func _finish_flow(flow: AvalancheFlow) -> void:
 	var visual: AvalancheVisual = _visuals.get(flow.id)
 	if visual != null:
 		visual.settle(flow, terrain_service)
+	_remember_settled(flow)
 	EventBus.record_decision("avalanche_stopped", {
 		"size": flow.size,
 		"runout_angle": flow.runout_angle(),

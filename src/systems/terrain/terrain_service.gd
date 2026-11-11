@@ -82,10 +82,22 @@ var glacier: GlacierField = null
 ## ran): the next run reloads the mountain fresh
 var modified: bool = false
 
+## Everything that has changed the ground since the mountain was loaded:
+## metres added at each vertex (vertex key -> metres), and what the edits
+## flagged on the cells (debris depth; the bed a slab slid off). A run set
+## aside saves it (get_changes) and puts it back on the fresh mountain
+## (restore_changes), so avalanche debris and opened crevasses are still there.
+var _changed_heights: Dictionary = {}
+var _changed_debris: Dictionary = {}
+var _changed_beds: Dictionary = {}
+
 ## Chunk meshes waiting to be rebuilt after a deferred edit (a few a frame,
 ## nearest the climber first)
 var _pending_meshes: Dictionary = {}
 const MESH_REBUILDS_PER_FRAME := 2
+
+## A saved change of height larger than this is not believed (metres)
+const MAX_RESTORED_DELTA := 200.0
 
 ## How far round an opened crevasse the cliff distances are refreshed (metres)
 const CLIFF_UPDATE_RADIUS := 45.0
@@ -161,6 +173,9 @@ func load_terrain(mountain_id: String) -> bool:
 	procedural_result = null
 	glacier = null
 	modified = false
+	_changed_heights.clear()
+	_changed_debris.clear()
+	_changed_beds.clear()
 	_pending_meshes.clear()
 	_chunk_origin = Vector2.ZERO
 	_cached_cell = null
@@ -671,6 +686,64 @@ func edit_heights(center: Vector2, radius: float, delta_at: Callable, mark: Call
 	return apply_height_deltas(deltas, mark, label, defer_meshes)
 
 
+## What has changed on the mountain since it was loaded, as plain data for a
+## suspended run's save file: the heights and cell flags that edits changed,
+## and which crevasse bridges have fallen or been probed
+func get_changes() -> Dictionary:
+	var crevasses := {}
+	if glacier != null:
+		for crevasse in glacier.crevasses:
+			if not crevasse.collapsed.is_empty() or crevasse.probed:
+				crevasses[crevasse.id] = {"collapsed": crevasse.collapsed, "probed": crevasse.probed}
+	return {
+		"mountain": current_mountain,
+		"heights": _changed_heights.duplicate(),
+		"debris": _changed_debris.duplicate(),
+		"beds": _changed_beds.keys(),
+		"crevasses": crevasses,
+	}
+
+
+## Put get_changes() data back on a freshly loaded mountain. Returns the
+## vertices changed (0 when there was nothing to put back, or the data is for
+## another mountain).
+func restore_changes(data: Dictionary) -> int:
+	if str(data.get("mountain", "")) != current_mountain:
+		return 0
+	# Bridges first: the surface of a crevasse depends on whether it is open
+	var crevasses: Variant = data.get("crevasses")
+	if glacier != null and crevasses is Dictionary:
+		for crevasse in glacier.crevasses:
+			var saved: Variant = (crevasses as Dictionary).get(crevasse.id)
+			if not (saved is Dictionary):
+				continue
+			if saved.get("collapsed") is PackedVector2Array:
+				crevasse.collapsed = saved["collapsed"]
+			crevasse.probed = bool(saved.get("probed", false))
+
+	var deltas := {}
+	var heights: Variant = data.get("heights")
+	if heights is Dictionary:
+		for key in heights:
+			var delta: Variant = heights[key]
+			if key is Vector2i and (delta is float or delta is int) and absf(float(delta)) < MAX_RESTORED_DELTA:
+				deltas[key] = float(delta)
+	var debris: Dictionary = data["debris"] if data.get("debris") is Dictionary else {}
+	var beds := {}
+	if data.get("beds") is Array:
+		for key in data["beds"]:
+			beds[key] = true
+	var terrain := self
+	var mark := func(cell: TerrainCell, _delta: float) -> void:
+		var key := terrain.vertex_key(Vector2(cell.position.x, cell.position.z))
+		var depth: Variant = debris.get(key)
+		if depth is float or depth is int:
+			cell.debris_depth += float(depth)
+		if beds.has(key):
+			cell.avalanche_bed = true
+	return apply_height_deltas(deltas, mark, "Mountain as it was left")
+
+
 ## The world vertex grid key nearest a point (see apply_height_deltas)
 func vertex_key(p: Vector2) -> Vector2i:
 	var cell_size := chunk_size / float(chunk_resolution)
@@ -711,8 +784,14 @@ func apply_height_deltas(deltas: Dictionary, mark: Callable = Callable(), label:
 		var cell: TerrainCell = chunk.cells[x][z]
 		cell.elevation = chunk.heightmap[index]
 		cell.position.y = cell.elevation
+		_changed_heights[key] = float(_changed_heights.get(key, 0.0)) + delta
 		if mark.is_valid():
+			var debris_before := cell.debris_depth
 			mark.call(cell, delta)
+			if cell.debris_depth != debris_before:
+				_changed_debris[key] = float(_changed_debris.get(key, 0.0)) + cell.debris_depth - debris_before
+			if cell.avalanche_bed:
+				_changed_beds[key] = true
 		changed_cells.append(cell)
 		changed_keys.append(key)
 		lo = Vector2(minf(lo.x, cell.position.x), minf(lo.y, cell.position.z))

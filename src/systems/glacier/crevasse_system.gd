@@ -383,6 +383,25 @@ func probe_ahead(glacier: GlacierField) -> bool:
 	return false
 
 
+## The climber's marks on the glacier as plain data, for a suspended run's
+## save file (which bridges have fallen is the terrain's to keep)
+func to_save() -> Dictionary:
+	var holes := PackedVector2Array()
+	for hole in _probe_holes:
+		if is_instance_valid(hole):
+			holes.append(Vector2(hole.global_position.x, hole.global_position.z))
+	return {"probe_holes": holes}
+
+
+## Put to_save() data back on the mountain
+func restore(data: Dictionary) -> void:
+	if not _resolve():
+		return
+	if data.get("probe_holes") is PackedVector2Array:
+		for point in data["probe_holes"]:
+			_leave_probe_hole(point)
+
+
 ## A dark hole where the shaft broke through: the climber's own mark
 func _leave_probe_hole(point: Vector2) -> void:
 	var hole := MeshInstance3D.new()
