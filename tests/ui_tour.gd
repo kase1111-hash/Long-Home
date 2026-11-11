@@ -73,6 +73,7 @@ func _run() -> void:
 	_expect_state("LOADOUT_CONFIG", "mountain select Continue")
 	_shot("03_loadout.png")
 	var loadout_screen: Node = main_scene.get("loadout_config_screen")
+	_check_loadout_summary(loadout_screen)
 	if loadout_screen != null and loadout_screen.has_method("_on_start_pressed"):
 		loadout_screen._on_start_pressed()
 	await _wait(SETTLE)
@@ -336,6 +337,25 @@ func _find_node(parent: Node, node_name: String) -> Node:
 	if parent == null:
 		return null
 	return parent.find_child(node_name, true, false)
+
+
+## The loadout screen's summary panel is filled in from the loadout (it
+## once showed "0.0 kg" for any pack: its labels were looked up by a node path
+## that never matched)
+func _check_loadout_summary(screen: Node) -> void:
+	if screen == null:
+		_expect(false, "loadout screen exists")
+		return
+	var content := "MainContainer/Content/SummaryPanel/MarginContainer/SummaryContent"
+	var weight: Label = screen.get_node_or_null(content + "/WeightValue") as Label
+	var loadout: Object = screen.get("current_loadout")
+	_expect(weight != null and loadout != null and loadout.total_weight > 1.0
+		and weight.text == "%.1f kg" % loadout.total_weight,
+		"the loadout summary shows the pack's weight (%s)" % (weight.text if weight != null else "no label"))
+	var stats: Node = screen.get_node_or_null(content + "/LoadoutStats")
+	var messages: Node = screen.get_node_or_null(content + "/ValidationMessages")
+	_expect(stats != null and stats.get_child_count() >= 2, "and what the loadout does to speed and warmth")
+	_expect(messages != null and messages.get_child_count() >= 1, "and whether the mountain's requirements are met")
 
 
 func _shot(file_name: String) -> void:

@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (sound)
+
+- **A sound for everything that happens.** 123 sound effects (257 files, 13.6 MB) in
+  `assets/audio`, replacing the placeholder beeps and noise. There is still no music.
+  - They are synthesized, not recorded: `tools/sfx/generate.py` (Python and numpy) builds each
+    from noise, resonances and small physical models, seeded by name so a render is repeatable.
+  - They were tuned by measurement and spectrogram, not by ear. Treat the set as a complete first
+    pass; any sound can be replaced by a recording by overwriting its file.
+- **Sounds by file name.** `SoundLibrary` scans `assets/audio`: `<id>_<NN>.wav` is variant NN of
+  sound `<id>`, variants never repeat back to back, and ids ending in `_loop` loop (the loop
+  points are in the files). `AudioService.play(id)` and `play_at(id, position)` play them from
+  pooled voices. With no files the library falls back to rough generated stand-ins.
+- **Wind in layers.** A low body, a rush on each side, a thin high hiss, howls, a whistle and
+  spindrift, each on its own curve of wind strength, so a gale is brighter and howls instead of
+  just being louder. Layers drift independently and swell together in gusts. Rain and sleet are
+  heard when they fall; snow is not. Prayer flags flap at the summit cairn and at base camp.
+- **Breath and heart.** Breath is played one inhale and one exhale at a time, so its pace and
+  depth follow fatigue, effort, altitude and fright continuously, across calm, hard and gasping
+  sets. A heartbeat appears only when things go badly (a slide out of control, a fall, a burial).
+- **Footsteps that know the ground and the footwear.** Nine surfaces; crampons bite ice and firm
+  snow and scrape over rock; a downclimb plants the axe on every other step.
+- **Motion.** Sliding on snow, ice and scree, the axe dragging when you brake, the pick biting in
+  a self-arrest, skis gliding and carving, and the air rushing past, all following your speed.
+- **Rope and gear.** Flaking the rope, building the anchor it is built from, the test tugs, the
+  rope through the device, a loaded anchor creaking, a snagged rope, the pull and the rope
+  coming down; straps, bindings, the probe, a snow pit dug and tapped, the airbag.
+- **Hazards.** A whumpf and shooting cracks underfoot; an avalanche heard where it is, with a
+  roar that follows the debris; caught and buried, the world is muffled and what is left is
+  your own breath and heart; a crevasse has its own reverb, drips and groaning ice.
+- **Menus.** Every button clicks without its screen asking: `UIAudioManager` wires any button
+  that enters the scene tree, and the planning tabs turn like pages. The map unfolds and folds,
+  and rustles while it is open; a compass in the pack is flipped open with it.
+- `tests/test_audio.gd` (139 checks) and `tests/test_audio_assets.py` (18 checks).
+
+### Changed
+
+- The Master bus has a peak guard. The mix now peaks around -7 dB in a storm (about -21 dB RMS);
+  it used to peak near -40 dB, which was close to inaudible.
+- Audio draws its random numbers from its own generator (`AudioService.roll`, `vary`), so a
+  gust or a footstep's pitch can no longer change what a seeded test, or the mountain, does
+  next. It used to draw from the global one, once a frame.
+- The avalanche's sounds moved out of `AvalancheSystem` into `HazardAudioManager`. They used to
+  be generated at the moment of the event, which stalled the frame an avalanche released on.
+- Removed `PlaceholderAudioLoader` and `AudioConfig` (replaced by `SoundLibrary`).
+
+### Fixed
+
+- **The loadout screen's summary never updated.** It read "0.0 kg" for any pack and showed no
+  requirement warnings or loadout effects: its labels were looked up by a node path that did not
+  exist. The avalanche-kit warning at Considerable danger is now actually shown.
+- A gale was the quietest wind: `GALE` had no entry in the wind-to-volume table.
+- Snow, overcast, partly cloudy and clearing weather never updated the ambience, so a storm's
+  sound stayed after the storm.
+- Footsteps played twice, from two systems with different rhythms, and the one in step with the
+  animation always played the same blip whatever the surface.
+- After any pause the wind stayed at its quietest until the weather next changed.
+- Rope, self-arrest and menu sounds never played: they listened for signals that do not exist.
+- The map made its unfold sound twice.
+
 ### Added (avalanches)
 
 - **A snowpack for every day.** `AvalancheConditions` draws each attempt's day from the

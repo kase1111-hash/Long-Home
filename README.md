@@ -75,7 +75,7 @@ As a first-person mountain survival experience, Long-Home combines realistic ter
 | **Fatal Event Handling** | Complete | Ethical 5-phase death sequence system |
 | **User Interface** | Complete | Minimalist UI across all game phases plus a small descent HUD and control hints |
 | **Tutorial System** | Structural | Framework exists; instructor dialogue and interactions incomplete |
-| **Audio Design** | Structural | System architecture in place; uses placeholder audio assets |
+| **Audio Design** | Complete | 123 synthesized sound effects (no music): wind in layers that follow its strength, breath and heartbeat that follow the climber, footsteps for every surface and footwear, sliding, skis, rope, anchors, avalanches and crevasses. Tuned by measurement, not yet by ear; recordings drop in by file name |
 | **Streaming & Replay** | Complete | Recording, playback, OBS integration, highlights |
 | **Save & Progression** | Complete | Route memory, run history, player profiles |
 
@@ -177,6 +177,11 @@ godot --headless --audio-driver Dummy --path . -s res://tests/test_route_scoring
 # Full route: plan both legs from the guidebook, base camp -> summit -> base camp, then a retreat
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_full_route.gd
 
+# Sound: every file loads and loops as it should, the wind follows its strength, one footstep
+# per step and the right one for the footwear, a real glissade and self-arrest are heard,
+# avalanche / burial / crevasse / rope events ask for their sounds, a fatal event is silent
+godot --headless --audio-driver Dummy --path . -s res://tests/test_audio.gd
+
 # Walk every screen with the real buttons and save a screenshot of each (needs a display;
 # xvfb-run works on a headless Linux box)
 mkdir -p /tmp/tour && xvfb-run -a -s "-screen 0 1280x720x24" \
@@ -195,6 +200,7 @@ Python-only checks (regex based, no Godot needed):
 ```bash
 python tests/test_gdscript_validation.py
 python tests/test_procedural_generation.py
+python tests/test_audio_assets.py      # sound files: names, format, loops, and that code and files agree
 ```
 
 ---
@@ -415,6 +421,29 @@ Plan both legs; lines with an abseil pitch cannot be climbed on foot. The summit
 prayer flags and no marker; standing on top turns you round. Walk back into camp without the
 summit and the run ends as a retreat: home safe, a fraction of the points.
 
+### What you hear
+
+There is no music. Everything you hear has a source on the mountain, and most of it is telling
+you something.
+
+- **Wind** is built from layers that follow its strength: a gale is brighter and howls, not just
+  louder, and from about 13 m/s it drives spindrift you can hear as well as see. Gusts come
+  through on their own. Now and then it drops away altogether.
+- **Breath** is the fatigue gauge. It quickens and deepens with tiredness, steep ground, thin air
+  and fright; at the limit every breath is a gasp. A heartbeat only appears when things are
+  going badly: a slide getting away from you, a fall, a burial.
+- **Footsteps** are the ground: firm snow crunches, soft snow is muffled, ice ticks, scree
+  clatters. Crampons change the sound, so you can hear what is on your feet.
+- **Sliding and skis** are heard by speed: the scrape rises in level and pitch, the air starts
+  to rush past, and the axe drags when you brake or arrest.
+- **Rope work** has its mechanics: flaking the rope, building the anchor it is built from (a nut
+  seated, an ice screw wound in, snow stamped down), tugs on the test, the rope running through
+  the device, a creak when the anchor is loaded.
+- **The snowpack warns before it kills.** A whumpf or shooting cracks are quiet and close. An
+  avalanche is heard where it is; caught in one, the world goes dark and muffled and what is left
+  is your own heart and breath. Down a crevasse the wind stays above and the ice answers back.
+- **A fatal event is silent.** The climber's sounds are cut and only the wind is left.
+
 ---
 
 ## Project Structure
@@ -450,7 +479,7 @@ Long-Home/
 │   ├── systems/                      # Game mechanics
 │   │   ├── planning/                 # Guidebook survey, alpine grades, book times, route scoring
 │   │   ├── summit_goal.gd            # Summit cairn + full-route summit check
-│   │   ├── audio/                    # Audio management (9 files)
+│   │   ├── audio/                    # Sound library, mix, and the managers that play it (10 files)
 │   │   ├── body/                     # Physical condition (4 files)
 │   │   ├── sliding/                  # Slide mechanics (5 files)
 │   │   ├── rope/                     # Rope system (7 files)
@@ -490,6 +519,12 @@ Long-Home/
 │   └── scenes/
 │       └── main.gd                   # Main scene controller
 │
+├── assets/
+│   └── audio/                        # Every sound effect, as <id>_<NN>.wav (see its README)
+│
+├── tools/
+│   └── sfx/                          # The synthesizer that renders assets/audio (Python + numpy)
+│
 ├── data/                             # Game data files
 │   └── mountains/
 │       └── sample_mountain/
@@ -497,8 +532,8 @@ Long-Home/
 │
 ├── tests/                            # Godot-native checks (check_scripts, smoke_goal, ui_tour,
 │                                     # screenshot_tour, test_route_scoring, smoke_full_route,
-│                                     # test_scatter, test_glacier, test_avalanche)
-│                                     # and Python regex validators
+│                                     # test_scatter, test_glacier, test_avalanche, test_audio)
+│                                     # and Python validators
 ├── SPEC-SHEET.md                     # Complete game specification
 ├── PROGRAMMING-ROADMAP.md            # Implementation guide
 ├── project.godot                     # Godot configuration
@@ -636,6 +671,7 @@ All feedback is diegetic - no numerical displays.
 | [EVALUATION-REPORT.md](EVALUATION-REPORT.md) | Project quality and purpose evaluation |
 | [SECURITY.md](SECURITY.md) | Security policy and vulnerability reporting |
 | [claude.md](claude.md) | Quick developer reference for the codebase |
+| [assets/audio/README.md](assets/audio/README.md) | The sound effects: how they are named, replaced and regenerated |
 
 ---
 
@@ -661,11 +697,11 @@ All feedback is diegetic - no numerical displays.
 - [x] Risk detection system
 - [x] Trees and boulders, glaciers and crevasses
 - [x] Avalanches: daily snowpack and bulletin, triggered and natural releases, burial and rescue
+- [x] Sound: a synthesized effect for every mechanic, mixed by wind, speed and the climber's state
 
 ### Partial / Structural
 
 - [ ] Tutorial system (framework exists; instructor dialogue incomplete)
-- [ ] Audio system (architecture in place; uses placeholder assets)
 - [ ] Scout drone (diegetic easy-mode drone not yet implemented)
 
 ### Planned
@@ -673,7 +709,8 @@ All feedback is diegetic - no numerical displays.
 - [ ] Advanced rescue mechanics
 - [ ] More complex weather generation
 - [ ] Gear damage system
-- [ ] Real audio assets to replace placeholders
+- [ ] Recorded audio where it matters most (wind, breath, footsteps) in place of the synthesized set
+- [ ] Drone motor audio (the spec's "loud in tension shots"; the game is seen from the chase camera)
 - [ ] Real USGS mountain data integration
 - [ ] Accessibility features
 

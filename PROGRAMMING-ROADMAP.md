@@ -2,7 +2,7 @@
 
 This document provides implementation guidance for each game system, showing what has been built and how to extend it.
 
-**Implementation Status:** All 16 major systems have scaffolding in place across 111 GDScript files. Most systems are fully implemented; Audio and Tutorial systems are structural with placeholder content. See per-system status below.
+**Implementation Status:** All 16 major systems have scaffolding in place across 139 GDScript files. Most systems are fully implemented; the Tutorial system is structural with placeholder content, and Audio is complete with a synthesized sound set. See per-system status below.
 
 ---
 
@@ -20,7 +20,7 @@ This document provides implementation guidance for each game system, showing wha
 10. [Camera Director AI](#10-camera-director-ai) ✅
 11. [Fatal Event System](#11-fatal-event-system) ✅
 12. [UI System](#12-ui-system) ✅
-13. [Audio System](#13-audio-system) ⚠️ Structural
+13. [Audio System](#13-audio-system) ✅
 14. [Streaming & Replay System](#14-streaming--replay-system) ✅
 15. [Tutorial & Onboarding](#15-tutorial--onboarding) ⚠️ Structural
 16. [Save & Progression System](#16-save--progression-system) ✅
@@ -44,7 +44,7 @@ src/
 │       └── injury.gd
 ├── entities/player/                   # 9 files
 ├── systems/
-│   ├── audio/                         # 9 files
+│   ├── audio/                         # 10 files
 │   ├── body/                          # 4 files
 │   ├── sliding/                       # 5 files
 │   ├── rope/                          # 7 files
@@ -1194,18 +1194,27 @@ BodyState:
 
 ## 13. Audio System
 
-**Status:** ⚠️ Structural — System architecture implemented with placeholder audio. Real audio assets pending.
+**Status:** ✅ Complete — every mechanic has sound, from a synthesized set of 123 effects
+(`assets/audio`, rendered by `tools/sfx/generate.py`). Tuned by measurement, not yet by ear:
+replacing a sound with a recording is a matter of overwriting its file. Drone audio (13.3) is
+not implemented.
 
 **Files:**
-- `src/systems/audio/audio_service.gd` - Central coordinator
-- `src/systems/audio/ambient_audio_manager.gd` - Wind, environment
-- `src/systems/audio/player_audio_manager.gd` - Breathing, footsteps
-- `src/systems/audio/gear_audio_manager.gd` - Rope, crampon sounds
-- `src/systems/audio/ui_audio_manager.gd` - Menu sounds
-- `src/systems/audio/procedural_audio.gd` - Generated sounds
-- `src/systems/audio/audio_initializer.gd` - Setup
-- `src/systems/audio/audio_config.gd` - Configuration
-- `src/systems/audio/placeholder_audio_loader.gd` - Placeholder assets
+- `src/systems/audio/audio_initializer.gd` - Builds the buses, the library and the managers
+- `src/systems/audio/sound_library.gd` - Sound ids to files (`<id>_<NN>.wav`), variants, loops
+- `src/systems/audio/audio_service.gd` - One-shot voices (`play`, `play_at`), the mix, event routing
+- `src/systems/audio/audio_fader.gd` - Eases a looping layer's level and pitch
+- `src/systems/audio/ambient_audio_manager.gd` - Wind layers, gusts, precipitation, distant events
+- `src/systems/audio/player_audio_manager.gd` - Breath, heart, footsteps, slide/ski/air loops, impacts
+- `src/systems/audio/gear_audio_manager.gd` - Rope, anchors, axe, bindings, probe, shovel
+- `src/systems/audio/hazard_audio_manager.gd` - Avalanches, burial, crevasses
+- `src/systems/audio/ui_audio_manager.gd` - Menus and the map (wires every button itself)
+- `src/systems/audio/procedural_audio.gd` - Generated stand-ins, used only when there are no files
+- `assets/audio/README.md` - The sound set and how to replace or regenerate it
+
+**Extending:** add `assets/audio/<folder>/<id>_01.wav` (or a `@sound` in `tools/sfx/sounds_*.py`
+and re-render), then ask for the id from the manager that owns the event. Use
+`AudioService.roll*/vary` for any randomness, never `randf()`.
 
 ### 13.1 Environmental Audio
 

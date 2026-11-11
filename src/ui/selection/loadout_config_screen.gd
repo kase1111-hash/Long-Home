@@ -378,7 +378,10 @@ func _create_summary_panel(parent: Control) -> void:
 	style.corner_radius_bottom_right = 8
 	panel.add_theme_stylebox_override("panel", style)
 
+	# Named: _update_summary() finds the labels below by node path, and an
+	# unnamed node is added as "@MarginContainer@N", which no path matches
 	var margin := MarginContainer.new()
+	margin.name = "MarginContainer"
 	margin.add_theme_constant_override("margin_left", 16)
 	margin.add_theme_constant_override("margin_right", 16)
 	margin.add_theme_constant_override("margin_top", 16)

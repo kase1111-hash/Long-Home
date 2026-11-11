@@ -6,9 +6,9 @@ Long-Home is an atmospheric, narrative-driven mountaineering descent simulation 
 
 **Philosophy:** "The game is about consequence, not conquest. You don't win by reaching the summit. You win by returning intact, having made good decisions."
 
-**Status:** v0.1.0-alpha | 119 GDScript files | boots to the menu and plays end to end
+**Status:** v0.1.0-alpha | 139 GDScript files | boots to the menu and plays end to end
 (summit → base camp → resolution → post-game) with procedural terrain, sky, clouds, weather
-particles and a climber
+particles, a climber and a full set of synthesized sound effects
 
 ## Tech Stack
 
@@ -76,7 +76,8 @@ src/
 │   ├── camera_director/# AI Camera Director (5 files)
 │   ├── fatal_event/    # Ethical death handling (5 files)
 │   ├── risk/           # Risk detection (5 files)
-│   ├── audio/          # Sound management (9 files)
+│   ├── audio/          # SoundLibrary (ids -> files), AudioService (voices, mix), AudioFader,
+│   │                   # and the Ambient/Player/Gear/Hazard/UI managers (10 files)
 │   ├── tutorial/       # Onboarding (4 files)
 │   ├── save/           # Persistence (5 files)
 │   ├── replay/         # Recording and playback (5 files)
@@ -84,9 +85,11 @@ src/
 ├── ui/                 # User interface (18 files, incl. hud/descent_hud.gd)
 ├── data/               # Gear and mountain databases (2 files)
 └── scenes/             # Scene management (1 file)
+assets/audio/           # Every sound effect: <folder>/<id>_<NN>.wav (+ .import); see its README
+tools/sfx/              # The synthesizer that renders assets/audio (Python + numpy)
 tests/                  # Godot-native checks (check_scripts, smoke_goal, ui_tour,
                         # screenshot_tour, test_route_scoring, smoke_full_route, test_scatter,
-                        # test_glacier, test_avalanche) + Python validators
+                        # test_glacier, test_avalanche, test_audio) + Python validators
 ```
 
 ## Key Systems
@@ -102,7 +105,7 @@ tests/                  # Godot-native checks (check_scripts, smoke_goal, ui_tou
 7. **Camera Director AI** - Shot-based thinking with emotional rhythm
 8. **Fatal Events** - 5-phase ethical death handling
 9. **Risk Detection** - Terrain analysis and fall prediction
-10. **Audio** - Procedural and ambient sound
+10. **Audio** - 123 synthesized effects by id, layered wind, breath engine, event-driven gear and hazard sound; no music
 11. **UI** - Minimalist, diegetic (in-world) design
 12. **Tutorial** - Organic instructor-based learning
 13. **Save/Progression** - Player profiles, run history, achievements
@@ -195,6 +198,34 @@ witnessed? transceiver? `burial_survival` → RESCUE, else `FatalEventManager.tr
 `RouteMetrics` measures avalanche terrain (30-50° open snow, aspects, runout below) and ATES;
 `ReductionMethod.evaluate(conditions, metrics)` prints the plan's check.
 
+### Sound (who owns what)
+
+`AudioInitializer` (bootstrapped by `Main`) builds the buses in code, then `SoundLibrary`, then
+`AudioService` and the five managers. Buses: Master (peak compressor) ← Ambient (low-pass; fed by
+AmbientLeft/AmbientRight with panners), Player (reverb), Effects (low-pass, reverb), UI.
+`SoundLibrary` scans `res://assets/audio`: a file `<id>_<NN>.wav` is variant NN of sound `<id>`;
+`get_stream(id)` never returns the same variant twice running; `_loop` ids loop. With no files it
+falls back to `ProceduralAudio` stand-ins. `AudioService.play(id, volume_db, pitch, bus)` and
+`play_at(id, position, volume_db, pitch, reach)` are the only ways a one-shot is played (16 2D and
+12 3D pooled voices); `set_muffle` / `set_cavern` / `set_risk_dampen` shape the world buses.
+
+Nothing in gameplay asks for a sound (the one exception is `PhysicalMap` calling
+`play_map_open/close`). The managers listen: `AmbientAudioManager` mixes wind layers through
+`AudioFader`s from `wind_intensity` (set from `EventBus.wind_changed`) with its own gusts;
+`PlayerAudioManager` plays breath one inhale/exhale at a time from fatigue, state, altitude and
+fright, a heartbeat from `tension`, and slide/ski/air loops from speed; `GearAudioManager` follows
+`RopeDeploymentSystem`, `RappelController`, `SlideSystem` arrests and the climber's `gear_action`;
+`HazardAudioManager` follows `AvalancheSystem` and `CrevasseSystem` signals (the roar is a 3D
+voice moved to `flow.front()` each frame); `UIAudioManager` wires every `BaseButton` and
+`TabContainer` that enters the tree. `FootstepSystem` picks the id from surface and footwear (`crampon_sound_for`).
+Incidents and decisions (`EventBus.incident_recorded/decision_recorded`) trigger the rest.
+
+Rules: every random choice in audio goes through `AudioService.roll*/vary` (a private
+generator), never `randf()`, so sound cannot change what a seeded test or the mountain does.
+During a fatal event `PlayerAudioManager` is disabled and one-shots stopped: no impact, no cry.
+`python tools/sfx/generate.py` re-renders the files (seeded by name, repeatable); run
+`godot --headless --path . --import` afterwards.
+
 ### Planning and scoring (who owns what)
 
 `RouteMetrics.measure(line, terrain, options)` is the one yardstick: it resamples a line every
@@ -235,6 +266,7 @@ godot --headless --audio-driver Dummy --path . -s res://tests/test_glacier.gd   
 godot --headless --audio-driver Dummy --path . -s res://tests/test_avalanche.gd      # bulletin, flows, caught, burial, pits
 godot --headless --audio-driver Dummy --path . -s res://tests/test_route_scoring.gd  # grades, guidebook, scoring
 godot --headless --audio-driver Dummy --path . -s res://tests/smoke_full_route.gd    # full route + retreat
+godot --headless --audio-driver Dummy --path . -s res://tests/test_audio.gd          # library, mix, events -> sounds
 xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-driver opengl3 \
   --audio-driver Dummy -s res://tests/ui_tour.gd -- --out=/tmp/tour    # every screen, with PNGs
 xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-driver opengl3 \
@@ -242,6 +274,11 @@ xvfb-run -a -s "-screen 0 1280x720x24" godot --path . --rendering-driver opengl3
   --weather=STORM --wind=GALE --settle=400 --slide   # descent renders; also --time, --temperature
 python tests/test_gdscript_validation.py
 python tests/test_procedural_generation.py
+python tests/test_audio_assets.py                 # sound files and the ids the code asks for agree
+
+# Sound effects (Python 3.9+ and numpy), then let Godot import what changed
+python tools/sfx/generate.py                      # render assets/audio (--list, --check -v, --sheet out.png <words>)
+godot --headless --path . --import
 ```
 
 Godot 4.2 gotchas that bit this project:
@@ -263,6 +300,16 @@ Godot 4.2 gotchas that bit this project:
 - Kinematic vertical moves on steep floors: asking for more drop than the slope gives presses
   the body into the face and the physics slides the excess downhill (follow the terrain height
   change instead, as `PlayerMovement._update_downclimbing` does)
+- `AudioEffectLimiter` is not a limiter in 4.2: it adds make-up gain (ceiling minus threshold)
+  and then clips. `AudioEffectCompressor` reduces gain about twice as much as its ratio says
+  (measured: at ratio 12, 0 dB in comes out at -11 dB), so the Master bus uses it at ratio 2,
+  where it holds the output at the threshold
+- A paused tree stops every `AudioStreamPlayer` in it; only `UIAudioManager` runs while paused
+  (`PROCESS_MODE_ALWAYS`). Do not "restore" audio state on resume: nothing was lost
+- `seed()` does not make a run repeatable: `WeatherService` draws from the global generator on
+  every drawn frame, and the number of frames drawn varies from run to run. A test that scripts
+  a scenario must switch off the chance it does not want (random slips, weather windows,
+  natural avalanches, the wind's lulls): see `_steady_the_mountain()` in `tests/test_audio.gd`
 - There is no runtime query for the rendering method in 4.2: use
   `EnvironmentVisuals.detect_rendering_method()` (project setting + whether a RenderingDevice
   exists) before touching glow, SSAO, volumetric fog, proximity fade or PSSM shadows, none of
@@ -357,6 +404,10 @@ print("[SystemName] Debug message")
 | Cloud sheet, distant ranges | `src/systems/environment/cloud_layer.gd`, `horizon_range.gd` |
 | Slide spray, dust, impact bursts | `src/entities/player/surface_effects.gd` |
 | Descent HUD | `src/ui/hud/descent_hud.gd` |
+| Play a sound, the mix, buses | `src/systems/audio/audio_service.gd`, `audio_initializer.gd` |
+| Which sound for which event | `src/systems/audio/*_audio_manager.gd`, `src/entities/player/footstep_system.gd` |
+| Sound files and ids | `assets/audio/` (README there), `src/systems/audio/sound_library.gd` |
+| Designing or re-rendering a sound | `tools/sfx/sounds_*.py`, `tools/sfx/generate.py` |
 | Run data | `src/core/data/run_context.gd` |
 | UI screens | `src/ui/` |
 

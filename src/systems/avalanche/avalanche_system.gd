@@ -330,12 +330,10 @@ func warning(i: int) -> void:
 	if cracks:
 		player.say("Cracks shoot out across the snow from your feet.", 3.5)
 		_spawn_cracks(pos)
-		_play_at(ProceduralAudio.create_ice_crack_stream(), pos, -4.0, 1.4)
 		EventBus.record_decision("shooting_cracks", {"position": pos})
 		warning_sign.emit("cracks")
 	else:
 		player.say("Whumpf. The snowpack drops under you with a deep thud.", 3.5)
-		_play_at(ProceduralAudio.create_snow_settle_stream(), pos, 2.0, 0.45)
 		_shake(0.18)
 		EventBus.record_decision("whumpf", {"position": pos})
 		warning_sign.emit("whumpf")
@@ -1041,18 +1039,6 @@ func _shake(amount: float) -> void:
 		camera.add_shake(amount)
 
 
-func _play_at(stream: AudioStream, pos: Vector3, volume_db: float, pitch: float) -> void:
-	var sound := AudioStreamPlayer3D.new()
-	sound.stream = stream
-	sound.volume_db = volume_db
-	sound.pitch_scale = pitch
-	sound.unit_size = 12.0
-	add_child(sound)
-	sound.global_position = pos
-	sound.play()
-	sound.finished.connect(sound.queue_free)
-
-
 ## Dark crack lines racing out across the snow from the climber
 func _spawn_cracks(origin: Vector3) -> void:
 	var mesh := ArrayMesh.new()
@@ -1129,14 +1115,14 @@ func get_activity_text() -> String:
 # VISUALS
 # =============================================================================
 
-## Powder cloud, tumbling blocks, the crown wall and the roar of one avalanche
+## Powder cloud, tumbling blocks and the crown wall of one avalanche (its
+## roar belongs to HazardAudioManager, which follows the same flow)
 class AvalancheVisual extends Node3D:
 	const BLOCKS_PER_PARCEL := 3
 	const MAX_BLOCKS := 480
 
 	var cloud: CPUParticles3D = null
 	var blocks: MultiMeshInstance3D = null
-	var roar: AudioStreamPlayer3D = null
 	## Each block follows a parcel at an offset, with its own size and spin
 	var block_parcel: PackedInt32Array = PackedInt32Array()
 	var block_offset: PackedVector3Array = PackedVector3Array()
@@ -1150,14 +1136,6 @@ class AvalancheVisual extends Node3D:
 		_build_blocks(flow)
 		if flow.kind != AvalancheFlow.Kind.ICE:
 			_build_cloud(flow)
-		roar = AudioStreamPlayer3D.new()
-		roar.stream = ProceduralAudio.create_slide_snow_stream(4.0)
-		roar.volume_db = 6.0
-		roar.unit_size = 40.0
-		roar.pitch_scale = 0.55
-		add_child(roar)
-		roar.global_position = flow.origin
-		roar.play()
 
 	## A finished avalanche seen later: crown and settled debris blocks only
 	func build_static(flow: AvalancheFlow, terrain: TerrainService) -> void:
@@ -1176,10 +1154,6 @@ class AvalancheVisual extends Node3D:
 				_emit_timer = 0.1
 				fast = _update_emission(flow)
 				cloud.emitting = fast > 0 and speed > 4.0 and not flow.finished
-		if roar != null:
-			roar.global_position = front.position
-			if not roar.playing and speed > 3.0 and not flow.finished:
-				roar.play()
 		if blocks != null:
 			var mm := blocks.multimesh
 			for k in range(block_parcel.size()):
