@@ -106,10 +106,25 @@ func _ready() -> void:
 	ServiceLocator.get_service_async("EnvironmentService", _on_environment_ready)
 	ServiceLocator.get_service_async("PlayerController", _on_player_ready)
 
+	# Risk is a run's: between runs (the summary screens, a replay moving the
+	# climber about, a run set aside) this service and its parts sleep
+	EventBus.run_started.connect(func(_run: RunContext) -> void: process_mode = Node.PROCESS_MODE_INHERIT)
+	EventBus.run_ended.connect(func(_run: RunContext, _outcome: GameEnums.ResolutionType) -> void: _stand_down())
+	EventBus.run_suspended.connect(func(_run: RunContext) -> void: _stand_down())
+
 	# Register service
 	ServiceLocator.register_service("RiskDetectionService", self)
 
 	print("[RiskDetectionService] Initialized")
+
+
+## The run is over or set aside: let the tension go (nothing would, once this
+## sleeps), then sleep until the next run starts
+func _stand_down() -> void:
+	feedback.set_risk_level(0.0)
+	feedback.audio_dampen = 0.0
+	feedback.audio_dampen_requested.emit(0.0)
+	process_mode = Node.PROCESS_MODE_DISABLED
 
 
 func _on_terrain_ready(service: Object) -> void:
