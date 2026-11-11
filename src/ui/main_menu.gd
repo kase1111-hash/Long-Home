@@ -30,7 +30,7 @@ signal quit_pressed()
 # STATE
 # =============================================================================
 
-## Whether there's a run to continue
+## Whether there is a run set aside to continue (SaveManager's suspended run)
 var has_save: bool = false
 
 # =============================================================================
@@ -42,9 +42,7 @@ func _ready() -> void:
 	_apply_theme()
 	_fade_in()
 
-	# Check for existing save
-	has_save = _check_for_save()
-	continue_button.visible = has_save
+	refresh()
 
 
 func _setup_buttons() -> void:
@@ -82,14 +80,41 @@ func _fade_in() -> void:
 # SAVE CHECK
 # =============================================================================
 
-func _check_for_save() -> bool:
+## Show Continue only when a run has been set aside (pause menu > Save and
+## Quit), and say which
+func refresh() -> void:
+	var summary := _suspended_run_summary()
+	has_save = not summary.is_empty()
+	continue_button.visible = has_save
+	continue_button.text = "Continue"
+	if has_save:
+		var place := str(summary.get("mountain_name", ""))
+		var hours := fposmod(float(summary.get("clock", 0.0)), 24.0)
+		var clock := "%02d:%02d" % [int(hours), int(fmod(hours * 60.0, 60.0))]
+		continue_button.tooltip_text = "%s, %s, at %d m" % [place, clock, roundi(float(summary.get("elevation", 0.0)))] \
+			if not place.is_empty() else "Pick up the descent you set aside"
+		if not place.is_empty():
+			continue_button.text = "Continue · %s" % place
+
+
+## What SaveManager says about the run set aside, with the mountain's name
+## ({} when there is none)
+func _suspended_run_summary() -> Dictionary:
 	var save_manager := ServiceLocator.get_service("SaveManager") as SaveManager
 	if save_manager == null:
-		return false
-
-	# Check if player has any runs
-	var profile := save_manager.get_profile()
-	return profile != null and profile.total_runs > 0
+		return {}
+	var summary := save_manager.get_suspended_run_summary()
+	if summary.is_empty():
+		return {}
+	var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
+	if mountain_db == null:
+		return summary
+	# A run on a mountain this version does not have cannot be continued
+	var mountain: MountainDatabase.MountainData = mountain_db.get_mountain(str(summary.get("mountain_id", "")))
+	if mountain == null:
+		return {}
+	summary["mountain_name"] = mountain.name
+	return summary
 
 
 # =============================================================================
@@ -103,10 +128,10 @@ func _on_new_descent_pressed() -> void:
 	GameStateManager.transition_to(GameEnums.GameState.MOUNTAIN_SELECT)
 
 
+## Main loads the run that was set aside and carries on with it
 func _on_continue_pressed() -> void:
 	_play_button_sound()
 	continue_pressed.emit()
-	# Load saved run and continue
 
 
 ## Main shows the logbook (lifetime record) over the menu
@@ -141,6 +166,7 @@ func _play_button_sound() -> void:
 ## Show the menu with optional fade
 func show_menu(fade: bool = true) -> void:
 	visible = true
+	refresh()
 	if fade:
 		_fade_in()
 	else:

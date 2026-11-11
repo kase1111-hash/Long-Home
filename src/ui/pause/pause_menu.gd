@@ -18,6 +18,8 @@ signal self_check_pressed()
 signal settings_pressed()
 signal streaming_settings_pressed()
 signal abandon_pressed()
+## Save the run as it stands and leave for the main menu (Main does both)
+signal save_quit_pressed()
 
 # =============================================================================
 # CONFIGURATION
@@ -58,6 +60,8 @@ var self_check_button: Button
 var settings_button: Button
 var streaming_button: Button
 var abandon_button: Button
+var save_quit_button: Button
+var save_quit_note: Label
 var confirm_dialog: Control
 
 # =============================================================================
@@ -155,10 +159,25 @@ func _build_ui() -> void:
 	button_container.add_child(streaming_button)
 	_update_streaming_button()
 
-	# Spacer before abandon
+	# Spacer before the two ways of leaving
 	var spacer := Control.new()
 	spacer.custom_minimum_size = Vector2(0, 10)
 	button_container.add_child(spacer)
+
+	save_quit_button = _create_button("Save and Quit", "Leave the mountain as it is and pick the descent up again from the main menu")
+	save_quit_button.name = "SaveQuitButton"
+	save_quit_button.pressed.connect(_on_save_quit_pressed)
+	button_container.add_child(save_quit_button)
+
+	# Why the run cannot be saved right now (shown only then)
+	save_quit_note = Label.new()
+	save_quit_note.name = "SaveQuitNote"
+	save_quit_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	save_quit_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	save_quit_note.add_theme_font_size_override("font_size", 13)
+	save_quit_note.add_theme_color_override("font_color", Color(0.7, 0.7, 0.72))
+	save_quit_note.visible = false
+	button_container.add_child(save_quit_note)
 
 	abandon_button = _create_button("Abandon Run", "Give up and return to menu", true)
 	abandon_button.pressed.connect(_on_abandon_pressed)
@@ -459,6 +478,23 @@ func _update_streaming_button() -> void:
 
 func _on_abandon_pressed() -> void:
 	_show_confirm_dialog()
+
+
+func _on_save_quit_pressed() -> void:
+	if save_quit_button.disabled:
+		return
+	save_quit_pressed.emit()
+
+
+## Say whether the run can be saved right now: "" when it can, else the
+## reason (Main works it out each time the menu comes up). note: something
+## to know about saving when it is possible.
+func set_save_quit_blocked(reason: String, note: String = "") -> void:
+	if save_quit_button == null:
+		return
+	save_quit_button.disabled = not reason.is_empty()
+	save_quit_note.text = reason if not reason.is_empty() else note
+	save_quit_note.visible = not save_quit_note.text.is_empty()
 
 
 func _on_confirm_cancel() -> void:

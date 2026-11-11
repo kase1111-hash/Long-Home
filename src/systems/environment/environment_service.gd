@@ -157,6 +157,33 @@ func initialize_run(config: EnvironmentConfig) -> void:
 	])
 
 
+## The clock and the day's weather as plain data, for a suspended run's
+## save file
+func to_save() -> Dictionary:
+	return {
+		"time": time_service.to_save(),
+		"weather": weather_service.to_save(),
+	}
+
+
+## Carry on with a run that was set aside: the run's own start conditions,
+## then the clock and the weather as to_save() found them
+func resume_run(config: EnvironmentConfig, saved: Dictionary) -> void:
+	initialize_run(config)
+	if saved.get("time") is Dictionary:
+		time_service.restore(saved["time"])
+	if saved.get("weather") is Dictionary:
+		weather_service.restore(saved["weather"], time_service.current_time)
+	condition_rating = _calculate_condition_rating()
+	previous_rating = condition_rating
+	if visuals != null:
+		visuals.reset_for_run()
+	print("[EnvironmentService] Run resumed: %s, %s" % [
+		time_service.get_time_string(),
+		GameEnums.WeatherState.keys()[weather_service.current_weather]
+	])
+
+
 # =============================================================================
 # UPDATE
 # =============================================================================

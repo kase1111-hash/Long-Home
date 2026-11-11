@@ -209,6 +209,7 @@ func _ready() -> void:
 func _connect_events() -> void:
 	EventBus.run_started.connect(_on_run_started)
 	EventBus.run_ended.connect(_on_run_ended)
+	EventBus.run_suspended.connect(_on_run_suspended)
 
 	# Events to record
 	EventBus.slide_started.connect(_on_slide_started)
@@ -385,6 +386,11 @@ func _on_run_started(run_context: RunContext) -> void:
 	_record_event("run_started", {
 		"mountain": run_context.mountain_id if run_context else "unknown"
 	})
+
+
+## A run set aside is not a finished recording: stop, and keep nothing
+func _on_run_suspended(_run_context: RunContext) -> void:
+	stop_recording()
 
 
 func _on_run_ended(run_context: RunContext, outcome: GameEnums.ResolutionType) -> void:

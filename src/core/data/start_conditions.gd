@@ -490,6 +490,88 @@ func duplicate_conditions() -> StartConditions:
 	return copy
 
 
+## These conditions as plain data, for a suspended run's save file. The
+## day's snowpack is kept as the seed and elevation range it was drawn from
+## (AvalancheConditions.generate gives the same day back).
+func to_save() -> Dictionary:
+	var data := {
+		"time_of_day": time_of_day,
+		"daylight_remaining": daylight_remaining,
+		"latitude": latitude,
+		"day_of_year": day_of_year,
+		"weather": int(weather),
+		"weather_stability": weather_stability,
+		"wind_strength": int(wind_strength),
+		"wind_direction": wind_direction,
+		"temperature": temperature,
+		"mountain_id": mountain_id,
+		"knowledge_level": int(knowledge_level),
+		"route_mode": int(route_mode),
+		"climb_id": climb_id,
+		"weather_id": weather_id,
+		"known_routes": known_routes.duplicate(),
+		"known_hazards": known_hazards.duplicate(),
+		"body_state": body_state.to_save(),
+		"gear_state": gear_state.to_save(),
+	}
+	if avalanche != null:
+		data["avalanche"] = {"seed": avalanche.seed, "elevation_range": avalanche.elevation_range}
+	return data
+
+
+## Conditions from to_save() data. The snowpack is not rebuilt here (it
+## needs the mountain): see avalanche_from_save().
+static func from_save(data: Dictionary) -> StartConditions:
+	var conditions := StartConditions.new()
+	conditions.time_of_day = clampf(float(data.get("time_of_day", conditions.time_of_day)), 0.0, 24.0)
+	conditions.daylight_remaining = maxf(float(data.get("daylight_remaining", conditions.daylight_remaining)), 0.0)
+	conditions.latitude = clampf(float(data.get("latitude", conditions.latitude)), -90.0, 90.0)
+	conditions.day_of_year = clampi(int(data.get("day_of_year", conditions.day_of_year)), 1, 365)
+	conditions.weather = _enum_value(data.get("weather"), GameEnums.WeatherState.size(), conditions.weather) as GameEnums.WeatherState
+	conditions.weather_stability = clampf(float(data.get("weather_stability", conditions.weather_stability)), 0.0, 1.0)
+	conditions.wind_strength = _enum_value(data.get("wind_strength"), GameEnums.WindStrength.size(), conditions.wind_strength) as GameEnums.WindStrength
+	conditions.wind_direction = fposmod(float(data.get("wind_direction", conditions.wind_direction)), 360.0)
+	conditions.temperature = float(data.get("temperature", conditions.temperature))
+	conditions.mountain_id = str(data.get("mountain_id", ""))
+	conditions.knowledge_level = _enum_value(data.get("knowledge_level"), GameEnums.KnowledgeLevel.size(), conditions.knowledge_level) as GameEnums.KnowledgeLevel
+	conditions.route_mode = _enum_value(data.get("route_mode"), GameEnums.RouteMode.size(), conditions.route_mode) as GameEnums.RouteMode
+	conditions.climb_id = str(data.get("climb_id", ""))
+	conditions.weather_id = str(data.get("weather_id", ""))
+	var routes: Variant = data.get("known_routes")
+	if routes is Array:
+		for route in routes:
+			if route is PackedVector3Array:
+				conditions.known_routes.append(route)
+	var hazards: Variant = data.get("known_hazards")
+	if hazards is Array:
+		for hazard in hazards:
+			if hazard is Vector3:
+				conditions.known_hazards.append(hazard)
+	if data.get("body_state") is Dictionary:
+		conditions.body_state = BodyState.from_save(data["body_state"])
+	if data.get("gear_state") is Dictionary:
+		conditions.gear_state = GearState.from_save(data["gear_state"])
+	return conditions
+
+
+## The day's snowpack named in to_save() data, drawn again for a mountain
+## (null when the run had none)
+static func avalanche_from_save(data: Dictionary, mountain: MountainDatabase.MountainData) -> AvalancheConditions:
+	var saved: Variant = data.get("avalanche")
+	if not (saved is Dictionary) or not (saved.get("elevation_range") is Vector2):
+		return null
+	var range: Vector2 = saved["elevation_range"]
+	return AvalancheConditions.generate(mountain, str(data.get("mountain_id", "")), int(saved.get("seed", 0)), range.x, range.y)
+
+
+## A saved enum value, or the fallback when it is not one
+static func _enum_value(value: Variant, count: int, fallback: int) -> int:
+	if not (value is int or value is float):
+		return fallback
+	var number := int(value)
+	return number if number >= 0 and number < count else fallback
+
+
 # =============================================================================
 # SUN CALCULATIONS
 # =============================================================================

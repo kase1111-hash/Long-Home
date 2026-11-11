@@ -18,6 +18,7 @@ func _ready() -> void:
 	rng.randomize()
 	_session_seed = rng.randi()
 	EventBus.run_ended.connect(_on_run_ended)
+	EventBus.run_suspended.connect(_on_run_suspended)
 
 
 ## The bulletin for a mountain today (drawn on first ask)
@@ -70,5 +71,12 @@ func elevation_range(mountain_id: String, mountain: MountainDatabase.MountainDat
 
 ## A run ended: the next attempt is another day
 func _on_run_ended(_run: RunContext, _outcome: GameEnums.ResolutionType) -> void:
+	_today.clear()
+	_day_index += 1
+
+
+## A run set aside takes its day with it (the save keeps the snowpack it
+## started with); whatever is planned next is another day
+func _on_run_suspended(_run: RunContext) -> void:
 	_today.clear()
 	_day_index += 1

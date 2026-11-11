@@ -308,6 +308,43 @@ func get_momentum_modifier() -> float:
 # SERIALIZATION
 # =============================================================================
 
+## The pack as plain data, for a suspended run's save file
+func to_save() -> Dictionary:
+	var list: Array = []
+	for type in items:
+		var item: GearItem = items[type]
+		list.append({
+			"type": int(item.type),
+			"condition": item.condition_value,
+			"weight": item.weight,
+			"equipped": item.is_equipped,
+			"properties": item.properties.duplicate(true),
+		})
+	return {"items": list}
+
+
+## A pack from to_save() data. Entries that are not gear are left out.
+static func from_save(data: Dictionary) -> GearState:
+	var state := GearState.new()
+	var list: Variant = data.get("items")
+	if list is Array:
+		for entry in list:
+			if not (entry is Dictionary):
+				continue
+			var type := int(entry.get("type", -1))
+			if type < 0 or type >= GameEnums.GearType.size():
+				continue
+			var item := GearItem.new(type as GameEnums.GearType,
+				clampf(float(entry.get("condition", 1.0)), 0.0, 1.0), maxf(float(entry.get("weight", 0.0)), 0.0))
+			item.is_equipped = bool(entry.get("equipped", true))
+			var properties: Variant = entry.get("properties")
+			if properties is Dictionary:
+				item.properties.merge(properties, true)
+			state.items[item.type] = item
+	state._calculate_total_weight()
+	return state
+
+
 func duplicate_state() -> GearState:
 	var copy := GearState.new()
 	for type in items:

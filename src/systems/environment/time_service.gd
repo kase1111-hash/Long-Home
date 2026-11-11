@@ -117,6 +117,26 @@ func initialize_run(start_hour: float, day: int = 180) -> void:
 	_calculate_sun_times()
 
 
+## The clock as plain data, for a suspended run's save file
+func to_save() -> Dictionary:
+	return {
+		"current_time": current_time,
+		"start_time": start_time,
+		"real_time_elapsed": real_time_elapsed,
+		"day_of_year": day_of_year,
+	}
+
+
+## Put the clock back where to_save() found it
+func restore(data: Dictionary) -> void:
+	initialize_run(clampf(float(data.get("start_time", start_time)), 0.0, 24.0),
+		clampi(int(data.get("day_of_year", day_of_year)), 1, 366))
+	current_time = fposmod(float(data.get("current_time", current_time)), 24.0)
+	real_time_elapsed = maxf(float(data.get("real_time_elapsed", 0.0)), 0.0)
+	previous_hour = int(current_time)
+	_update_period()
+
+
 # =============================================================================
 # UPDATE
 # =============================================================================

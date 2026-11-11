@@ -19,6 +19,11 @@ signal run_started(run_context: RunContext)
 ## Emitted when a run ends
 signal run_ended(run_context: RunContext, outcome: GameEnums.ResolutionType)
 
+## A run was set aside part-way, saved, to be picked up again from the main
+## menu (GameStateManager.suspend_run). It has no outcome and is not recorded;
+## run_started is emitted again when it is picked up.
+signal run_suspended(run_context: RunContext)
+
 ## Full route: the climber reached the summit (the descent begins)
 signal summit_reached(run_context: RunContext)
 

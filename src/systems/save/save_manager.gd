@@ -29,6 +29,10 @@ const HISTORY_PATH := "user://run_history.json"
 const ROUTES_PATH := "user://familiar_routes.json"
 const PROGRESSION_PATH := "user://progression.json"
 const SETTINGS_PATH := "user://settings.json"
+## A run set aside part-way (binary: positions and paths are stored as they are)
+const SUSPEND_PATH := "user://suspended_run.dat"
+## Layout of that file; a file with another number is not read
+const SUSPEND_VERSION := 1
 const BACKUP_SUFFIX := ".backup"
 
 ## Autosave interval (seconds)
@@ -64,6 +68,9 @@ var autosave_timer: float = 0.0
 
 ## Pending save flag
 var save_pending: bool = false
+
+## Where the suspended run is kept (tests point this at a file of their own)
+var suspend_path: String = SUSPEND_PATH
 
 # =============================================================================
 # INITIALIZATION
@@ -267,6 +274,73 @@ func _load_json(path: String) -> Dictionary:
 
 
 # =============================================================================
+# SUSPENDED RUN (one run set aside part-way: the main menu's Continue)
+# =============================================================================
+
+## Set a run aside. data is plain data: the run (RunContext.to_save()) under
+## "run" and the world around it (see Main._capture_suspended_run). There is
+## one place for it; a second run set aside replaces the first.
+func save_suspended_run(data: Dictionary) -> bool:
+	if not (data.get("run") is Dictionary):
+		push_error("[SaveManager] Not a run to set aside")
+		return false
+	var record := data.duplicate()
+	record["version"] = SUSPEND_VERSION
+	var file := FileAccess.open(suspend_path, FileAccess.WRITE)
+	if file == null:
+		push_error("[SaveManager] Failed to open %s for writing" % suspend_path)
+		return false
+	file.store_var(record, false)
+	file.close()
+	return true
+
+
+## The run set aside, or {} when there is none this version can read
+func load_suspended_run() -> Dictionary:
+	if not FileAccess.file_exists(suspend_path):
+		return {}
+	var file := FileAccess.open(suspend_path, FileAccess.READ)
+	if file == null:
+		return {}
+	# The file is one stored value: its length, then that many bytes. Anything
+	# else (cut short, or not a save at all) is not handed to the decoder.
+	if file.get_length() < 8 or int(file.get_32()) != file.get_length() - 4:
+		file.close()
+		return {}
+	file.seek(0)
+	var record: Variant = file.get_var(false)
+	file.close()
+	if not (record is Dictionary) or int(record.get("version", -1)) != SUSPEND_VERSION \
+			or not (record.get("run") is Dictionary):
+		return {}
+	return record
+
+
+func has_suspended_run() -> bool:
+	return not load_suspended_run().is_empty()
+
+
+## What the menu says about the run set aside ({} when there is none):
+## mountain_id, clock (hour of the day on the mountain), elevation (metres)
+func get_suspended_run_summary() -> Dictionary:
+	var record := load_suspended_run()
+	if record.is_empty():
+		return {}
+	var run: Dictionary = record["run"]
+	return {
+		"mountain_id": str(run.get("mountain_id", "")),
+		"clock": float(run.get("current_time", 0.0)),
+		"elevation": float(run.get("current_elevation", 0.0)),
+	}
+
+
+## Forget the run set aside (it has been picked up again, or progress was reset)
+func clear_suspended_run() -> void:
+	if FileAccess.file_exists(suspend_path):
+		DirAccess.remove_absolute(suspend_path)
+
+
+# =============================================================================
 # RUN RECORDING
 # =============================================================================
 
@@ -341,6 +415,7 @@ func reset_progress() -> void:
 	run_history = RunHistory.new()
 	route_memory = RouteMemory.new()
 	progression = ProgressionTracker.new()
+	clear_suspended_run()
 
 	save_all()
 	print("[SaveManager] All progress reset")

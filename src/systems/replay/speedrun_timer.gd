@@ -171,6 +171,7 @@ func _ready() -> void:
 func _connect_events() -> void:
 	EventBus.run_started.connect(_on_run_started)
 	EventBus.run_ended.connect(_on_run_ended)
+	EventBus.run_suspended.connect(_on_run_suspended)
 	EventBus.game_state_changed.connect(_on_game_state_changed)
 	EventBus.player_position_updated.connect(_on_player_position)
 	EventBus.rope_deployment_started.connect(_on_rope_deployed)
@@ -430,8 +431,18 @@ func _on_run_started(run_context: RunContext) -> void:
 	if run_context:
 		mountain_id = run_context.mountain_id
 
+	# A run picked up again after being set aside is not timed: its clock
+	# did not run in one piece
+	if run_context != null and run_context.real_time_elapsed > 0.0:
+		reset_timer()
+		return
+
 	# Auto-start timer on run start
 	start_timer(category, mountain_id)
+
+
+func _on_run_suspended(_run_context: RunContext) -> void:
+	reset_timer()
 
 
 func _on_run_ended(run_context: RunContext, outcome: GameEnums.ResolutionType) -> void:

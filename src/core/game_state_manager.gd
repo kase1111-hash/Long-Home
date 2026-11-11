@@ -41,6 +41,7 @@ func _setup_valid_transitions() -> void:
 		],
 		GameEnums.GameState.MAIN_MENU: [
 			GameEnums.GameState.MOUNTAIN_SELECT,
+			GameEnums.GameState.DESCENT,  # Continue a run that was set aside
 			GameEnums.GameState.NONE  # Exit game
 		],
 		GameEnums.GameState.MOUNTAIN_SELECT: [
@@ -69,7 +70,7 @@ func _setup_valid_transitions() -> void:
 			GameEnums.GameState.DESCENT,
 			GameEnums.GameState.MAP_CHECK,
 			GameEnums.GameState.RESOLUTION,  # Abandon run from the pause menu
-			GameEnums.GameState.MAIN_MENU  # Abandon run
+			GameEnums.GameState.MAIN_MENU  # Save and quit: the run is set aside
 		],
 		GameEnums.GameState.MAP_CHECK: [
 			GameEnums.GameState.DESCENT,
@@ -268,6 +269,36 @@ func start_run(mountain_id: String, conditions: StartConditions) -> RunContext:
 	print("[GameStateManager] Run started: %s on %s" % [current_run.run_id, mountain_id])
 
 	return current_run
+
+
+## Carry on with a run that was set aside (RunContext.from_save). Systems
+## hear run_started, as for a new run, and take the run's body and gear.
+func resume_run(run: RunContext) -> RunContext:
+	if run == null:
+		return null
+	if current_run != null and not current_run.is_complete:
+		push_warning("[GameStateManager] Abandoning existing run to resume another")
+		_abandon_run()
+	current_run = run
+	_movement_state = GameEnums.PlayerMovementState.STANDING
+	_slide_control = GameEnums.SlideControlLevel.CONTROLLED
+
+	EventBus.run_started.emit(current_run)
+
+	print("[GameStateManager] Run resumed: %s on %s" % [current_run.run_id, current_run.mountain_id])
+	return current_run
+
+
+## Set the current run aside without ending it (the caller has saved it):
+## no outcome, nothing recorded. Returns the run.
+func suspend_run() -> RunContext:
+	var run := current_run
+	if run == null or run.is_complete:
+		return null
+	current_run = null
+	EventBus.run_suspended.emit(run)
+	print("[GameStateManager] Run suspended: %s" % run.run_id)
+	return run
 
 
 ## Get the current run context

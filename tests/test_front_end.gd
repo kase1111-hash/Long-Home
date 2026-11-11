@@ -19,6 +19,12 @@ extends SceneTree
 ##     day, the run starts at that hour, in that shape and in that weather,
 ##     and the day's weather moves on from it a step at a time, worse on a
 ##     less settled day and on a mountain whose weather turns fast
+##   - Save and Quit, and Continue: a run can be set aside only standing and
+##     in control; it is written to disk without being recorded as a result;
+##     Continue puts back the mountain, the clock, the weather and its day,
+##     the body, the pack, what is on the feet, where the climber stood and
+##     the day's record so far, and the save is used up; a file this version
+##     cannot read is refused
 ##   - the film crew's drone: it takes off beside the climber and stays with
 ##     them (walking, moved far away, in a storm), B switches the screen to
 ##     its camera and back, and a fatal sequence is watched through it, in
@@ -26,7 +32,7 @@ extends SceneTree
 ##
 ## The test never writes to the settings of whoever runs it: it turns the
 ## settings service's saving off, and where it tests saving it points the
-## service at a file of its own.
+## service at a file of its own. The same goes for the run it sets aside.
 ##
 ## Implementation note: a "-s" script is compiled BEFORE the project autoloads
 ## are registered, so this file must not name GameStateManager, GameEnums,
@@ -67,6 +73,9 @@ func _run() -> void:
 	_test_day_options()
 	if not await _plan_the_day_and_start():
 		_finish("could not start a descent")
+		return
+	if not await _test_save_and_continue():
+		_finish("the run that was set aside did not come back")
 		return
 	await _test_drone()
 	_finish("")
@@ -562,6 +571,227 @@ func _steady_the_mountain() -> void:
 
 
 # =============================================================================
+# SAVE AND QUIT, CONTINUE
+# =============================================================================
+
+const TEST_SUSPEND := "user://suspended_run_test_front_end.dat"
+
+## Set the run aside from the pause menu and pick it up again from the main
+## menu. Returns false when the run did not come back (nothing to go on with).
+func _test_save_and_continue() -> bool:
+	var states: Dictionary = _enums.GameState
+	var saves: Node = _locator.get_service("SaveManager") as Node
+	var player: Node3D = _locator.get_service("PlayerController") as Node3D
+	var weather: Node = _locator.get_service("WeatherService") as Node
+	var time: Node = _locator.get_service("TimeService") as Node
+	var ropes: Node = _locator.get_service("RopeService") as Node
+	var mountain_db: Object = _locator.get_service("MountainDatabase")
+	_expect(saves != null, "the save manager is up")
+	if saves == null:
+		return false
+	# A file of the test's own: whoever runs this keeps their own saved run
+	var real_path: String = saves.suspend_path
+	saves.suspend_path = TEST_SUSPEND
+	saves.clear_suspended_run()
+	_expect(not saves.has_suspended_run(), "there is no run set aside to begin with")
+
+	# --- a day with some history in it ---------------------------------------
+	var run: Object = _state_manager.current_run
+	Input.action_press("move_forward")
+	await _seconds(4.0)
+	Input.action_release("move_forward")
+	await _seconds(0.5)
+	run.body_state.fatigue = 0.37
+	run.body_state.hydration = 0.61
+	run.body_state.cold_exposure = 0.12
+	var sprain: Resource = (load("res://src/core/data/injury.gd") as GDScript).new(
+		int(_enums.InjuryType["SPRAIN"]), 0.3, int(_enums.BodyPart["LEFT_LEG"]), 14.6)
+	run.body_state.add_injury(sprain)
+	run.gear_state.damage_item(int(_enums.GearType["ROPE"]), 0.25)
+	player.set_footwear(int(_enums.Footwear["BOOTS"]))
+	_event_bus.record_incident("micro_slip", {"position": player.global_position, "slope": 12.0})
+	var weathers: Dictionary = _enums.WeatherState
+	var winds: Dictionary = _enums.WindStrength
+	seed(77)
+	weather.generate_weather_windows(time.current_time, int(weathers["CLOUDY"]), int(winds["MODERATE"]), 0.3, 0.3, 0.5)
+	randomize()
+	weather.wind_direction = Vector3(0.6, 0.0, -0.8)
+	weather.target_wind_direction = weather.wind_direction
+	await _seconds(0.5)
+
+	# --- when it can and cannot be saved -------------------------------------
+	_expect(_main.get_suspend_block_reason() == "", "standing on the mountain, the run can be saved (%s)" % _main.get_suspend_block_reason())
+	player.gear_action = &"crampons"
+	_expect(_main.get_suspend_block_reason() != "", "not while crampons are going on")
+	player.gear_action = &""
+	ropes.rope_in_use = true
+	_expect(_main.get_suspend_block_reason().contains("rope"), "not with the rope out (%s)" % _main.get_suspend_block_reason())
+	ropes.rope_in_use = false
+	var movement: Dictionary = _enums.PlayerMovementState
+	var was_state: int = player.current_state
+	player.current_state = int(movement["SLIDING"])
+	_expect(_main.get_suspend_block_reason() != "", "not in a slide")
+	player.current_state = was_state
+
+	# --- what is about to be saved --------------------------------------------
+	_state_manager.toggle_pause()
+	await _wait(10)
+	_expect(int(_state_manager.current_state) == int(states["PAUSED"]), "the descent is paused")
+	var pause_menu: Control = _main.get("pause_menu")
+	var save_quit: Button = pause_menu.get("save_quit_button") if pause_menu != null else null
+	_expect(save_quit != null and save_quit.is_visible_in_tree() and not save_quit.disabled, "the pause menu offers Save and Quit")
+	if save_quit == null:
+		saves.suspend_path = real_path
+		return false
+	var profile: Object = saves.get_profile()
+	var runs_before: int = profile.total_runs
+	var before := {
+		"run_id": run.run_id,
+		"position": player.global_position,
+		"yaw": player.rotation.y,
+		"clock": float(time.current_time),
+		"elapsed": float(run.game_time_elapsed),
+		"distance": float(run.distance_traveled),
+		"path": run.path_history.size(),
+		"first": run.path_history[0] if run.path_history.size() > 0 else Vector3.ZERO,
+		"decisions": run.decisions.size(),
+		"incidents": run.incidents.size(),
+		"rope": float(run.gear_state.get_item(int(_enums.GearType["ROPE"])).condition_value),
+		"items": run.gear_state.items.size(),
+		"windows": weather.weather_windows.size(),
+		"window_2": int(weather.weather_windows[2].weather),
+		"planned": (run.get_meta("planned_route", PackedVector3Array()) as PackedVector3Array).size(),
+		"avalanche_seed": int(run.start_conditions.avalanche.seed),
+		"avalanche_headline": str(run.start_conditions.avalanche.headline),
+		"start_elevation": float(run.start_elevation),
+	}
+	_expect(before["path"] > 3 and before["distance"] > 2.0, "the day has a record so far (%d samples, %.0f m)" % [before["path"], before["distance"]])
+
+	# --- Save and Quit ----------------------------------------------------------
+	var suspended: Array = []
+	var on_suspended := func(set_aside: Object) -> void: suspended.append(set_aside)
+	_event_bus.run_suspended.connect(on_suspended)
+	var ended: Array = []
+	var on_ended := func(_finished: Object, _outcome: int) -> void: ended.append(true)
+	_event_bus.run_ended.connect(on_ended)
+	save_quit.pressed.emit()
+	await _wait(20)
+	_event_bus.run_suspended.disconnect(on_suspended)
+	_expect(int(_state_manager.current_state) == int(states["MAIN_MENU"]), "Save and Quit goes to the main menu")
+	_expect(not paused, "and the game is no longer paused")
+	_expect(_state_manager.current_run == null and suspended.size() == 1, "the run is set aside, not ended")
+	_expect(ended.is_empty() and profile.total_runs == runs_before, "nothing is recorded: it has no outcome yet")
+	_expect(FileAccess.file_exists(TEST_SUSPEND) and saves.has_suspended_run(), "the run is on disk")
+	var menu: Control = _main.get("main_menu")
+	var continue_button: Button = menu.get("continue_button") if menu != null else null
+	_expect(menu != null and menu.visible and continue_button != null and continue_button.visible,
+		"the main menu offers Continue")
+	_expect(continue_button != null and continue_button.text.contains("Knife Edge"), "and says which mountain (%s)" % (continue_button.text if continue_button != null else ""))
+	_expect(not player.visible and not (_main.get("world") as Node3D).visible, "the mountain is put away")
+
+	# --- everything the save should put back is knocked out of place -----------
+	weather.reset_for_run(int(weathers["CLEAR"]))
+	weather.weather_windows.clear()
+	weather._set_wind_strength(int(winds["CALM"]))
+	time.current_time = 3.0
+	mountain_db.select_mountain("north_face", true)
+
+	# --- Continue ----------------------------------------------------------------
+	continue_button.pressed.emit()
+	await _wait(60)
+	_event_bus.run_ended.disconnect(on_ended)
+	if int(_state_manager.current_state) != int(states["DESCENT"]) or _state_manager.current_run == null:
+		saves.suspend_path = real_path
+		return false
+	var back: Object = _state_manager.current_run
+	_expect(back != run and back.run_id == before["run_id"], "Continue brings the same run back")
+	_expect(back.mountain_id == MOUNTAIN and mountain_db.get_selected_mountain().id == MOUNTAIN, "on its mountain")
+	var terrain: Object = _locator.get_service("TerrainService")
+	_expect(terrain.current_mountain == MOUNTAIN, "with that mountain's terrain loaded")
+	var moved: float = player.global_position.distance_to(before["position"])
+	_expect(moved < 1.5, "the climber stands where they stood (%.2f m off)" % moved)
+	_expect(absf(angle_difference(player.rotation.y, before["yaw"])) < 0.05, "facing the way they faced")
+	_expect(player.visible and int(player.footwear) == int(_enums.Footwear["BOOTS"]), "with the same things on their feet")
+	_expect(absf(time.current_time - before["clock"]) < 0.1, "the clock is where it was (%.2f, was %.2f)" % [time.current_time, before["clock"]])
+	_expect(back.game_time_elapsed >= before["elapsed"] and back.game_time_elapsed < before["elapsed"] + 0.1,
+		"the day's elapsed time carries on (%.3f h, was %.3f)" % [back.game_time_elapsed, before["elapsed"]])
+	_expect(absf(back.body_state.fatigue - 0.37) < 0.03 and absf(back.body_state.hydration - 0.61) < 0.03 and absf(back.body_state.cold_exposure - 0.12) < 0.03,
+		"the body is as it was (fatigue %.2f, water %.2f, cold %.2f)" % [back.body_state.fatigue, back.body_state.hydration, back.body_state.cold_exposure])
+	_expect(back.body_state.injuries.size() == 1 and int(back.body_state.injuries[0].type) == int(_enums.InjuryType["SPRAIN"]) \
+		and int(back.body_state.injuries[0].location) == int(_enums.BodyPart["LEFT_LEG"]) and absf(back.body_state.injuries[0].severity - 0.3) < 0.001,
+		"the sprained leg is still sprained")
+	_expect(player.body_state == back.body_state and player.gear_state == back.gear_state, "the climber carries the run's body and pack")
+	var rope: Object = back.gear_state.get_item(int(_enums.GearType["ROPE"]))
+	_expect(back.gear_state.items.size() == before["items"] and rope != null and absf(rope.condition_value - before["rope"]) < 0.001,
+		"the pack is as it was, worn rope and all (%d items, rope %.2f)" % [back.gear_state.items.size(), rope.condition_value if rope != null else -1.0])
+	_expect(int(weather.current_weather) == int(weathers["CLOUDY"]) and int(weather.current_wind_strength) == int(winds["MODERATE"]),
+		"the weather is the weather that was (%s, %s)" % [weathers.keys()[weather.current_weather], winds.keys()[weather.current_wind_strength]])
+	_expect(weather.weather_windows.size() == before["windows"] and int(weather.weather_windows[2].weather) == before["window_2"],
+		"and the rest of its day is the same day (%d windows)" % weather.weather_windows.size())
+	_expect(weather.wind_direction.distance_to(Vector3(0.6, 0.0, -0.8)) < 0.2, "the wind blows from where it blew")
+	_expect(back.path_history.size() >= before["path"] and back.path_history[0].distance_to(before["first"]) < 0.01,
+		"the path walked so far is kept (%d samples)" % back.path_history.size())
+	_expect(back.path_timestamps.size() == back.path_history.size() and back.path_modes.size() == back.path_history.size(), "with its times and how each stretch was travelled")
+	_expect(back.distance_traveled >= before["distance"] and back.distance_traveled < before["distance"] + 5.0,
+		"and the distance (%.1f m, was %.1f)" % [back.distance_traveled, before["distance"]])
+	_expect(back.decisions.size() == before["decisions"] and back.incidents.size() == before["incidents"],
+		"the day's decisions and incidents are the ones made (%d, %d)" % [back.decisions.size(), back.incidents.size()])
+	_expect((back.get_meta("planned_route", PackedVector3Array()) as PackedVector3Array).size() == before["planned"] and before["planned"] >= 2, "the planned line is still the plan")
+	_expect(back.start_conditions.climb_id == "slow" and back.start_conditions.weather_id == "settled", "the day chosen at the hut is remembered")
+	_expect(back.start_conditions.avalanche != null and int(back.start_conditions.avalanche.seed) == before["avalanche_seed"] \
+		and str(back.start_conditions.avalanche.headline) == before["avalanche_headline"], "and it is the same day's snowpack")
+	_expect(is_equal_approx(back.start_elevation, before["start_elevation"]), "progress is still measured from the summit")
+	_expect(not FileAccess.file_exists(TEST_SUSPEND) and not saves.has_suspended_run(), "the save is used up: there is no going back to it")
+	var hud: Node = _main.get("descent_hud")
+	_expect(hud != null and (_main.get("world") as Node3D).visible, "the mountain and the HUD are back")
+	_expect(root.get_viewport().get_camera_3d() == player.camera_pivot.camera, "seen through the climber's own camera")
+
+	# It plays on: the climber can walk, and the record grows
+	Input.action_press("move_forward")
+	await _seconds(2.0)
+	Input.action_release("move_forward")
+	_expect(player.global_position.distance_to(before["position"]) > 1.0 and back.path_history.size() > before["path"],
+		"the descent carries on from there")
+
+	# --- files that are not a run this version can read ------------------------
+	var other := FileAccess.open(TEST_SUSPEND, FileAccess.WRITE)
+	other.store_var({"version": 999, "run": back.to_save()}, false)
+	other.close()
+	_expect(not saves.has_suspended_run() and saves.load_suspended_run().is_empty(), "a save from another version is not read")
+	var junk := FileAccess.open(TEST_SUSPEND, FileAccess.WRITE)
+	junk.store_string("this is not a saved run at all")
+	junk.close()
+	_expect(not saves.has_suspended_run(), "nor is a file that is not a save")
+	_expect(not saves.save_suspended_run({"nothing": true}) , "and something that is not a run is not written")
+	saves.clear_suspended_run()
+
+	# One place for a run set aside: the pause menu says when saving would
+	# replace another, and the menu offers nothing it could not continue
+	_expect(_main._suspend_replaces_note() == "", "with nothing set aside, saving replaces nothing")
+	saves.save_suspended_run({"run": back.to_save()})
+	_expect(_main._suspend_replaces_note().contains("Knife Edge"), "with a run set aside, the pause menu says saving replaces it (%s)" % _main._suspend_replaces_note())
+	var elsewhere: Dictionary = back.to_save()
+	elsewhere["mountain_id"] = "a_mountain_that_is_not_in_this_version"
+	saves.save_suspended_run({"run": elsewhere})
+	menu.refresh()
+	_expect(not continue_button.visible, "a run on a mountain this version does not have is not offered")
+	saves.clear_suspended_run()
+	_expect(not FileAccess.file_exists(TEST_SUSPEND), "the test's own save file is gone")
+	saves.suspend_path = real_path
+
+	# A run with nothing in it comes back empty-handed rather than broken
+	var context_script: GDScript = load("res://src/core/data/run_context.gd") as GDScript
+	_expect(context_script.from_save({}) == null and context_script.from_save({"mountain_id": MOUNTAIN}) == null, "data that is not a run gives no run")
+	var bare: Object = context_script.from_save({"mountain_id": MOUNTAIN, "start_conditions": {}})
+	_expect(bare != null and bare.body_state != null and bare.gear_state != null and not bare.is_complete,
+		"a run saved with almost nothing still has a body and a pack")
+
+	# The dice go away again for what follows
+	_steady_the_mountain()
+	return true
+
+
+# =============================================================================
 # THE FILM CREW'S DRONE
 # =============================================================================
 
@@ -669,6 +899,10 @@ func _test_drone() -> void:
 	_expect(int(_state_manager.current_state) == int(_enums.GameState["MAIN_MENU"]), "the run is over and the menu is up")
 	_expect(not drones.is_drone_view() and not drones.fatal_view and not drone.let_subject_go,
 		"back at the menu, the next run will start in the climber's own view")
+	var menu: Control = _main.get("main_menu")
+	var saves: Node = _locator.get_service("SaveManager") as Node
+	if menu != null and saves != null and not saves.has_suspended_run():
+		_expect(not (menu.get("continue_button") as Button).visible, "with no run set aside, the menu offers no Continue")
 
 
 # =============================================================================

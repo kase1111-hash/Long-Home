@@ -310,6 +310,68 @@ func reset_for_run(start_weather: GameEnums.WeatherState) -> void:
 	print("[WeatherService] Reset for run: %s" % GameEnums.WeatherState.keys()[start_weather])
 
 
+## The day's weather as plain data, for a suspended run's save file
+func to_save() -> Dictionary:
+	var windows: Array = []
+	for window in weather_windows:
+		windows.append({
+			"start": window.start_time,
+			"end": window.end_time,
+			"weather": int(window.weather),
+			"wind": int(window.wind_strength),
+			"intensity": window.intensity,
+		})
+	return {
+		# A change that is under way is saved as arrived
+		"weather": int(target_weather if is_transitioning else current_weather),
+		"wind": int(current_wind_strength),
+		"wind_direction": wind_direction,
+		"day_stability": day_stability,
+		"windows": windows,
+	}
+
+
+## Put the day's weather back as to_save() found it. hour: the time of day,
+## which decides which window the day is in (it is not applied again: the
+## weather saved may have drifted from it).
+func restore(data: Dictionary, hour: float) -> void:
+	var weather := int(data.get("weather", current_weather))
+	if weather < 0 or weather >= GameEnums.WeatherState.size():
+		weather = int(current_weather)
+	reset_for_run(weather as GameEnums.WeatherState)
+	var wind := int(data.get("wind", current_wind_strength))
+	if wind >= 0 and wind < GameEnums.WindStrength.size():
+		_set_wind_strength(wind as GameEnums.WindStrength)
+	if data.get("wind_direction") is Vector3 and (data["wind_direction"] as Vector3).length_squared() > 0.01:
+		wind_direction = (data["wind_direction"] as Vector3).normalized()
+		target_wind_direction = wind_direction
+	day_stability = clampf(float(data.get("day_stability", day_stability)), 0.0, 1.0)
+
+	weather_windows.clear()
+	var saved: Variant = data.get("windows")
+	if saved is Array:
+		for entry in saved:
+			if not (entry is Dictionary):
+				continue
+			var window_weather := int(entry.get("weather", -1))
+			var window_wind := int(entry.get("wind", -1))
+			if window_weather < 0 or window_weather >= GameEnums.WeatherState.size() \
+					or window_wind < 0 or window_wind >= GameEnums.WindStrength.size():
+				continue
+			var window := WeatherWindow.new()
+			window.start_time = fposmod(float(entry.get("start", 0.0)), 24.0)
+			window.end_time = fposmod(float(entry.get("end", 0.0)), 24.0)
+			window.weather = window_weather as GameEnums.WeatherState
+			window.wind_strength = window_wind as GameEnums.WindStrength
+			window.intensity = clampf(float(entry.get("intensity", 1.0)), 0.0, 1.0)
+			weather_windows.append(window)
+	current_window_index = 0
+	for i in range(weather_windows.size()):
+		if weather_windows[i].is_active(hour):
+			current_window_index = i
+			break
+
+
 func _apply_window(window: WeatherWindow) -> void:
 	if window.weather != current_weather:
 		_begin_transition(window.weather)

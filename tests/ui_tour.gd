@@ -159,6 +159,10 @@ func _run() -> void:
 			_press(paused_settings, "back_button")
 		await _wait(SETTLE)
 		_expect(pause_menu_node.visible, "and Back returns to the pause menu")
+
+		# Save and Quit, then Continue from the main menu: back on the
+		# mountain, and paused again for what follows
+		await _check_save_and_continue(main_scene, pause_menu_node)
 	else:
 		_expect(false, "pause menu exists")
 
@@ -412,6 +416,49 @@ func _check_day_choice(planning: Node) -> void:
 	planning.set_day("steady", "settled")
 	await _wait(2)
 	_expect(weather.selected == 0 and planning.weather_id == "settled", "the day is back on settled weather")
+
+
+## The pause menu's Save and Quit sets the run aside and goes to the main
+## menu, which now offers Continue; Continue puts the climber back where they
+## stood. (Continue used to appear after any finished run and do nothing, and
+## the only way out of a descent was to abandon it.) Ends paused, as it began.
+func _check_save_and_continue(main_scene: Node, pause_menu_node: Node) -> void:
+	var saves: Node = _locator.get_service("SaveManager") as Node
+	var player: Node3D = _locator.get_service("PlayerController") as Node3D
+	var save_quit: Button = pause_menu_node.get("save_quit_button")
+	_expect(save_quit != null and save_quit.is_visible_in_tree() and not save_quit.disabled, "the pause menu offers Save and Quit")
+	if saves == null or player == null or save_quit == null:
+		return
+	# A file of the tour's own: whoever runs this keeps their own saved run
+	var real_path: String = saves.suspend_path
+	saves.suspend_path = "user://suspended_run_ui_tour.dat"
+	var stood: Vector3 = player.global_position
+	var run_id: String = _state_manager.current_run.run_id
+	save_quit.pressed.emit()
+	await _wait(SETTLE * 2)
+	_expect_state("MAIN_MENU", "Save and Quit")
+	var menu: Node = main_scene.get("main_menu")
+	var continue_button: Button = menu.get("continue_button") if menu != null else null
+	_expect(continue_button != null and continue_button.is_visible_in_tree(), "the main menu offers Continue for the run set aside")
+	_shot("07e_menu_continue.png")
+	if continue_button == null:
+		saves.suspend_path = real_path
+		return
+	continue_button.pressed.emit()
+	await _wait(DESCENT_SETTLE)
+	_expect_state("DESCENT", "Continue")
+	var run: Object = _state_manager.current_run
+	_expect(run != null and run.run_id == run_id, "Continue brings the same run back")
+	_expect(player.visible and player.global_position.distance_to(stood) < 1.5,
+		"the climber stands where they stood (%.2f m off)" % player.global_position.distance_to(stood))
+	_expect(not menu.visible, "the main menu is gone")
+	_expect(not saves.has_suspended_run(), "the save is used up")
+	_shot("07f_continued.png")
+	saves.clear_suspended_run()
+	saves.suspend_path = real_path
+	_state_manager.toggle_pause()
+	await _wait(SETTLE)
+	_expect_state("PAUSED", "pausing the continued descent")
 
 
 ## The main menu's Settings opens the settings screen: three pages, controls
