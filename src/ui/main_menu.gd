@@ -114,10 +114,10 @@ func _on_logbook_pressed() -> void:
 	logbook_pressed.emit()
 
 
+## Main shows the settings screen over the menu
 func _on_settings_pressed() -> void:
 	_play_button_sound()
 	settings_pressed.emit()
-	# Show settings menu
 
 
 func _on_quit_pressed() -> void:

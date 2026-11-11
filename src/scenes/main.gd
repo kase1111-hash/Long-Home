@@ -64,6 +64,9 @@ var topo_replay: TopoReplayVisualization = null
 ## Lifetime record (main menu > Logbook)
 var stats_display: StatsDisplay = null
 
+## Sound, display and camera settings (main menu and pause menu > Settings)
+var settings_screen: SettingsScreen = null
+
 ## Active streaming settings screen
 var streaming_settings: StreamingSettings = null
 
@@ -173,6 +176,9 @@ func _bootstrap_core_services() -> void:
 		var audio := AudioInitializer.new()
 		audio.name = "AudioInitializer"
 		add_child(audio)
+
+	# The player's settings (after the audio stack: it sets the sound levels)
+	_bootstrap_service("GameSettings", GameSettings, self)
 
 	# Camera Director AI (components resolve each other via ServiceLocator)
 	_bootstrap_service("SignalDetector", SignalDetector, self)
@@ -416,6 +422,7 @@ func _show_main_menu() -> void:
 	if main_menu == null:
 		main_menu = MainMenuScene.instantiate()
 		main_menu.logbook_pressed.connect(_show_logbook)
+		main_menu.settings_pressed.connect(_show_settings)
 		ui.add_child(main_menu)
 	else:
 		main_menu.show_menu()
@@ -839,6 +846,7 @@ func _hide_resolution_screen() -> void:
 
 func _hide_main_menu() -> void:
 	_hide_logbook()
+	_hide_settings()
 	if main_menu != null:
 		main_menu.hide_menu()
 
@@ -858,6 +866,34 @@ func _show_logbook() -> void:
 func _hide_logbook() -> void:
 	if stats_display != null:
 		stats_display.visible = false
+
+
+## The settings screen, over the main menu or in place of the pause menu
+func _show_settings() -> void:
+	# From the pause menu: put it away but stay paused
+	if pause_menu != null and pause_menu.visible:
+		pause_menu.visible = false
+	if settings_screen == null:
+		settings_screen = SettingsScreen.new()
+		settings_screen.name = "SettingsScreen"
+		settings_screen.close_requested.connect(_on_settings_closed)
+		ui.add_child(settings_screen)
+	# Above whatever was added since (the descent's HUD)
+	ui.move_child(settings_screen, -1)
+	settings_screen.show_settings()
+
+
+func _hide_settings() -> void:
+	if settings_screen != null:
+		settings_screen.hide_settings()
+
+
+func _on_settings_closed() -> void:
+	_hide_settings()
+	# Back to the pause menu when that is where it was opened from
+	if pause_menu != null and GameStateManager.current_state == GameEnums.GameState.PAUSED:
+		pause_menu.visible = true
+		pause_menu.show_menu()
 
 
 func _show_resolution() -> void:
@@ -967,6 +1003,7 @@ func _show_pause_menu() -> void:
 		pause_menu = PauseMenuScene.instantiate()
 		pause_menu.self_check_pressed.connect(_on_self_check_pressed)
 		pause_menu.streaming_settings_pressed.connect(_on_streaming_settings_pressed)
+		pause_menu.settings_pressed.connect(_show_settings)
 		ui.add_child(pause_menu)
 
 	pause_menu.show_menu()

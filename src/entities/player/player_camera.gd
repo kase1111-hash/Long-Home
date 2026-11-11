@@ -37,6 +37,12 @@ extends Node3D
 
 @export_group("Effects")
 @export var sway_enabled: bool = true
+
+## From the player's settings (GameSettings): mouse speed, which way the
+## mouse tilts the view, and how much of the sway and shake is shown
+var sensitivity_scale: float = 1.0
+var invert_y: bool = false
+var motion_scale: float = 1.0
 @export var sway_amount: float = 0.02
 @export var sway_speed: float = 2.0
 @export var shake_decay: float = 5.0
@@ -120,6 +126,23 @@ func _ready() -> void:
 	else:
 		ServiceLocator.get_service_async("PlayerController", _on_player_ready)
 
+	# The player's camera settings, now and whenever they change
+	var settings := ServiceLocator.get_service("GameSettings") as GameSettings
+	if settings != null:
+		settings.changed.connect(_on_setting_changed)
+		for key in ["mouse_sensitivity", "invert_y", "camera_sway"]:
+			_on_setting_changed(key, settings.get_value(key))
+
+
+func _on_setting_changed(key: String, value: Variant) -> void:
+	match key:
+		"mouse_sensitivity":
+			sensitivity_scale = float(value)
+		"invert_y":
+			invert_y = bool(value)
+		"camera_sway":
+			motion_scale = float(value)
+
 
 func _on_player_ready(service: Object) -> void:
 	if not is_instance_valid(service):
@@ -145,8 +168,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		if Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 			var motion := event as InputEventMouseMotion
-			yaw -= motion.relative.x * mouse_sensitivity
-			pitch -= motion.relative.y * mouse_sensitivity
+			var speed := mouse_sensitivity * sensitivity_scale
+			yaw -= motion.relative.x * speed
+			pitch -= motion.relative.y * speed * (-1.0 if invert_y else 1.0)
 			pitch = clampf(pitch, deg_to_rad(min_pitch), deg_to_rad(max_pitch))
 
 
@@ -193,7 +217,7 @@ func _update_sway(delta: float) -> void:
 	var sway_x := sin(sway_time * 1.3) * sway_amount * sway_factor
 	var sway_y := sin(sway_time * 1.7) * sway_amount * sway_factor * 0.5
 
-	sway_offset = Vector3(sway_x, sway_y, 0)
+	sway_offset = Vector3(sway_x, sway_y, 0) * motion_scale
 
 
 func _update_shake(delta: float) -> void:
@@ -203,7 +227,7 @@ func _update_shake(delta: float) -> void:
 			randf_range(-1, 1) * shake_intensity,
 			randf_range(-1, 1) * shake_intensity * 0.5,
 			randf_range(-1, 1) * shake_intensity * 0.3
-		)
+		) * motion_scale
 
 		# Decay shake
 		shake_intensity *= exp(-shake_decay * delta)

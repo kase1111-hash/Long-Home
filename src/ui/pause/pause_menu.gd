@@ -424,9 +424,9 @@ func _on_self_check_pressed() -> void:
 	self_check_pressed.emit()
 
 
+## Main shows the settings screen in place of this menu
 func _on_settings_pressed() -> void:
 	settings_pressed.emit()
-	# Would show settings overlay
 
 
 func _on_streaming_pressed() -> void:

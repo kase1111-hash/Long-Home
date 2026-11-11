@@ -82,6 +82,13 @@ func _run() -> void:
 	# random lulls in the middle of one
 	_locator.get_service("AmbientAudioManager").silence_moment_chance = 0.0
 
+	# And the levels are the game's own, not whatever the person running this
+	# has set (nothing is written back to their settings)
+	var settings: Node = _locator.get_service("GameSettings") as Node
+	if settings != null:
+		settings.persist = false
+		settings.reset()
+
 	_test_library()
 	_test_buses()
 	await _test_menu(main_scene)

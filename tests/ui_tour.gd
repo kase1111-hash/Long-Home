@@ -56,9 +56,16 @@ func _run() -> void:
 	root.add_child(main_scene)
 	await _wait(SETTLE)
 
+	# The tour reads and changes settings without writing them to disk
+	var settings: Node = _locator.get_service("GameSettings") as Node
+	if settings != null:
+		settings.persist = false
+		settings.reset()
+
 	# 1. Main menu
 	_expect_state("MAIN_MENU", "boot")
 	_shot("01_main_menu.png")
+	await _check_settings(main_scene, "01b_settings")
 	_press(main_scene.get("main_menu"), "new_descent_button")
 	await _wait(SETTLE)
 
@@ -135,6 +142,19 @@ func _run() -> void:
 			self_check.close_requested.emit()
 		await _wait(SETTLE)
 		_expect(pause_menu_node.visible, "pause menu returns after the self-check")
+
+		# Settings from the pause menu: the game stays paused behind it
+		(pause_menu_node.get("settings_button") as Button).pressed.emit()
+		await _wait(SETTLE)
+		var paused_settings: Control = main_scene.get("settings_screen") as Control
+		_expect(paused_settings != null and paused_settings.visible and not pause_menu_node.visible,
+			"Settings in the pause menu opens the settings screen in its place")
+		_expect_state("PAUSED", "opening settings from the pause menu")
+		_shot("07d_settings_paused.png")
+		if paused_settings != null:
+			_press(paused_settings, "back_button")
+		await _wait(SETTLE)
+		_expect(pause_menu_node.visible, "and Back returns to the pause menu")
 	else:
 		_expect(false, "pause menu exists")
 
@@ -359,6 +379,36 @@ func _check_loadout_summary(screen: Node) -> void:
 	var messages: Node = screen.get_node_or_null(content + "/ValidationMessages")
 	_expect(stats != null and stats.get_child_count() >= 2, "and what the loadout does to speed and warmth")
 	_expect(messages != null and messages.get_child_count() >= 1, "and whether the mountain's requirements are met")
+
+
+## The main menu's Settings opens the settings screen: three pages, controls
+## that change settings, and Back. (The button used to do nothing.)
+func _check_settings(main_scene: Node, shot_prefix: String) -> void:
+	_press(main_scene.get("main_menu"), "settings_button")
+	await _wait(SETTLE)
+	var screen: Control = main_scene.get("settings_screen") as Control
+	_expect(screen != null and screen.visible, "the main menu's Settings opens the settings screen")
+	if screen == null:
+		return
+	var tabs: TabContainer = screen.get("tabs")
+	_expect(tabs != null and tabs.get_tab_count() == 3, "with Sound, Display and Controls pages")
+	var names := ["sound", "display", "controls"]
+	for page in range(tabs.get_tab_count()):
+		tabs.current_tab = page
+		await _wait(SETTLE)
+		_shot("%s_%s.png" % [shot_prefix, names[page]])
+	tabs.current_tab = 0
+	var settings: Node = _locator.get_service("GameSettings") as Node
+	var controls: Dictionary = screen.get("_controls")
+	(controls["volume_ambient"] as HSlider).value = 0.5
+	await _wait(3)
+	var ambient_db := AudioServer.get_bus_volume_db(AudioServer.get_bus_index("Ambient"))
+	_expect(is_equal_approx(settings.get_value("volume_ambient"), 0.5) and absf(ambient_db + 12.04) < 0.2,
+		"turning the wind down turns the wind down (%.1f dB)" % ambient_db)
+	settings.reset()
+	_press(screen, "back_button")
+	await _wait(SETTLE)
+	_expect(not screen.visible and (main_scene.get("main_menu") as Control).visible, "Back returns to the main menu")
 
 
 ## The main menu's Logbook shows the lifetime record, with the run just made

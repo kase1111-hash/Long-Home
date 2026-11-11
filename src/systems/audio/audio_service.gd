@@ -56,6 +56,9 @@ const BUS_PLAYER := "Player"
 const BUS_EFFECTS := "Effects"
 const BUS_UI := "UI"
 
+## Bus level that counts as off
+const SILENT_DB := -80.0
+
 ## Where AudioInitializer puts each effect on its bus
 const FX_AMBIENT_LOWPASS := 0
 const FX_EFFECTS_LOWPASS := 0
@@ -111,6 +114,10 @@ var _muffle: float = 0.0
 var _cavern_target: float = 0.0
 var _cavern: float = 0.0
 var _risk_dampen: float = 0.0
+
+## The player's own level for each group of sounds, as a linear gain (the
+## settings screen; see set_user_volume)
+var _user_volume: Dictionary = {"ambient": 1.0, "climber": 1.0, "effects": 1.0, "interface": 1.0}
 
 
 # =============================================================================
@@ -349,8 +356,45 @@ func set_master_volume(volume: float) -> void:
 func _apply_volume() -> void:
 	var bus_index := AudioServer.get_bus_index(BUS_MASTER)
 	if bus_index >= 0:
-		var db := linear_to_db(master_volume if audio_enabled else 0.0)
-		AudioServer.set_bus_volume_db(bus_index, db)
+		AudioServer.set_bus_volume_db(bus_index, _gain_db(master_volume if audio_enabled else 0.0))
+
+
+## The player's own level for a group of sounds, as a linear gain 0-1:
+## "master", "ambient" (wind and weather), "climber" (breath, heart,
+## footsteps), "effects" (slides, rope, gear, hazards), "interface" (menus,
+## map). On top of whatever the mix is doing with those buses.
+func set_user_volume(group: String, gain: float) -> void:
+	var level := clampf(gain, 0.0, 1.0)
+	if group == "master":
+		set_master_volume(level)
+		return
+	if not _user_volume.has(group):
+		push_warning("[AudioService] No such group of sounds: %s" % group)
+		return
+	_user_volume[group] = level
+	# Nothing else moves these two buses, so they are set here; the ambient
+	# and effects buses are set every frame by _apply_mix()
+	if group == "climber":
+		_set_bus_db(BUS_PLAYER, _gain_db(level))
+	elif group == "interface":
+		_set_bus_db(BUS_UI, _gain_db(level))
+
+
+func get_user_volume(group: String) -> float:
+	if group == "master":
+		return master_volume
+	return float(_user_volume.get(group, 1.0))
+
+
+func _set_bus_db(bus: String, db: float) -> void:
+	var index := AudioServer.get_bus_index(bus)
+	if index >= 0:
+		AudioServer.set_bus_volume_db(index, db)
+
+
+## A linear gain in decibels, with silence at the bottom instead of -infinity
+static func _gain_db(gain: float) -> float:
+	return maxf(linear_to_db(maxf(gain, 0.0)), SILENT_DB)
 
 
 ## Duck all audio (for dramatic moments)
@@ -423,9 +467,10 @@ func _apply_mix() -> void:
 	var player_bus := AudioServer.get_bus_index(BUS_PLAYER)
 
 	if ambient >= 0:
-		AudioServer.set_bus_volume_db(ambient, duck_db - RISK_DAMPEN_DB * _risk_dampen - CAVERN_AMBIENT_DB * _cavern)
+		AudioServer.set_bus_volume_db(ambient, maxf(SILENT_DB, _gain_db(_user_volume["ambient"]) + duck_db
+			- RISK_DAMPEN_DB * _risk_dampen - CAVERN_AMBIENT_DB * _cavern))
 	if effects >= 0:
-		AudioServer.set_bus_volume_db(effects, duck_db)
+		AudioServer.set_bus_volume_db(effects, maxf(SILENT_DB, _gain_db(_user_volume["effects"]) + duck_db))
 
 	# One low-pass on each of the two "world" buses
 	var cutoff := MUFFLE_OPEN_HZ * pow(MUFFLE_CLOSED_HZ / MUFFLE_OPEN_HZ, pow(_muffle, 0.6))
