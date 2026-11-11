@@ -11,8 +11,9 @@ extends SceneTree
 ##
 ## Screens, in order: main menu, mountain select, loadout, planning, descent
 ## (start + after walking), pause menu, map check, self-check, physical map,
-## resolution, post-game, then a second mountain ending in a real fatal event,
-## and a third run completed and retried. Exit code 0 on PASS, 1 on FAIL.
+## resolution, post-game and its map replay, then a second mountain ending in
+## a real fatal event, and a third run completed and retried. Exit code 0 on
+## PASS, 1 on FAIL.
 ##
 ## Implementation note: a "-s" script is compiled BEFORE the project autoloads
 ## are registered, so this file must not name GameStateManager, GameEnums,
@@ -168,6 +169,7 @@ func _run() -> void:
 	# 9. Post-game analysis, then home
 	_expect_state("POST_GAME", "resolution Continue")
 	_shot("10_post_game.png")
+	await _check_map_replay(main_scene)
 	_press(main_scene.get("post_game_screen"), "return_button")
 	await _wait(SETTLE)
 	_expect_state("MAIN_MENU", "post-game Return")
@@ -356,6 +358,33 @@ func _check_loadout_summary(screen: Node) -> void:
 	var messages: Node = screen.get_node_or_null(content + "/ValidationMessages")
 	_expect(stats != null and stats.get_child_count() >= 2, "and what the loadout does to speed and warmth")
 	_expect(messages != null and messages.get_child_count() >= 1, "and whether the mountain's requirements are met")
+
+
+## "Replay on the map" on the post-game screen opens the topo replay with the
+## line that was travelled, and Close comes back. (The replay screen existed
+## for a long time with no button that opened it.)
+func _check_map_replay(main_scene: Node) -> void:
+	var post_game: Node = main_scene.get("post_game_screen")
+	_press(post_game, "replay_button")
+	await _wait(SETTLE)
+	var replay: Node = main_scene.get("topo_replay")
+	_expect(replay != null and replay.visible, "Replay on the map opens the map replay")
+	if replay == null:
+		return
+	var run: Object = _state_manager.current_run
+	_expect(replay.path_points_3d.size() >= 2 and replay.path_points_3d.size() == run.path_history.size(),
+		"with the line that was travelled (%d points)" % replay.path_points_3d.size())
+	_expect(replay.topo_texture != null, "drawn over the mountain's topo map")
+	_expect(replay.total_duration > 0.0, "and a day to play back (%.3f game hours)" % replay.total_duration)
+	await _wait(SETTLE * 2)
+	_shot("10b_map_replay.png")
+	replay.play_button.pressed.emit()  # the first press finishes drawing the line
+	replay.play_button.pressed.emit()  # the second starts the day playing
+	await _wait(SETTLE * 3)
+	_expect(replay.playback_time > 0.0, "Play moves the playhead through the day")
+	_press(replay, "close_button")
+	await _wait(SETTLE)
+	_expect(not replay.visible and post_game.visible, "Close returns to the post-game screen")
 
 
 func _shot(file_name: String) -> void:

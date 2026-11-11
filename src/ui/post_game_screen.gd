@@ -23,6 +23,7 @@ signal view_replay_pressed()
 @onready var insight_label: Label = $HSplitContainer/MomentsPanel/Layout/InsightLabel
 @onready var return_button: Button = $HSplitContainer/MomentsPanel/Layout/ButtonContainer/ReturnButton
 @onready var retry_button: Button = $HSplitContainer/MomentsPanel/Layout/ButtonContainer/RetryButton
+@onready var replay_button: Button = $HSplitContainer/MomentsPanel/Layout/ReplayButton
 
 # =============================================================================
 # CONFIGURATION
@@ -56,6 +57,7 @@ var topo_offset: Vector2 = Vector2.ZERO
 func _ready() -> void:
 	return_button.pressed.connect(_on_return_pressed)
 	retry_button.pressed.connect(_on_retry_pressed)
+	replay_button.pressed.connect(_on_view_replay_pressed)
 	_apply_theme()
 	visible = false
 
@@ -154,34 +156,8 @@ func _extract_path_data() -> void:
 
 
 func _extract_key_moments() -> void:
-	key_moments.clear()
-
-	if run_context == null:
-		return
-
-	# Extract from decisions
-	for decision in run_context.decisions:
-		var moment := {
-			"type": decision.get("type", "decision"),
-			"time": decision.get("game_time", 0.0),
-			"position": decision.get("position", Vector3.ZERO),
-			"details": decision.get("details", {})
-		}
-		key_moments.append(moment)
-
-	# Extract from incidents
-	for incident in run_context.incidents:
-		var moment := {
-			"type": incident.get("type", "incident"),
-			"time": incident.get("game_time", 0.0),
-			"position": incident.get("position", Vector3.ZERO),
-			"details": incident.get("details", {}),
-			"is_incident": true
-		}
-		key_moments.append(moment)
-
-	# Sort by time
-	key_moments.sort_custom(func(a, b): return a.time < b.time)
+	# The same moments, in the same words, as the map replay (RunMoments)
+	key_moments = RunMoments.collect(run_context)
 
 
 # =============================================================================
@@ -325,12 +301,9 @@ func _build_moments_list() -> void:
 		if displayed_count >= 8:  # Limit displayed moments
 			break
 
-		var moment_text := _get_moment_text(moment)
-		if moment_text.is_empty():
-			continue
-
 		var label := Label.new()
-		label.text = moment_text
+		label.text = "[%s] %s" % [RunMoments.elapsed(moment["time"]), moment["text"]]
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		label.add_theme_font_size_override("font_size", 13)
 
 		# Color based on type
@@ -342,78 +315,6 @@ func _build_moments_list() -> void:
 
 		moments_container.add_child(label)
 		displayed_count += 1
-
-
-func _get_moment_text(moment: Dictionary) -> String:
-	var moment_type: String = moment.get("type", "")
-	var time: float = moment.get("time", 0.0)
-	var time_str := "%d:%02d" % [int(time), int(fmod(time * 60, 60))]
-
-	match moment_type:
-		"start_slide":
-			return "[%s] Started sliding" % time_str
-		"start_downclimb":
-			var slope: float = moment.get("details", {}).get("slope", 0.0)
-			return "[%s] Began downclimbing (%.0f°)" % [time_str, slope]
-		"deploy_rope":
-			return "[%s] Deployed rope" % time_str
-		"self_arrest":
-			return "[%s] Self-arrested" % time_str
-		"hard_landing":
-			return "[%s] Hard landing" % time_str
-		"fall_injury":
-			var injury_type: String = moment.get("details", {}).get("type", "injury")
-			return "[%s] %s from fall" % [time_str, injury_type.capitalize()]
-		"collapse":
-			return "[%s] Collapsed from exhaustion" % time_str
-		"incapacitated":
-			return "[%s] Became incapacitated" % time_str
-		"terminal_slide", "fatal_fall", "exposure_death":
-			return "[%s] Fatal incident" % time_str
-		"run_complete":
-			return ""  # Don't show this one
-		"summit_reached":
-			return "[%s] Summit" % time_str
-		"avalanche_triggered":
-			return "[%s] Triggered an avalanche" % time_str
-		"avalanche_natural":
-			return "[%s] An avalanche ran nearby" % time_str
-		"serac_fall":
-			return "[%s] A serac fell from the icefall" % time_str
-		"avalanche_caught":
-			return "[%s] Caught in an avalanche" % time_str
-		"avalanche_burial":
-			return "[%s] Buried in the debris" % time_str
-		"avalanche_survived":
-			return "[%s] Out of the avalanche" % time_str
-		"dug_out":
-			return "[%s] Dug out" % time_str
-		"airbag_deployed":
-			return "[%s] Pulled the airbag" % time_str
-		"whumpf":
-			return "[%s] The snowpack collapsed underfoot" % time_str
-		"shooting_cracks":
-			return "[%s] Shooting cracks" % time_str
-		"snow_pit":
-			return "[%s] Dug a snow pit: %s" % [time_str, str(moment.get("details", {}).get("result", "")).get_slice(".", 0)]
-		"crevasse_fall":
-			return "[%s] Fell into a crevasse" % time_str
-		"crevasse_climbed_out":
-			return "[%s] Climbed out of the crevasse" % time_str
-		"probe":
-			if moment.get("details", {}).get("hollow", false):
-				return "[%s] Probed a hidden crevasse" % time_str
-			return ""
-		"obstacle_impact":
-			var object_name: String = moment.get("details", {}).get("object", "tree")
-			return "[%s] Hit a %s" % [time_str, "boulder" if object_name == "boulder" else "tree"]
-		"rappel_complete":
-			return "[%s] Abseiled" % time_str
-		_:
-			if moment.get("is_incident", false):
-				return "[%s] %s" % [time_str, moment_type.replace("_", " ").capitalize()]
-
-	return ""
 
 
 # =============================================================================

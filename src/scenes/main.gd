@@ -883,6 +883,7 @@ func _show_post_game() -> void:
 
 
 func _hide_post_game_screen() -> void:
+	_hide_topo_replay()
 	if post_game_screen != null:
 		post_game_screen.hide_analysis()
 
