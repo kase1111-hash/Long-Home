@@ -273,11 +273,14 @@ func _create_mountain_card(mountain: MountainDatabase.MountainData) -> Control:
 		progress_label.add_theme_color_override("font_color", Color(0.4, 0.6, 0.5))
 		content.add_child(progress_label)
 
-	# Make clickable
+	# Make clickable, and choosable with keys or a gamepad
 	if is_unlocked:
 		card.gui_input.connect(_on_card_input.bind(mountain.id))
 		card.mouse_entered.connect(_on_card_hover.bind(mountain.id, true))
 		card.mouse_exited.connect(_on_card_hover.bind(mountain.id, false))
+		var card_id: String = mountain.id
+		UIFocus.make_choosable(card, _select_mountain.bind(card_id),
+			func(entered: bool) -> void: _on_card_hover(card_id, entered))
 
 	return card
 
@@ -557,6 +560,18 @@ func _get_knowledge_text(knowledge: GameEnums.KnowledgeLevel) -> String:
 # SELECTION
 # =============================================================================
 
+## Where the focus goes when the screen comes up: the chosen mountain's card
+## (the first one when none is chosen yet)
+func focus_default() -> void:
+	var card: Control = mountain_cards.get(selected_mountain_id)
+	if card == null or card.focus_mode == Control.FOCUS_NONE:
+		for id in mountain_cards:
+			if (mountain_cards[id] as Control).focus_mode != Control.FOCUS_NONE:
+				card = mountain_cards[id]
+				break
+	UIFocus.take(card)
+
+
 func _select_mountain(mountain_id: String) -> void:
 	# Update visual selection
 	for id in mountain_cards:
@@ -613,6 +628,13 @@ func _on_card_hover(mountain_id: String, entered: bool) -> void:
 
 func _on_full_route_toggled(enabled: bool) -> void:
 	mountain_db.set_route_mode(GameEnums.RouteMode.FULL_ROUTE if enabled else GameEnums.RouteMode.DESCENT)
+
+
+## Esc, or B on a gamepad, goes back as the Back button does
+func _unhandled_input(event: InputEvent) -> void:
+	if is_visible_in_tree() and event.is_action_pressed("ui_cancel"):
+		_on_back_pressed()
+		get_viewport().set_input_as_handled()
 
 
 func _on_back_pressed() -> void:

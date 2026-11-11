@@ -235,7 +235,7 @@ func _update_in_slot(slot: GlacierField.Crevasse, flat: Vector2, delta: float) -
 		if not _told_trapped:
 			_told_trapped = true
 			if has_axe and player.gear_state.has_crampons():
-				player.say("Blue ice on every side. Crampons on (F), then climb.", 4.0)
+				player.say("Blue ice on every side. Crampons on ({crampons_toggle}), then climb.", 4.0)
 			else:
 				player.say("Blue ice on every side, and nothing to climb it with. You shout.", 4.0)
 		if not has_axe or not player.gear_state.has_crampons():

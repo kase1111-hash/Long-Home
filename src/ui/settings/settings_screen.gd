@@ -25,31 +25,11 @@ const SOUND_ROWS := [
 
 const ANTIALIASING_CHOICES: Array[String] = ["Off", "2x", "4x", "8x"]
 
-## The keys, in the order a player meets them
-const KEY_ROWS := [
-	["move_forward", "Move forward"],
-	["move_back", "Move back; brake a glissade"],
-	["move_left", "Move left"],
-	["move_right", "Move right"],
-	["lean_left", "Lean left in a glissade"],
-	["lean_right", "Lean right in a glissade"],
-	["slide_initiate", "Glissade; self-arrest; airbag; dig"],
-	["rope_deploy", "Rope: anchor, rappel, unclip"],
-	["crampons_toggle", "Crampons on or off"],
-	["skis_toggle", "Skis or splitboard on or off"],
-	["probe", "Probe the snow ahead"],
-	["snow_pit", "Dig a snow pit"],
-	["check_self", "Check yourself"],
-	["open_map", "Map"],
-	["drone_view", "Watch through the film crew's drone"],
-]
+## How to change a control (shown above the list until something is changed)
+const BINDING_HELP := "To change a control, press its button here, then the key or gamepad button to use. If another action had it, the two change places."
 
-## Keys that are not actions in the input map
-const FIXED_KEY_ROWS := [
-	["Mouse", "Look around"],
-	["Esc", "Pause"],
-	["H", "Show or hide the control hints"],
-]
+## What is not rebound: the sticks, the mouse, and the menus
+const FIXED_CONTROLS_NOTE := "Looking is the mouse or the right stick; the left stick moves as well as the move keys. In menus: arrows or the D-pad, Enter or A to choose, Esc or B to go back, LB and RB to turn the page."
 
 const PANEL_SIZE := Vector2(900, 740)
 const LABEL_COLOR := Color(0.9, 0.88, 0.85)
@@ -72,7 +52,16 @@ var _value_labels: Dictionary = {}
 var _formats: Dictionary = {}
 ## tab index -> the settings on that page
 var _page_keys: Dictionary = {}
-var _keys_grid: GridContainer
+
+## The Controls page: a button for each action's key and each action's
+## gamepad button ("action|device" -> Button), and the line under them
+var _binding_buttons: Dictionary = {}
+var _binding_note: Label
+var _controls_page: int = -1
+
+## The action waiting for a key or a button ("" when none is), and on which device
+var _listening_action: String = ""
+var _listening_device: int = ControlsMap.Device.KEYBOARD
 
 # =============================================================================
 # LIFECYCLE
@@ -88,12 +77,25 @@ func _ready() -> void:
 	_build_ui()
 	if settings != null:
 		settings.changed.connect(_on_setting_changed)
+		settings.bindings_changed.connect(_refresh_bindings)
+		settings.device_changed.connect(_refresh_bindings.unbind(1))
 
 
 func _input(event: InputEvent) -> void:
+	if not visible:
+		return
+	# Waiting for the key or button of an action: the next one pressed is it
+	if not _listening_action.is_empty():
+		_listen(event)
+		return
 	# Before the pause menu and the game see it: Esc leaves this screen only
-	if visible and event.is_action_pressed("ui_cancel"):
+	if event.is_action_pressed("ui_cancel"):
 		close_requested.emit()
+		get_viewport().set_input_as_handled()
+		return
+	var step := UIFocus.page_step(event)
+	if step != 0:
+		tabs.current_tab = wrapi(tabs.current_tab + step, 0, tabs.get_tab_count())
 		get_viewport().set_input_as_handled()
 
 
@@ -105,6 +107,7 @@ func show_settings() -> void:
 
 
 func hide_settings() -> void:
+	_stop_listening()
 	visible = false
 
 
@@ -184,6 +187,8 @@ func _add_page(page_name: String) -> VBoxContainer:
 	var scroll := ScrollContainer.new()
 	scroll.name = page_name
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	# With keys or a gamepad, the page follows the control being changed
+	scroll.follow_focus = true
 	tabs.add_child(scroll)
 
 	var margin := MarginContainer.new()
@@ -230,46 +235,127 @@ func _build_controls_page(rows: VBoxContainer) -> void:
 		"The camera sways when you are tired or unsteady and shakes on impacts. Turn it down if the motion is uncomfortable.",
 		0.0, 1.0, 0.05, _percent)
 
+	_add_slider(rows, "stick_sensitivity", "Stick look speed", "How fast the right stick of a gamepad turns the view.", 0.25, 3.0, 0.05, _percent)
+	_controls_page = tabs.get_tab_count() - 1
+
 	rows.add_child(HSeparator.new())
-	var heading := Label.new()
-	heading.text = "Keys"
-	heading.add_theme_font_size_override("font_size", 17)
-	heading.add_theme_color_override("font_color", LABEL_COLOR)
-	rows.add_child(heading)
-
-	_keys_grid = GridContainer.new()
-	_keys_grid.name = "Keys"
-	_keys_grid.columns = 4
-	_keys_grid.add_theme_constant_override("h_separation", 18)
-	_keys_grid.add_theme_constant_override("v_separation", 6)
-	rows.add_child(_keys_grid)
-	_fill_keys()
-	_add_note(rows, "The keys are fixed in this version.")
-
-
-## Two columns of "key, what it does"
-func _fill_keys() -> void:
-	for child in _keys_grid.get_children():
-		_keys_grid.remove_child(child)
-		child.queue_free()
-	var entries: Array = []
-	for row in KEY_ROWS:
-		var key := GameSettings.key_name(row[0])
-		entries.append([key if not key.is_empty() else "-", row[1]])
-	entries.append_array(FIXED_KEY_ROWS)
-	for entry in entries:
-		var key_label := Label.new()
-		key_label.text = entry[0]
-		key_label.custom_minimum_size = Vector2(64, 0)
-		key_label.add_theme_font_size_override("font_size", 14)
-		key_label.add_theme_color_override("font_color", Color(0.95, 0.88, 0.6))
-		_keys_grid.add_child(key_label)
+	# What to do, then what happened: above the list, where it stays in view
+	_binding_note = Label.new()
+	_binding_note.name = "BindingNote"
+	_binding_note.text = BINDING_HELP
+	_binding_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_binding_note.add_theme_font_size_override("font_size", 14)
+	_binding_note.add_theme_color_override("font_color", Color(0.95, 0.88, 0.6))
+	rows.add_child(_binding_note)
+	var grid := GridContainer.new()
+	grid.name = "Bindings"
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 6)
+	rows.add_child(grid)
+	for heading_text in ["Controls", "Key", "Gamepad"]:
+		var heading := Label.new()
+		heading.text = heading_text
+		heading.add_theme_font_size_override("font_size", 17 if heading_text == "Controls" else 14)
+		heading.add_theme_color_override("font_color", LABEL_COLOR if heading_text == "Controls" else NOTE_COLOR)
+		grid.add_child(heading)
+	for row in ControlsMap.ACTIONS:
 		var what := Label.new()
-		what.text = entry[1]
+		what.text = row[1]
 		what.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		what.add_theme_font_size_override("font_size", 14)
+		what.add_theme_font_size_override("font_size", 15)
 		what.add_theme_color_override("font_color", LABEL_COLOR)
-		_keys_grid.add_child(what)
+		grid.add_child(what)
+		for device in [ControlsMap.Device.KEYBOARD, ControlsMap.Device.GAMEPAD]:
+			var button := Button.new()
+			button.name = "%s_%s" % [row[0], "key" if device == ControlsMap.Device.KEYBOARD else "pad"]
+			button.custom_minimum_size = Vector2(150, 32)
+			button.tooltip_text = "Change it: press this, then the key or button to use"
+			button.pressed.connect(_start_listening.bind(str(row[0]), device))
+			grid.add_child(button)
+			_binding_buttons["%s|%d" % [row[0], device]] = button
+
+	_add_note(rows, FIXED_CONTROLS_NOTE)
+	_refresh_bindings()
+
+
+# =============================================================================
+# REBINDING
+# =============================================================================
+
+## What each binding button says: the control now bound, or that it is waiting
+func _refresh_bindings() -> void:
+	if settings == null:
+		return
+	var bindings := settings.get_bindings()
+	for id in _binding_buttons:
+		var parts: PackedStringArray = str(id).split("|")
+		var device := int(parts[1])
+		var button: Button = _binding_buttons[id]
+		if parts[0] == _listening_action and device == _listening_device:
+			button.text = "Press a key..." if device == ControlsMap.Device.KEYBOARD else "Press a button..."
+			continue
+		var label := ControlsMap.label_for(parts[0], device, bindings, settings.pad_style)
+		button.text = label if not label.is_empty() else "-"
+	_update_reset_button()
+
+
+func _start_listening(action: String, device: int) -> void:
+	_listening_action = action
+	_listening_device = device
+	_binding_note.text = "%s: press the %s to use. Esc cancels." % [
+		ControlsMap.describe(action), "key" if device == ControlsMap.Device.KEYBOARD else "gamepad button"]
+	_refresh_bindings()
+
+
+func _stop_listening(message: String = "") -> void:
+	if _listening_action.is_empty() and message.is_empty():
+		return
+	_listening_action = ""
+	if _binding_note != null:
+		_binding_note.text = message if not message.is_empty() else BINDING_HELP
+	_refresh_bindings()
+
+
+## While an action waits for its control: take the next key or button of the
+## right device; Esc, a click or the other device calls it off
+func _listen(event: InputEvent) -> void:
+	if event is InputEventKey:
+		var key := event as InputEventKey
+		if not key.pressed or key.echo:
+			return
+		get_viewport().set_input_as_handled()
+		var code := int(key.physical_keycode) if key.physical_keycode != KEY_NONE else int(key.keycode)
+		# Esc calls it off (but it can be the pause key, which it is to begin with)
+		if _listening_device != ControlsMap.Device.KEYBOARD or (code == KEY_ESCAPE and _listening_action != "pause"):
+			_stop_listening("Left as it was.")
+			return
+		_bind(code)
+	elif event is InputEventJoypadButton:
+		var pad := event as InputEventJoypadButton
+		if not pad.pressed:
+			return
+		get_viewport().set_input_as_handled()
+		if _listening_device != ControlsMap.Device.GAMEPAD or int(pad.button_index) > ControlsMap.MAX_PAD_BUTTON:
+			_stop_listening("Left as it was.")
+			return
+		_bind(int(pad.button_index))
+	elif event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
+		_stop_listening("Left as it was.")
+
+
+func _bind(code: int) -> void:
+	var action := _listening_action
+	var device := _listening_device
+	_listening_action = ""
+	var swapped := settings.set_binding(action, device, code)
+	var label := ControlsMap.label_for(action, device, settings.get_bindings(), settings.pad_style)
+	var message := "%s is now %s." % [ControlsMap.describe(action), label]
+	if not swapped.is_empty():
+		message += " %s took %s in exchange." % [ControlsMap.describe(swapped),
+			ControlsMap.label_for(swapped, device, settings.get_bindings(), settings.pad_style)]
+	_binding_note.text = message
+	_refresh_bindings()
 
 
 # =============================================================================
@@ -413,7 +499,7 @@ func _refresh() -> void:
 		return
 	for key in _controls.keys():
 		_show_control(key, settings.get_value(key))
-	_fill_keys()
+	_refresh_bindings()
 	_update_reset_button()
 
 
@@ -449,12 +535,17 @@ func _update_reset_button() -> void:
 	if settings != null:
 		for key in _page_keys.get(page, []):
 			changed_here = changed_here or not settings.is_default(key)
+		if page == _controls_page:
+			changed_here = changed_here or not settings.bindings_are_default()
 	reset_button.disabled = not changed_here
 
 
 func _on_reset_pressed() -> void:
 	if settings != null:
 		settings.reset(_page_keys.get(tabs.current_tab, []))
+		if tabs.current_tab == _controls_page:
+			_stop_listening()
+			settings.reset_bindings()
 	_refresh()
 
 

@@ -87,16 +87,8 @@ func update(delta: float, delay: float) -> void:
 
 func _read_raw_input() -> void:
 	# Movement input
-	raw_move_input = Vector2.ZERO
-
-	if Input.is_action_pressed("move_forward"):
-		raw_move_input.y -= 1.0
-	if Input.is_action_pressed("move_back"):
-		raw_move_input.y += 1.0
-	if Input.is_action_pressed("move_left"):
-		raw_move_input.x -= 1.0
-	if Input.is_action_pressed("move_right"):
-		raw_move_input.x += 1.0
+	# Keys give all or nothing; a stick gives how far it is pushed
+	raw_move_input = Input.get_vector("move_left", "move_right", "move_forward", "move_back", STICK_DEADZONE)
 
 	# Apply deadzone
 	if raw_move_input.length() < deadzone:
@@ -114,6 +106,9 @@ func _read_raw_input() -> void:
 
 ## Maximum age for buffered inputs (seconds) before they are discarded
 const MAX_INPUT_AGE: float = 0.5
+
+## How far the left stick must be pushed before the climber moves
+const STICK_DEADZONE: float = 0.25
 
 func _process_buffered_input(delta: float) -> void:
 	if current_delay <= 0.001:

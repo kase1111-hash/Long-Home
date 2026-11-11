@@ -407,7 +407,9 @@ func _on_fatal_event_completed() -> void:
 # =============================================================================
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_cancel"):
+	# Pause has its own control (Esc, or Start on a gamepad; ControlsMap).
+	# Backing out of the map is "cancel" (Esc, or B on a gamepad).
+	if event.is_action_pressed("pause"):
 		match current_state:
 			GameEnums.GameState.DESCENT:
 				toggle_pause()
@@ -415,6 +417,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				toggle_pause()
 			GameEnums.GameState.MAP_CHECK:
 				exit_map_check()
+	elif event.is_action_pressed("ui_cancel") and current_state == GameEnums.GameState.MAP_CHECK:
+		exit_map_check()
 
 	if event.is_action_pressed("open_map"):
 		if current_state == GameEnums.GameState.DESCENT:

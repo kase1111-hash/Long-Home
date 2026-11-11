@@ -920,6 +920,14 @@ func _input(event: InputEvent) -> void:
 
 	if event.is_action_pressed("ui_cancel"):
 		_on_back_pressed()
+		return
+
+	# LB/RB or Page Up/Down: the next page of the plan (guidebook, bulletin)
+	var step := UIFocus.page_step(event)
+	var pages := find_child("Tabs", true, false) as TabContainer
+	if step != 0 and pages != null:
+		pages.current_tab = wrapi(pages.current_tab + step, 0, pages.get_tab_count())
+		get_viewport().set_input_as_handled()
 
 
 # =============================================================================

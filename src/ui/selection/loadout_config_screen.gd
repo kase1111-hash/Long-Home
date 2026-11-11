@@ -349,7 +349,7 @@ func _add_gear_item_row(parent: Control, item_info: GearDatabase.GearItemInfo) -
 
 	# Description
 	var desc := Label.new()
-	desc.text = item_info.description
+	desc.text = ControlsMap.fill(item_info.description)
 	desc.add_theme_font_size_override("font_size", 11)
 	desc.add_theme_color_override("font_color", Color(0.55, 0.55, 0.58))
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -592,6 +592,13 @@ func _on_preset_selected(preset_name: String) -> void:
 		toggle.button_pressed = current_loadout.has_item(gear_type)
 
 	_update_summary()
+
+
+## Esc, or B on a gamepad, goes back as the Back button does
+func _unhandled_input(event: InputEvent) -> void:
+	if is_visible_in_tree() and event.is_action_pressed("ui_cancel"):
+		_on_back_pressed()
+		get_viewport().set_input_as_handled()
 
 
 func _on_back_pressed() -> void:

@@ -134,6 +134,9 @@ func _update_standing(delta: float) -> void:
 # WALKING STATE
 # =============================================================================
 
+## The slowest a gently pushed stick walks, as a share of the full pace
+const MIN_WALK_PUSH := 0.3
+
 func _update_walking(delta: float) -> void:
 	var input := player.input_handler.move_input
 	if input.length() < 0.1:
@@ -146,8 +149,10 @@ func _update_walking(delta: float) -> void:
 	# Calculate slope factor
 	_calculate_slope_factor()
 
-	# Calculate target speed
-	var target_speed := player.get_current_speed() * slope_factor
+	# Calculate target speed. A stick pushed part of the way walks slower
+	# (keys are all or nothing); never slower than a careful shuffle.
+	var push := clampf(input.length(), MIN_WALK_PUSH, 1.0)
+	var target_speed := player.get_current_speed() * slope_factor * push
 
 	# Apply acceleration toward target
 	target_velocity = move_direction * target_speed

@@ -819,7 +819,7 @@ func _catch(flow: AvalancheFlow) -> void:
 	player.velocity = Vector3.ZERO
 	player.change_state(GameEnums.PlayerMovementState.CAUGHT)
 	var has_airbag := player.gear_state != null and player.gear_state.has_item(GameEnums.GearType.AIRBAG)
-	player.say("You're caught. Swim (Space)%s!" % (" and pull the airbag" if has_airbag else ""), 3.0)
+	player.say("You're caught. Swim ({slide_initiate})%s!" % (" and pull the airbag" if has_airbag else ""), 3.0)
 	EventBus.record_incident("avalanche_caught", {"size": flow.size, "natural": flow.natural})
 	climber_caught.emit(flow)
 
@@ -932,12 +932,12 @@ func _bury() -> void:
 	EventBus.record_incident("avalanche_burial", {"depth": depth, "air_pocket": air_pocket, "airbag": airbag_deployed})
 	climber_buried.emit(depth)
 	if depth < PARTIAL_DEPTH:
-		player.say("Buried to the waist and set like concrete. Dig (Space)!", 3.0)
+		player.say("Buried to the waist and set like concrete. Dig ({slide_initiate})!", 3.0)
 	elif depth < DEEP_BURIAL:
 		if depth >= HEAD_UNDER_DEPTH:
-			player.say("Dark, and the snow is setting. Dig toward the light (Space), and keep your breath.", 4.0)
+			player.say("Dark, and the snow is setting. Dig toward the light ({slide_initiate}), and keep your breath.", 4.0)
 		else:
-			player.say("Buried to the chest. Your face is clear. Dig (Space)!", 3.0)
+			player.say("Buried to the chest. Your face is clear. Dig ({slide_initiate})!", 3.0)
 	else:
 		player.say("Buried deep. You cannot move a finger.", 4.0)
 

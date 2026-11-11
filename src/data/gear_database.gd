@@ -213,7 +213,7 @@ func _load_gear_data() -> void:
 		GameEnums.GearType.GUIDEBOOK,
 		"Guidebook",
 		CATEGORY_NAVIGATION,
-		"Route descriptions and pitch-by-pitch topos, graded and timed. Carried, its topos can be read on the map (M) during the descent.",
+		"Route descriptions and pitch-by-pitch topos, graded and timed. Carried, its topos can be read on the map ({open_map}) during the descent.",
 		0.25,
 		false
 	))
@@ -222,7 +222,7 @@ func _load_gear_data() -> void:
 		GameEnums.GearType.TOPO_MAP,
 		"Topo Map",
 		CATEGORY_NAVIGATION,
-		"The paper map with your planned line pencilled on. Without it there is nothing to pull out (M) on the mountain.",
+		"The paper map with your planned line pencilled on. Without it there is nothing to pull out ({open_map}) on the mountain.",
 		0.1,
 		false
 	))
@@ -260,7 +260,7 @@ func _load_gear_data() -> void:
 		GameEnums.GearType.SHOVEL_PROBE,
 		"Shovel & Probe",
 		CATEGORY_AVALANCHE,
-		"Dig a snow pit to test the snowpack (V), dig yourself free faster when your arms are clear, and probe for crevasses (G).",
+		"Dig a snow pit to test the snowpack ({snow_pit}), dig yourself free faster when your arms are clear, and probe for crevasses ({probe}).",
 		0.95,
 		false
 	))
@@ -269,7 +269,7 @@ func _load_gear_data() -> void:
 		GameEnums.GearType.AIRBAG,
 		"Avalanche Airbag",
 		CATEGORY_AVALANCHE,
-		"A balloon pack. Pull the handle (Space) the moment you are caught: a big volume rises in moving snow, and you with it.",
+		"A balloon pack. Pull the handle ({slide_initiate}) the moment you are caught: a big volume rises in moving snow, and you with it.",
 		2.6,
 		false
 	))

@@ -41,24 +41,29 @@ const HINTS_TOGGLE_FADE_TIME := 0.2
 const MESSAGE_FADE_IN := 0.3
 const MESSAGE_FADE_OUT := 0.6
 
-const HINTS_TEXT := "WASD move  ·  Mouse look  ·  Space glissade / arrest  ·  S brake  ·  R rope  ·  F crampons  ·  T skis  ·  G probe  ·  V snow pit  ·  Q/E lean  ·  M map  ·  C self-check  ·  B drone view  ·  Esc pause  ·  H hints"
+## ({placeholders} are filled with the player's own bindings, on the device
+## in their hands: ControlsMap.fill)
+const HINTS_TEXT := "{move} move  ·  {look} look  ·  {slide_initiate} glissade / arrest  ·  {move_back} brake  ·  {rope_deploy} rope  ·  {crampons_toggle} crampons  ·  {skis_toggle} skis  ·  {probe} probe  ·  {snow_pit} snow pit  ·  {lean} lean  ·  {open_map} map  ·  {check_self} self-check  ·  {drone_view} drone view  ·  {pause} pause  ·  {toggle_hints} hints"
 ## Shown in a corner while the screen shows the film crew's drone camera
-const DRONE_VIEW_TEXT := "Drone camera  ·  B for your own"
+const DRONE_VIEW_TEXT := "Drone camera  ·  {drone_view} for your own"
 
 ## Contextual control reminders, shown in place of the general hints while
 ## the climber is doing something with its own controls
-const HINTS_SLIDING := "S dig in heels and spike  ·  A/D lean  ·  W lie back  ·  Space self-arrest"
-const HINTS_ROPE := "Push down the face to let rope run  ·  + Space to let it run fast  ·  Let go to brake  ·  Up to climb  ·  R unclip on a ledge, or build the next anchor"
-const HINTS_ROPE_BUILD := "Building the anchor  ·  R strip it and back off"
-const HINTS_SKIING := "A/D turn  ·  S skid to slow or stop  ·  W tuck (pole on the flat)  ·  T step out  ·  Space self-arrest after a fall"
-const HINTS_CREVASSE := "Push against a wall to climb out (axe in hand, crampons on: F)  ·  Keep pushing to keep climbing"
-const HINTS_AVALANCHE := "Space pull the airbag, then swim  ·  Push across the flow to fight for the edge  ·  As it slows, Space: a hand up, an air pocket"
-const HINTS_BURIED := "Space dig (again and again)  ·  Keep your breath"
+const HINTS_SLIDING := "{move_back} dig in heels and spike  ·  {steer} lean  ·  {move_forward} lie back  ·  {slide_initiate} self-arrest"
+const HINTS_ROPE := "Push down the face to let rope run  ·  + {slide_initiate} to let it run fast  ·  Let go to brake  ·  Up to climb  ·  {rope_deploy} unclip on a ledge, or build the next anchor"
+const HINTS_ROPE_BUILD := "Building the anchor  ·  {rope_deploy} strip it and back off"
+const HINTS_SKIING := "{steer} turn  ·  {move_back} skid to slow or stop  ·  {move_forward} tuck (pole on the flat)  ·  {skis_toggle} step out  ·  {slide_initiate} self-arrest after a fall"
+const HINTS_CREVASSE := "Push against a wall to climb out (axe in hand, crampons on: {crampons_toggle})  ·  Keep pushing to keep climbing"
+const HINTS_AVALANCHE := "{slide_initiate} pull the airbag, then swim  ·  Push across the flow to fight for the edge  ·  As it slows, {slide_initiate}: a hand up, an air pocket"
+const HINTS_BURIED := "{slide_initiate} dig (again and again)  ·  Keep your breath"
 
 ## Layout (design resolution is 1920x1080, viewport stretch)
 const SCREEN_MARGIN := 24.0
 const PANEL_PADDING := 12.0
 const HINTS_PADDING_X := 14.0
+## The widest the hint line may be before it wraps (design width less margins)
+const HINTS_MAX_WIDTH := 1920.0 - 2.0 * SCREEN_MARGIN - 2.0 * HINTS_PADDING_X
+const NO_BREAK_SPACE := "\u00a0"
 const HINTS_PADDING_Y := 8.0
 const PANEL_CORNER_RADIUS := 6
 const ROW_SEPARATION := 4
@@ -135,6 +140,11 @@ var _message_label: Label
 var _hints_panel: PanelContainer
 var _hints_label: Label
 var _view_tag: PanelContainer
+var _view_tag_label: Label
+## The hints as written (the label's own text may carry no-break spaces)
+var _hints_text: String = ""
+## The bindings or the device changed since the hints were last written
+var _controls_changed: bool = false
 var _in_fatal_sequence: bool = false
 
 # =============================================================================
@@ -203,12 +213,7 @@ func _process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_visible_in_tree():
 		return
-	if not event is InputEventKey:
-		return
-	var key := event as InputEventKey
-	if not key.pressed or key.echo:
-		return
-	if key.keycode != KEY_H and key.physical_keycode != KEY_H:
+	if not event.is_action_pressed("toggle_hints"):
 		return
 	toggle_hints()
 	get_viewport().set_input_as_handled()
@@ -328,7 +333,8 @@ func _build_view_tag() -> void:
 	_view_tag.offset_top = SCREEN_MARGIN
 	_view_tag.visible = false
 	add_child(_view_tag)
-	_view_tag.add_child(_make_label("ViewTagLabel", DRONE_VIEW_TEXT, HINTS_FONT_SIZE, VALUE_COLOR))
+	_view_tag_label = _make_label("ViewTagLabel", ControlsMap.fill(DRONE_VIEW_TEXT), HINTS_FONT_SIZE, VALUE_COLOR)
+	_view_tag.add_child(_view_tag_label)
 
 	# The drone service starts before the HUD in a normal game; not in every test
 	ServiceLocator.get_service_async("DroneService", func(service: Object) -> void:
@@ -379,8 +385,15 @@ func _build_bottom_stack() -> void:
 	_hints_panel.add_theme_stylebox_override("panel", _make_panel_style(HINTS_PANEL_COLOR, HINTS_PADDING_X, HINTS_PADDING_Y))
 	_bottom_stack.add_child(_hints_panel)
 
-	_hints_label = _make_label("Hints", HINTS_TEXT, HINTS_FONT_SIZE, VALUE_COLOR)
+	_hints_label = _make_label("Hints", "", HINTS_FONT_SIZE, VALUE_COLOR)
 	_hints_panel.add_child(_hints_label)
+	_set_hints_text(ControlsMap.fill(HINTS_TEXT))
+
+	# Another binding, or the other device picked up: the hints say so at once
+	var settings := ServiceLocator.get_service("GameSettings") as GameSettings
+	if settings != null:
+		settings.bindings_changed.connect(_on_controls_changed)
+		settings.device_changed.connect(_on_controls_changed.unbind(1))
 
 
 func _make_label(label_name: String, text: String, font_size: int, color: Color) -> Label:
@@ -629,6 +642,34 @@ func _feet_text() -> String:
 	return text
 
 
+## Write the hints. A line too long for the screen (a gamepad's controls have
+## longer names than keys) wraps, and only between one hint and the next.
+func _set_hints_text(text: String) -> void:
+	_hints_text = text
+	var font := _hints_label.get_theme_font("font")
+	var width := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, HINTS_FONT_SIZE).x if font != null else 0.0
+	if width <= HINTS_MAX_WIDTH:
+		_hints_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+		_hints_label.custom_minimum_size.x = 0.0
+		_hints_label.text = text
+		return
+	var hints: PackedStringArray = text.split("  ·  ")
+	for i in range(hints.size()):
+		hints[i] = hints[i].replace(" ", NO_BREAK_SPACE)
+	_hints_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_hints_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hints_label.custom_minimum_size.x = HINTS_MAX_WIDTH
+	_hints_label.text = (NO_BREAK_SPACE + NO_BREAK_SPACE + "·" + NO_BREAK_SPACE + " ").join(hints)
+
+
+func _on_controls_changed() -> void:
+	_controls_changed = true
+	if _view_tag_label != null:
+		_view_tag_label.text = ControlsMap.fill(DRONE_VIEW_TEXT)
+	_update_context_hints()
+	_controls_changed = false
+
+
 ## Swap the general hints for the controls of what the climber is doing now
 func _update_context_hints() -> void:
 	if _hints_label == null:
@@ -654,10 +695,12 @@ func _update_context_hints() -> void:
 					text = HINTS_ROPE
 				else:
 					text = HINTS_ROPE_BUILD
-	if _hints_label.text != text:
-		_hints_label.text = text
+	var general := text == HINTS_TEXT
+	text = ControlsMap.fill(text)
+	if _hints_text != text:
+		_set_hints_text(text)
 		# A new set of controls is worth showing even after the hints faded
-		if text != HINTS_TEXT and not _hints_visible and _hints_auto_hide_remaining < 0.0 and not _hints_dismissed:
+		if not general and not _controls_changed and not _hints_visible and _hints_auto_hide_remaining < 0.0 and not _hints_dismissed:
 			_fade_hints(true, HINTS_TOGGLE_FADE_TIME)
 			_context_hint_timer = CONTEXT_HINT_TIME
 	if _context_hint_timer > 0.0:

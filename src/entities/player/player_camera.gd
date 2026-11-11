@@ -23,6 +23,9 @@ extends Node3D
 
 @export_group("Rotation")
 @export var mouse_sensitivity: float = 0.003
+## How fast the right stick turns the view at full deflection (radians/second)
+@export var stick_yaw_speed: float = 2.6
+@export var stick_pitch_speed: float = 1.6
 ## Negative pitch looks down on the climber; positive puts the camera low
 @export var min_pitch: float = -75.0
 @export var max_pitch: float = 25.0
@@ -41,6 +44,8 @@ extends Node3D
 ## From the player's settings (GameSettings): mouse speed, which way the
 ## mouse tilts the view, and how much of the sway and shake is shown
 var sensitivity_scale: float = 1.0
+## The same for looking with a gamepad's right stick
+var stick_scale: float = 1.0
 var invert_y: bool = false
 var motion_scale: float = 1.0
 @export var sway_amount: float = 0.02
@@ -130,7 +135,7 @@ func _ready() -> void:
 	var settings := ServiceLocator.get_service("GameSettings") as GameSettings
 	if settings != null:
 		settings.changed.connect(_on_setting_changed)
-		for key in ["mouse_sensitivity", "invert_y", "camera_sway"]:
+		for key in ["mouse_sensitivity", "stick_sensitivity", "invert_y", "camera_sway"]:
 			_on_setting_changed(key, settings.get_value(key))
 
 
@@ -138,6 +143,8 @@ func _on_setting_changed(key: String, value: Variant) -> void:
 	match key:
 		"mouse_sensitivity":
 			sensitivity_scale = float(value)
+		"stick_sensitivity":
+			stick_scale = float(value)
 		"invert_y":
 			invert_y = bool(value)
 		"camera_sway":
@@ -174,6 +181,21 @@ func _unhandled_input(event: InputEvent) -> void:
 			pitch = clampf(pitch, deg_to_rad(min_pitch), deg_to_rad(max_pitch))
 
 
+## Looking with the right stick: it turns the view at a rate, where the mouse
+## moves it by a distance. A little past the deadzone turns slowly, the
+## rim turns fast.
+func _update_stick_look(delta: float) -> void:
+	if GameStateManager.current_state != GameEnums.GameState.DESCENT or not InputMap.has_action("look_left"):
+		return
+	var look := Input.get_vector("look_left", "look_right", "look_up", "look_down")
+	if look == Vector2.ZERO:
+		return
+	var turn := look * look.length() * stick_scale
+	yaw -= turn.x * stick_yaw_speed * delta
+	pitch -= turn.y * stick_pitch_speed * delta * (-1.0 if invert_y else 1.0)
+	pitch = clampf(pitch, deg_to_rad(min_pitch), deg_to_rad(max_pitch))
+
+
 # =============================================================================
 # UPDATE
 # =============================================================================
@@ -181,6 +203,8 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	if player == null or not is_instance_valid(player):
 		return
+
+	_update_stick_look(delta)
 
 	# Update sway
 	_update_sway(delta)

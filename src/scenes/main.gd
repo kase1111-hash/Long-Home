@@ -617,6 +617,9 @@ func _show_main_menu() -> void:
 	else:
 		main_menu.show_menu()
 
+	# Keys and gamepads: the menu starts on the run to continue, else on a new one
+	UIFocus.take(main_menu.continue_button if main_menu.has_save else main_menu.new_descent_button)
+
 	print("[Main] Main menu loaded")
 
 
@@ -637,6 +640,8 @@ func _show_mountain_select() -> void:
 	else:
 		mountain_select_screen.visible = true
 		mountain_select_screen.refresh()
+
+	mountain_select_screen.focus_default()
 
 	print("[Main] Mountain select loaded")
 
@@ -664,6 +669,8 @@ func _show_loadout_config() -> void:
 		var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
 		if mountain_db != null:
 			loadout_config_screen.set_mountain(mountain_db.get_selected_mountain())
+
+	UIFocus.take(loadout_config_screen.find_child("StartButton", true, false) as Control)
 
 	print("[Main] Loadout config loaded")
 
@@ -707,6 +714,8 @@ func _show_planning() -> void:
 	else:
 		planning_screen.visible = true
 		planning_screen.refresh()
+
+	UIFocus.take(planning_screen.confirm_button)
 
 	print("[Main] Planning screen loaded")
 
@@ -1109,10 +1118,13 @@ func _show_logbook() -> void:
 	else:
 		stats_display.refresh()
 	stats_display.visible = true
+	UIFocus.take(stats_display.find_child("CloseButton", true, false) as Control)
 
 
 func _hide_logbook() -> void:
 	if stats_display != null:
+		if stats_display.visible and main_menu != null and main_menu.visible:
+			UIFocus.take(main_menu.logbook_button)
 		stats_display.visible = false
 
 
@@ -1142,6 +1154,9 @@ func _on_settings_closed() -> void:
 	if pause_menu != null and GameStateManager.current_state == GameEnums.GameState.PAUSED:
 		pause_menu.visible = true
 		pause_menu.show_menu()
+	elif main_menu != null and main_menu.visible:
+		# Back on the main menu, where the focus was
+		UIFocus.take(main_menu.settings_button)
 
 
 func _show_resolution() -> void:
@@ -1160,6 +1175,8 @@ func _show_resolution() -> void:
 
 	# Show with run results
 	resolution_screen.show_resolution(run, run.outcome)
+
+	UIFocus.take(resolution_screen.continue_button)
 
 	print("[Main] Resolution screen shown: %s" % GameEnums.ResolutionType.keys()[run.outcome])
 
@@ -1184,6 +1201,8 @@ func _show_post_game() -> void:
 
 	# Show analysis
 	post_game_screen.show_analysis(run)
+
+	UIFocus.take(post_game_screen.return_button)
 
 	print("[Main] Post-game analysis shown")
 
@@ -1215,6 +1234,7 @@ func _show_topo_replay() -> void:
 
 	# Show visualization
 	topo_replay.show_visualization(run)
+	UIFocus.take(topo_replay.play_button)
 
 	print("[Main] Topo replay shown")
 
@@ -1369,8 +1389,8 @@ func _on_return_to_pause_from_map() -> void:
 # =============================================================================
 
 func _unhandled_input(event: InputEvent) -> void:
-	# Pause toggle during descent
-	if event.is_action_pressed("ui_cancel"):
+	# Pause toggle during descent ("cancel" only folds the map away)
+	if event.is_action_pressed("pause") or event.is_action_pressed("ui_cancel"):
 		var state := GameStateManager.current_state
 		if state == GameEnums.GameState.DESCENT:
 			# Close physical map first if open
@@ -1378,8 +1398,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				physical_map.close_map()
 				get_viewport().set_input_as_handled()
 				return
-			GameStateManager.toggle_pause()
-			get_viewport().set_input_as_handled()
+			if event.is_action_pressed("pause"):
+				GameStateManager.toggle_pause()
+				get_viewport().set_input_as_handled()
 
 	# Physical map toggle during descent
 	if event.is_action_pressed("open_map"):

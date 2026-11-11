@@ -14,6 +14,12 @@ extends SceneTree
 ##     a bad settings file cannot put the game in a bad state, they survive a
 ##     restart, and the settings screen's controls read and write them
 ##
+##   - the controls: every action has a key and a gamepad button; either can
+##     be given to another action (the two change places), from the settings
+##     service and from the Controls page; bindings survive a restart and a
+##     bad file; the menus work without a mouse; on-screen text names the
+##     control on the device in the player's hands; and on the mountain the
+##     left stick walks, the right stick looks and Start pauses
 ##   - the day chosen at the hut: the climbs and weather windows are trades
 ##     (no option is simply better), the planning screen's pickers set the
 ##     day, the run starts at that hour, in that shape and in that weather,
@@ -79,11 +85,13 @@ func _run() -> void:
 	await _wait(5)
 	await _test_lifetime_record()
 	await _test_settings()
+	await _test_controls()
 	_test_day_options()
 	_test_run_timer_rules()
 	if not await _plan_the_day_and_start():
 		_finish("could not start a descent")
 		return
+	await _test_gamepad_on_the_mountain()
 	if not await _test_save_and_continue():
 		_finish("the run that was set aside did not come back")
 		return
@@ -334,16 +342,227 @@ func _test_settings() -> void:
 	(controls["antialiasing"] as OptionButton).item_selected.emit(1)
 	_expect(settings.get_value("invert_y") == true and settings.get_value("antialiasing") == 1,
 		"switches and choices write their settings too")
-	var keys: GridContainer = screen.find_child("Keys", true, false) as GridContainer
+	var bindings_grid: GridContainer = screen.find_child("Bindings", true, false) as GridContainer
 	var shown: Array[String] = []
-	if keys != null:
-		for label in keys.get_children():
-			shown.append((label as Label).text)
-	_expect("W" in shown and "Space" in shown and "Move forward" in shown, "the Controls page lists the keys (%d entries)" % (shown.size() / 2))
+	if bindings_grid != null:
+		for entry in bindings_grid.get_children():
+			shown.append(str(entry.get("text")))
+	_expect("W" in shown and "Space" in shown and "Move forward" in shown and "Start" in shown,
+		"the Controls page lists every action with its key and its gamepad button (%d rows)" % (shown.size() / 3 - 1))
 	(screen.get("back_button") as Button).pressed.emit()
 	await _wait(2)
 	_expect(not screen.visible, "Back closes the screen")
 	settings.reset()
+
+
+# =============================================================================
+# CONTROLS
+# =============================================================================
+
+## An event sent through the viewport, as the input system delivers one:
+## screens, the focused control and unhandled-input handlers all get it.
+## (Without a window the Input singleton does not pass events on by itself.)
+func _send(event: InputEvent) -> void:
+	root.push_input(event)
+
+
+func _pad_button(button: int, pressed: bool = true) -> InputEventJoypadButton:
+	var event := InputEventJoypadButton.new()
+	event.device = 0
+	event.button_index = button
+	event.pressed = pressed
+	return event
+
+
+func _stick(axis: int, value: float) -> InputEventJoypadMotion:
+	var event := InputEventJoypadMotion.new()
+	event.device = 0
+	event.axis = axis
+	event.axis_value = value
+	return event
+
+
+func _key(physical: int, pressed: bool = true) -> InputEventKey:
+	var event := InputEventKey.new()
+	event.physical_keycode = physical
+	event.keycode = physical
+	event.pressed = pressed
+	return event
+
+
+## Whether an action answers to a key (physical keycode) or a gamepad button
+func _answers(action: String, device: int, code: int) -> bool:
+	var probe: InputEvent = _key(code) if device == 0 else _pad_button(code)
+	return InputMap.event_is_action(probe, action)
+
+
+func _test_controls() -> void:
+	var settings: Object = _locator.get_service("GameSettings")
+	var controls: GDScript = load("res://src/systems/settings/controls_map.gd") as GDScript
+	_expect(settings != null and controls != null, "the controls are there to be tested")
+	if settings == null or controls == null:
+		return
+	var keyboard: int = controls.Device.KEYBOARD
+	var gamepad: int = controls.Device.GAMEPAD
+	var was_path: String = settings.settings_path
+	var was_persist: bool = settings.persist
+	settings.persist = false
+	settings.reset_bindings()
+
+	# --- every action has a key and a gamepad button (or the stick) -----------
+	var actions: Array = controls.ACTIONS
+	var all_bound := true
+	for row in actions:
+		var action: String = row[0]
+		if not InputMap.has_action(action) or not _answers(action, keyboard, int(row[2])):
+			all_bound = false
+		if int(row[3]) >= 0 and not _answers(action, gamepad, int(row[3])):
+			all_bound = false
+	_expect(all_bound and actions.size() >= 17, "every action answers to its key and its gamepad button (%d actions)" % actions.size())
+	_expect(InputMap.event_is_action(_stick(JOY_AXIS_LEFT_Y, -1.0), "move_forward") and InputMap.event_is_action(_stick(JOY_AXIS_LEFT_X, 1.0), "move_right")
+		and InputMap.event_is_action(_stick(JOY_AXIS_RIGHT_X, -1.0), "look_left") and InputMap.event_is_action(_stick(JOY_AXIS_RIGHT_Y, 1.0), "look_down"),
+		"the left stick moves and the right stick looks")
+	_expect(_answers("pause", keyboard, KEY_ESCAPE) and _answers("pause", gamepad, JOY_BUTTON_START) and not _answers("pause", gamepad, JOY_BUTTON_B),
+		"pausing is Esc or Start, and not the button that backs out of menus")
+
+	# --- rebinding -------------------------------------------------------------
+	var changed: Array = []
+	var on_changed := func() -> void: changed.append(true)
+	settings.bindings_changed.connect(on_changed)
+	var took: String = settings.set_binding("crampons_toggle", keyboard, KEY_X)
+	_expect(took == "" and _answers("crampons_toggle", keyboard, KEY_X) and not _answers("crampons_toggle", keyboard, KEY_F) and changed.size() == 1,
+		"an action can be given another key, and the old one lets go")
+	_expect(controls.prompt("crampons_toggle") == "X", "and is called by it (%s)" % controls.prompt("crampons_toggle"))
+	took = settings.set_binding("rope_deploy", keyboard, KEY_X)
+	_expect(took == "crampons_toggle" and _answers("rope_deploy", keyboard, KEY_X) and _answers("crampons_toggle", keyboard, KEY_R)
+		and not _answers("crampons_toggle", keyboard, KEY_X), "a key another action had: the two change places")
+	took = settings.set_binding("slide_initiate", gamepad, JOY_BUTTON_Y)
+	_expect(took == "open_map" and _answers("slide_initiate", gamepad, JOY_BUTTON_Y) and _answers("open_map", gamepad, JOY_BUTTON_A),
+		"the same with gamepad buttons")
+	_expect(settings.set_binding("no_such_action", keyboard, KEY_Z) == "" and settings.set_binding("probe", gamepad, 99) == ""
+		and _answers("probe", gamepad, JOY_BUTTON_DPAD_LEFT), "what is not an action, or not a button, is refused")
+	_expect(InputMap.event_is_action(_stick(JOY_AXIS_LEFT_Y, -1.0), "move_forward"), "the stick still moves after rebinding")
+
+	# --- they survive a restart, and a file that is nonsense -------------------
+	settings.settings_path = TEST_SETTINGS
+	settings.persist = true
+	_expect(settings.save_settings(), "the controls are written with the settings")
+	settings.reset_bindings()
+	_expect(_answers("rope_deploy", keyboard, KEY_R) and settings.bindings_are_default(), "a reset puts every control back")
+	settings.load_settings()
+	controls.apply(settings.get_bindings())
+	_expect(settings.get_binding("rope_deploy", keyboard) == KEY_X and settings.get_binding("slide_initiate", gamepad) == JOY_BUTTON_Y
+		and _answers("rope_deploy", keyboard, KEY_X), "and read back on the next launch")
+	var file := FileAccess.open(TEST_SETTINGS, FileAccess.WRITE)
+	file.store_string(JSON.stringify({"bindings": {"rope_deploy": {"key": "banana", "pad": 400}, "probe": {"key": KEY_V}, "made_up": {"key": 65}, "snow_pit": 7}}))
+	file.close()
+	settings.load_settings()
+	var cleaned: Dictionary = settings.get_bindings()
+	_expect(int(cleaned["rope_deploy"]["key"]) == KEY_R and int(cleaned["rope_deploy"]["pad"]) == JOY_BUTTON_X and not cleaned.has("made_up"),
+		"a file with nonsense in it keeps the defaults for what it cannot read")
+	var keys_used := {}
+	var doubled := false
+	for action in cleaned:
+		var code := int(cleaned[action]["key"])
+		if code != KEY_NONE and keys_used.has(code):
+			doubled = true
+		keys_used[code] = true
+	_expect(not doubled and int(cleaned["probe"]["key"]) == KEY_V, "and never leaves one key doing two things (the snow pit gave V up: %s)" % str(cleaned["snow_pit"]))
+	if FileAccess.file_exists(TEST_SETTINGS):
+		DirAccess.remove_absolute(TEST_SETTINGS)
+	settings.persist = false
+	settings.reset_bindings()
+	controls.apply(settings.get_bindings())
+
+	# --- the device in the player's hands decides what things are called -------
+	var devices: Array = []
+	var on_device := func(now: int) -> void: devices.append(now)
+	settings.device_changed.connect(on_device)
+	settings._input(_pad_button(JOY_BUTTON_A))
+	_expect(settings.device == gamepad and devices == [gamepad], "pressing a gamepad button makes the gamepad the device in hand")
+	var pad_text: String = controls.fill("{slide_initiate} arrest, {move} move, {look} look, {lean} lean, {pause} pause, {move_back} brake")
+	_expect(pad_text == "A arrest, Left stick move, Right stick look, LB/RB lean, Start pause, Stick down brake", "text names the gamepad's controls (%s)" % pad_text)
+	settings._input(_stick(JOY_AXIS_LEFT_X, 0.1))
+	settings._input(_key(KEY_W))
+	_expect(settings.device == keyboard and devices == [gamepad, keyboard], "a key takes it back (a resting stick's wobble does not count)")
+	var key_text: String = controls.fill("{slide_initiate} arrest, {move} move, {look} look, {lean} lean, {pause} pause, {nothing} stays")
+	_expect(key_text == "Space arrest, WASD move, Mouse look, Q/E lean, Esc pause, {nothing} stays", "and the keyboard's (%s)" % key_text)
+	_expect(controls.pad_label(JOY_BUTTON_A, controls.pad_style_of("Sony DualSense Wireless Controller")) == "Cross"
+		and controls.pad_label(JOY_BUTTON_LEFT_SHOULDER, controls.pad_style_of("Xbox Series Controller")) == "LB", "a PlayStation pad's buttons are called by their own names")
+	settings.device_changed.disconnect(on_device)
+
+	# --- the Controls page ------------------------------------------------------
+	var menu: Node = _main.get("main_menu")
+	(menu.get("settings_button") as Button).pressed.emit()
+	await _wait(3)
+	var screen: Control = _main.get("settings_screen")
+	var tabs: TabContainer = screen.get("tabs")
+	tabs.current_tab = 2
+	var key_button: Button = screen.find_child("crampons_toggle_key", true, false)
+	var pad_button: Button = screen.find_child("crampons_toggle_pad", true, false)
+	_expect(key_button != null and pad_button != null and key_button.text == "F" and pad_button.text == "B",
+		"the Controls page shows each action's key and button (%s, %s)" % [key_button.text if key_button != null else "", pad_button.text if pad_button != null else ""])
+	if key_button != null and pad_button != null:
+		var note: Label = screen.find_child("BindingNote", true, false)
+		key_button.pressed.emit()
+		_expect(key_button.text.begins_with("Press a key") and note.text.contains("Esc cancels"), "pressing one waits for a key (%s)" % key_button.text)
+		screen._input(_key(KEY_ESCAPE))
+		_expect(key_button.text == "F" and _answers("crampons_toggle", keyboard, KEY_F) and screen.visible, "Esc calls it off, and does not close the screen")
+		key_button.pressed.emit()
+		screen._input(_key(KEY_T))
+		var skis_button: Button = screen.find_child("skis_toggle_key", true, false)
+		_expect(key_button.text == "T" and skis_button.text == "F" and _answers("crampons_toggle", keyboard, KEY_T) and _answers("skis_toggle", keyboard, KEY_F),
+			"the next key pressed is it, and the action that had it takes the old one (%s)" % note.text)
+		pad_button.pressed.emit()
+		screen._input(_key(KEY_K))
+		_expect(pad_button.text == "B", "a key does not answer a wait for a gamepad button")
+		pad_button.pressed.emit()
+		screen._input(_pad_button(JOY_BUTTON_RIGHT_STICK))
+		_expect(pad_button.text == "R3" and _answers("crampons_toggle", gamepad, JOY_BUTTON_RIGHT_STICK), "a gamepad button is bound the same way (%s)" % pad_button.text)
+		var reset: Button = screen.get("reset_button")
+		_expect(not reset.disabled and reset.text.contains("controls"), "the page can be put back (%s)" % reset.text)
+		reset.pressed.emit()
+		await _wait(2)
+		_expect(key_button.text == "F" and pad_button.text == "B" and settings.bindings_are_default() and reset.disabled, "and Reset puts every control back")
+		var before_tab := tabs.current_tab
+		screen._input(_pad_button(JOY_BUTTON_LEFT_SHOULDER))
+		_expect(tabs.current_tab == before_tab - 1, "LB turns to the page before")
+		tabs.current_tab = before_tab
+	(screen.get("back_button") as Button).pressed.emit()
+	await _wait(3)
+
+	# --- the menus without a mouse ----------------------------------------------
+	var focused: Control = root.gui_get_focus_owner()
+	_expect(focused == menu.get("settings_button"), "back from the settings, the focus is where it was (%s)" % (focused.name if focused != null else "nothing"))
+	(menu.get("new_descent_button") as Button).grab_focus()
+	_send(_pad_button(JOY_BUTTON_A))
+	_send(_pad_button(JOY_BUTTON_A, false))
+	await _wait(5)
+	var states: Dictionary = _enums.GameState
+	_expect(int(_state_manager.current_state) == int(states["MOUNTAIN_SELECT"]), "A on the focused button starts a new descent (state %d)" % int(_state_manager.current_state))
+	focused = root.gui_get_focus_owner()
+	var select_screen: Control = _main.get("mountain_select_screen")
+	_expect(focused != null and select_screen != null and select_screen.is_ancestor_of(focused) and focused is PanelContainer,
+		"the mountains can be reached without a mouse: a card has the focus (%s)" % (focused.get_class() if focused != null else "nothing"))
+	var chosen: Array = []
+	var on_chosen := func(id: String) -> void: chosen.append(id)
+	select_screen.mountain_selected.connect(on_chosen)
+	_send(_pad_button(JOY_BUTTON_A))
+	_send(_pad_button(JOY_BUTTON_A, false))
+	await _wait(2)
+	_expect(chosen.size() == 1, "and A chooses it (%s)" % str(chosen))
+	select_screen.mountain_selected.disconnect(on_chosen)
+	_send(_pad_button(JOY_BUTTON_B))
+	_send(_pad_button(JOY_BUTTON_B, false))
+	await _wait(5)
+	_expect(int(_state_manager.current_state) == int(states["MAIN_MENU"]), "B goes back to the main menu (state %d)" % int(_state_manager.current_state))
+	if int(_state_manager.current_state) != int(states["MAIN_MENU"]):
+		_state_manager.transition_to(int(states["MAIN_MENU"]))
+		await _wait(5)
+	settings._input(_key(KEY_W))
+	settings.bindings_changed.disconnect(on_changed)
+	settings.settings_path = was_path
+	settings.persist = was_persist
 
 
 # =============================================================================
@@ -665,6 +884,110 @@ func _steady_the_mountain() -> void:
 	var avalanches: Object = _locator.get_service("AvalancheSystem")
 	if is_instance_valid(avalanches):
 		avalanches.active = false
+
+
+# =============================================================================
+# A GAMEPAD ON THE MOUNTAIN
+# =============================================================================
+
+func _test_gamepad_on_the_mountain() -> void:
+	var states: Dictionary = _enums.GameState
+	var settings: Object = _locator.get_service("GameSettings")
+	var player: Node3D = _locator.get_service("PlayerController") as Node3D
+	var hud: Node = _main.get("descent_hud")
+	if settings == null or player == null or hud == null:
+		_expect(false, "the descent is there for the gamepad checks")
+		return
+
+	# Start pauses and Start again goes on
+	_send(_pad_button(JOY_BUTTON_START))
+	_send(_pad_button(JOY_BUTTON_START, false))
+	await _wait(5)
+	_expect(int(_state_manager.current_state) == int(states["PAUSED"]), "Start pauses the descent")
+	var resume: Button = (_main.get("pause_menu") as Node).get("resume_button")
+	_expect(resume != null and root.gui_get_focus_owner() == resume, "the pause menu comes up with Resume in focus")
+	_send(_pad_button(JOY_BUTTON_START))
+	_send(_pad_button(JOY_BUTTON_START, false))
+	await _wait(5)
+	_expect(int(_state_manager.current_state) == int(states["DESCENT"]), "and Start again goes on with it")
+
+	# The left stick: how far it is pushed is how hard the climber walks
+	Input.action_press("move_forward", 0.5)
+	await _seconds(0.3)
+	var half: float = player.input_handler.raw_move_input.length()
+	var from_half: Vector3 = player.global_position
+	await _seconds(2.0)
+	var half_way: float = from_half.distance_to(player.global_position)
+	Input.action_release("move_forward")
+	await _seconds(0.5)
+	Input.action_press("move_forward", 1.0)
+	await _seconds(0.3)
+	var full: float = player.input_handler.raw_move_input.length()
+	var from_full: Vector3 = player.global_position
+	await _seconds(2.0)
+	var full_way: float = from_full.distance_to(player.global_position)
+	Input.action_release("move_forward")
+	await _seconds(0.5)
+	_expect(half > 0.2 and half < 0.6 and full > 0.95, "a stick half pushed is half an input, pushed home a whole one (%.2f, %.2f)" % [half, full])
+	_expect(half_way > 0.2 and full_way > half_way * 1.2, "and the climber walks slower for it (%.1f m against %.1f m in two seconds)" % [half_way, full_way])
+
+	# The right stick turns the view, at the speed the player set
+	var camera: Node = player.camera_pivot
+	settings.set_value("stick_sensitivity", 1.0)
+	var yaw_before: float = camera.yaw
+	Input.action_press("look_right", 1.0)
+	await _seconds(0.5)
+	Input.action_release("look_right")
+	var turned: float = yaw_before - camera.yaw
+	_expect(turned > 0.8 and turned < 1.8, "the right stick turns the view (%.2f rad in half a second)" % turned)
+	settings.set_value("stick_sensitivity", 0.5)
+	yaw_before = camera.yaw
+	Input.action_press("look_right", 1.0)
+	await _seconds(0.5)
+	Input.action_release("look_right")
+	var turned_slow: float = yaw_before - camera.yaw
+	_expect(turned_slow > turned * 0.35 and turned_slow < turned * 0.65, "half the stick speed turns it half as fast (%.2f rad)" % turned_slow)
+	settings.set_value("stick_sensitivity", 1.0)
+	var pitch_before: float = camera.pitch
+	Input.action_press("look_down", 1.0)
+	await _seconds(0.2)
+	Input.action_release("look_down")
+	var pitched: float = camera.pitch - pitch_before
+	settings.set_value("invert_y", true)
+	pitch_before = camera.pitch
+	Input.action_press("look_down", 1.0)
+	await _seconds(0.2)
+	Input.action_release("look_down")
+	var pitched_inverted: float = camera.pitch - pitch_before
+	settings.set_value("invert_y", false)
+	_expect(absf(pitched) > 0.05 and signf(pitched) != signf(pitched_inverted), "invert Y turns the stick's up and down round too (%.2f, %.2f)" % [pitched, pitched_inverted])
+
+	# The hints say what is in the player's hands
+	var hints: Label = hud.find_child("Hints", true, false)
+	settings._input(_pad_button(JOY_BUTTON_A))
+	await _wait(2)
+	# (a line too long for the screen is wrapped between hints, with no-break
+	# spaces inside each)
+	var pad_hints: String = hints.text.replace("\u00a0", " ") if hints != null else ""
+	_expect(pad_hints.contains("Left stick move") and pad_hints.contains("Start pause") and pad_hints.contains("A glissade"),
+		"with the gamepad in hand the hints name its controls (%s...)" % pad_hints.substr(0, 60))
+	_expect(hints != null and hints.autowrap_mode != TextServer.AUTOWRAP_OFF and hints.custom_minimum_size.x <= 1920.0,
+		"and the longer line wraps instead of running off the screen")
+	settings._input(_key(KEY_W))
+	await _wait(2)
+	var key_hints: String = hints.text.replace("\u00a0", " ") if hints != null else ""
+	_expect(key_hints.contains("WASD move") and key_hints.contains("Esc pause") and key_hints.contains("Space glissade"),
+		"and with the keyboard, the keys (%s...)" % key_hints.substr(0, 60))
+	settings.set_binding("slide_initiate", 0, KEY_J)
+	await _wait(2)
+	_expect(hints != null and hints.text.replace("\u00a0", " ").contains("J glissade"), "a key that was rebound is called by its new name at once")
+	settings.reset_bindings()
+	var shown_before: bool = hud.are_hints_visible()
+	_send(_pad_button(JOY_BUTTON_LEFT_STICK))
+	_send(_pad_button(JOY_BUTTON_LEFT_STICK, false))
+	await _wait(2)
+	_expect(hud.are_hints_visible() != shown_before, "pressing the left stick in shows or hides the hints")
+	settings._input(_key(KEY_W))
 
 
 # =============================================================================

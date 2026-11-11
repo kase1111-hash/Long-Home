@@ -520,7 +520,10 @@ func _input(event: InputEvent) -> void:
 	if not visible:
 		return
 
-	if event.is_action_pressed("ui_cancel"):
+	# Cancel (Esc, or B on a gamepad) and the pause control itself (Esc, or
+	# Start) both go back to the descent. (The game's own pause handling is
+	# asleep while the tree is paused, so the menu listens for it.)
+	if event.is_action_pressed("ui_cancel") or event.is_action_pressed("pause"):
 		if confirm_dialog.visible:
 			_hide_confirm_dialog()
 		else:
