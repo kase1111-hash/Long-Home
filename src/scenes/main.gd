@@ -493,6 +493,26 @@ func _on_save_and_quit() -> void:
 	GameStateManager.transition_to(GameEnums.GameState.MAIN_MENU)
 
 
+## The window is being closed with a descent on: keep it, if it can be kept.
+## Never in place of a run already set aside (nobody was asked), and never
+## where Save and Quit would be refused. Returns whether the run was written.
+func save_run_on_close() -> bool:
+	if not GameStateManager.is_run_active() or not get_suspend_block_reason().is_empty():
+		return false
+	var saves := ServiceLocator.get_service("SaveManager") as SaveManager
+	if saves == null or saves.has_suspended_run():
+		return false
+	var written := saves.save_suspended_run(_capture_suspended_run())
+	if written:
+		print("[Main] Window closed on a descent: run saved for Continue")
+	return written
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		save_run_on_close()
+
+
 ## Main menu > Continue: load the run that was set aside and carry on with it
 func _on_continue_pressed() -> void:
 	# Only from the menu, and only once (a second press finds a descent under way)

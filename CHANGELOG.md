@@ -30,7 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   weather and the rest of its day, the body, the pack, what is on the feet, where the climber
   stood and the day's record so far. One run at a time; continuing uses the save up. Saving is
   refused on the rope, in a slide, in moving snow, in a crevasse and during a gear change, and
-  the menu says why. Not kept: snow that slid and bridges that broke before the save.
+  the menu says why. Closing the game window on a descent keeps it too, unless another run is
+  already set aside. Not kept: snow that slid and bridges that broke before the save.
 - **The drone on screen.** `B` looks through the film crew's drone and back. A fatal event is
   watched through it, in one take, from a distance, with the HUD gone.
 - **A run timer, if you want one.** Settings > Display > Run timer (off by default) puts the
@@ -39,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `GameSettings` service, `SettingsScreen`, `RunMoments`, `EventBus.run_suspended`,
   `GameStateManager.suspend_run` / `resume_run`, `to_save()` / `from_save()` on `RunContext`,
   `BodyState`, `GearState` and `StartConditions`.
-- `tests/test_front_end.gd` (191 checks) and `tests/test_continue.gd` (two launches: save, then
+- `tests/test_front_end.gd` (195 checks) and `tests/test_continue.gd` (two launches: save, then
   continue; also with `--full-route`); the rendered `tests/ui_tour.gd` walks the new screens.
 
 ### Changed (around the descent)

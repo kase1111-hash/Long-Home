@@ -24,7 +24,7 @@ extends SceneTree
 ##     Continue puts back the mountain, the clock, the weather and its day,
 ##     the body, the pack, what is on the feet, where the climber stood and
 ##     the day's record so far, and the save is used up; a file this version
-##     cannot read is refused
+##     cannot read is refused; closing the window on a descent keeps it
 ##   - the run timer: off unless asked for; it shows the run's own clock (so a
 ##     run set aside and picked up again is timed in one piece) on the HUD and
 ##     the resolution screen; only a route brought home can be a best, kept
@@ -713,6 +713,22 @@ func _test_save_and_continue() -> bool:
 	player.current_state = int(movement["SLIDING"])
 	_expect(_main.get_suspend_block_reason() != "", "not in a slide")
 	player.current_state = was_state
+
+	# --- closing the window on a descent keeps it, if nobody else's is there ----
+	_main.notification(Node.NOTIFICATION_WM_CLOSE_REQUEST)
+	_expect(saves.has_suspended_run() and int(_state_manager.current_state) == int(states["DESCENT"]),
+		"closing the window on a descent writes it for Continue")
+	var kept: Dictionary = saves.load_suspended_run()
+	_expect(str((kept.get("run", {}) as Dictionary).get("run_id", "")) == run.run_id, "and it is this run")
+	var other_run: Dictionary = run.to_save()
+	other_run["run_id"] = "a_run_set_aside_earlier"
+	saves.save_suspended_run({"run": other_run})
+	_expect(not _main.save_run_on_close() and str((saves.load_suspended_run()["run"] as Dictionary).get("run_id", "")) == "a_run_set_aside_earlier",
+		"but never in place of a run already set aside")
+	saves.clear_suspended_run()
+	player.gear_action = &"crampons"
+	_expect(not _main.save_run_on_close() and not saves.has_suspended_run(), "and not where Save and Quit would be refused")
+	player.gear_action = &""
 
 	# --- what is about to be saved --------------------------------------------
 	_state_manager.toggle_pause()

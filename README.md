@@ -286,8 +286,9 @@ back where you stood: the mountain, the clock, the weather and the rest of its d
 and pack, what is on your feet and the day's record so far. There is one place for a run set
 aside (saving another replaces it), and continuing uses it up, so a bad turn cannot be undone
 by loading. You can save standing and in control, not on the rope, in a slide, in moving snow
-or in a crevasse. Snow that slid and bridges that broke before you saved are back as they were
-that morning.
+or in a crevasse. Closing the game window on a descent keeps it the same way, unless another
+run is already set aside or it is a moment when saving is refused. Snow that slid and bridges
+that broke before you saved are back as they were that morning.
 
 ### How the mountain behaves
 

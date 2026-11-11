@@ -257,7 +257,8 @@ in the 3D world; `tests/smoke_full_route.gd` asserts there is no `Label3D` on th
   the run's `resume_world` meta; the file is deleted once the descent is built. A system that
   keeps per-run state of its own and should survive a save needs a `to_save()` too; today the
   avalanche debris, opened crevasses and anything else that changed the terrain do not.
-  `Main.get_suspend_block_reason()` decides when saving is allowed.
+  `Main.get_suspend_block_reason()` decides when saving is allowed. Closing the window on a
+  descent saves it the same way (`Main.save_run_on_close`), never over a run already set aside.
 - **Settings.** `GameSettings` (service) owns values, ranges and the file; it applies sound
   levels and the display itself, and the climber's camera follows its `changed` signal. Tests
   set `persist = false` so they never write to the settings of whoever runs them.
