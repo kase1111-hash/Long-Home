@@ -156,9 +156,9 @@ func _connect_event_bus() -> void:
 	EventBus.fatigue_threshold_crossed.connect(_on_fatigue_threshold_crossed)
 	EventBus.micro_slip_occurred.connect(_on_micro_slip)
 
-	# Terrain changes affect footstep sounds
-	EventBus.surface_changed.connect(_on_surface_changed)
-	EventBus.terrain_zone_changed.connect(_on_terrain_zone_changed)
+	# The ground under the climber (its surface and how steep it is) is read
+	# by the managers themselves: EventBus.surface_changed and
+	# terrain_zone_changed exist but nothing sends them
 
 	# Sliding has specific audio
 	EventBus.slide_started.connect(_on_slide_started)
@@ -656,17 +656,6 @@ func _on_fatigue_threshold_crossed(fatigue: float, threshold_name: String) -> vo
 func _on_micro_slip(severity: float, _position: Vector3) -> void:
 	if player_audio:
 		player_audio.play_micro_slip(severity)
-
-
-func _on_surface_changed(old_surface: GameEnums.SurfaceType, new_surface: GameEnums.SurfaceType) -> void:
-	if player_audio:
-		player_audio.set_surface_type(new_surface)
-
-
-func _on_terrain_zone_changed(old_zone: GameEnums.TerrainZone, new_zone: GameEnums.TerrainZone) -> void:
-	# Terrain zone affects ambient audio (exposure, echo)
-	if ambient_manager:
-		ambient_manager.set_terrain_zone(new_zone)
 
 
 # =============================================================================

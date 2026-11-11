@@ -90,6 +90,7 @@ func _run() -> void:
 		return
 	await _test_descent_ambience()
 	await _test_wind_and_weather()
+	await _test_exposed_ground()
 	await _test_footsteps_in_crampons()
 	await _test_pause()
 	await _test_crampons_off()
@@ -341,6 +342,52 @@ func _test_wind_and_weather() -> void:
 		ambient.get_wind_gain(), gale_wind])
 	_expect(calm_howl < 0.02 and ambient.get_layer_gain("spindrift") < 0.02, "and neither howls nor lifts the snow")
 	_event_bus.wind_changed.emit(int(winds["MODERATE"]), Vector3.RIGHT)
+
+
+## Steep ground sounds exposed: the wind's thin high layer comes up and, in a
+## gale, it whistles. The climber is not moved onto a face for this (no place
+## to stand in a test): the cell under them is swapped for a steep one.
+func _test_exposed_ground() -> void:
+	var ambient: Object = _locator.get_service("AmbientAudioManager")
+	var player: Node3D = _locator.get_service("PlayerController") as Node3D
+	var terrain: Object = _locator.get_service("TerrainService")
+	var ambient_script: GDScript = load("res://src/systems/audio/ambient_audio_manager.gd") as GDScript
+	var zones: Dictionary = _enums.TerrainZone
+	var zone_names: Array = zones.keys()
+	_expect(not ambient_script.is_exposed_zone(int(zones["WALKABLE"]))
+		and not ambient_script.is_exposed_zone(int(zones["SLIDEABLE"]))
+		and ambient_script.is_exposed_zone(int(zones["DOWNCLIMB"]))
+		and ambient_script.is_exposed_zone(int(zones["RAPPEL_REQUIRED"]))
+		and ambient_script.is_exposed_zone(int(zones["CLIFF"])),
+		"ground to climb or rope down counts as exposed; ground to walk or slide on does not")
+
+	await _seconds(0.6)
+	_expect(int(ambient.current_terrain_zone) == int(player.current_cell.terrain_zone),
+		"the wind knows what the climber is standing on (%s)" % zone_names[ambient.current_terrain_zone])
+	var open_ground: float = ambient.get_exposure()
+	_expect(open_ground < 0.5, "on the summit's easy ground it is not exposed (%.2f)" % open_ground)
+
+	var steep: Array = terrain.find_cells(player.global_position, SEARCH_RADIUS,
+		func(cell: Object) -> bool: return int(cell.terrain_zone) == int(zones["DOWNCLIMB"]))
+	_expect(not steep.is_empty(), "the mountain has ground to downclimb (%d cells)" % steep.size())
+	if steep.is_empty():
+		return
+	var winds: Dictionary = _enums.WindStrength
+	var here: Object = player.current_cell
+	_event_bus.wind_changed.emit(int(winds["GALE"]), Vector3.RIGHT)
+	player.set_physics_process(false)
+	player.current_cell = steep[0]
+	await _seconds(7.0)
+	var on_a_face: float = ambient.get_exposure()
+	var whistle: float = ambient.get_layer_gain("whistle")
+	player.current_cell = here
+	player.set_physics_process(true)
+	_event_bus.wind_changed.emit(int(winds["MODERATE"]), Vector3.RIGHT)
+	_expect(on_a_face > 0.85, "on a face it is (%.2f)" % on_a_face)
+	_expect(whistle > 0.06, "and a gale whistles across it (gain %.2f)" % whistle)
+	await _seconds(0.7)
+	_expect(int(ambient.current_terrain_zone) == int(player.current_cell.terrain_zone),
+		"and it follows the climber back onto easy ground (%s)" % zone_names[ambient.current_terrain_zone])
 
 
 func _test_footsteps_in_crampons() -> void:

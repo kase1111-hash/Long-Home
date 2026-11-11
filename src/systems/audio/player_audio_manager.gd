@@ -566,11 +566,6 @@ func set_movement_state(state: GameEnums.PlayerMovementState) -> void:
 		startle(1.0)
 
 
-## Set surface type
-func set_surface_type(surface: GameEnums.SurfaceType) -> void:
-	current_surface = surface
-
-
 ## Set fatigue level (0-1)
 func set_fatigue_level(fatigue: float) -> void:
 	fatigue_level = clampf(fatigue, 0.0, 1.0)

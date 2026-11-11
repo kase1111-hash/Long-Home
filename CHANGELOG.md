@@ -39,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Menus.** Every button clicks without its screen asking: `UIAudioManager` wires any button
   that enters the scene tree, and the planning tabs turn like pages. The map unfolds and folds,
   and rustles while it is open; a compass in the pack is flipped open with it.
-- `tests/test_audio.gd` (139 checks) and `tests/test_audio_assets.py` (18 checks).
+- `tests/test_audio.gd` (146 checks) and `tests/test_audio_assets.py` (18 checks).
 
 ### Changed
 
@@ -63,6 +63,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Footsteps played twice, from two systems with different rhythms, and the one in step with the
   animation always played the same blip whatever the surface.
 - After any pause the wind stayed at its quietest until the weather next changed.
+- The wind never changed on exposed ground: the audio waited to be told the terrain zone by a
+  signal nothing sends (`EventBus.terrain_zone_changed`). It now reads the ground under the
+  climber, so a face to downclimb or rappel brings up the thin high wind and, in a gale, the
+  whistle.
 - Rope, self-arrest and menu sounds never played: they listened for signals that do not exist.
 - The map made its unfold sound twice.
 
