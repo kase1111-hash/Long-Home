@@ -2,6 +2,97 @@ class_name StartConditions
 extends Resource
 ## Represents all pre-determined conditions at the start of a descent
 ## These are the player's choices that determine difficulty
+##
+## The player makes two of them at the hut (planning screen): how the climb
+## went (CLIMBS) and which weather window to go in (WEATHER_WINDOWS). Neither
+## is a difficulty setting: a climb trades daylight against tired legs, and a
+## harder weather window counts for more in the logbook (RouteScorer).
+##   var conditions := StartConditions.create_for_day("fast", "front")
+
+# =============================================================================
+# THE DAY
+# =============================================================================
+
+## How the climb went: when you stand on top, and in what shape. Every hour
+## saved on the way up is paid for in the legs.
+##   time_of_day: hour on the summit; fatigue, hydration: 0-1 (BodyState)
+const CLIMBS: Array[Dictionary] = [
+	{
+		"id": "fast",
+		"name": "Pushed hard",
+		"summary": "Legs heavy and water low, with the whole day ahead.",
+		"time_of_day": 10.0,
+		"fatigue": 0.45,
+		"hydration": 0.55,
+	},
+	{
+		"id": "steady",
+		"name": "Steady",
+		"summary": "Some of the climb in your legs, half the day left.",
+		"time_of_day": 12.0,
+		"fatigue": 0.3,
+		"hydration": 0.7,
+	},
+	{
+		"id": "slow",
+		"name": "Slow, with rests",
+		"summary": "Fresh and watered, and the afternoon already going.",
+		"time_of_day": 14.5,
+		"fatigue": 0.15,
+		"hydration": 0.85,
+	},
+]
+
+## The weather window to go in: what the sky is doing on the summit and how
+## likely it is to hold (WeatherService plays the rest of the day out from it).
+##   stability: 0-1, the chance each stretch of weather holds
+##   score: what a route finished in this window counts for (RouteScorer)
+const WEATHER_WINDOWS: Array[Dictionary] = [
+	{
+		"id": "settled",
+		"name": "Settled",
+		"summary": "Clear, light wind. Likely to hold all day.",
+		"weather": GameEnums.WeatherState.CLEAR,
+		"wind": GameEnums.WindStrength.LIGHT,
+		"stability": 0.9,
+		"score": 1.0,
+	},
+	{
+		"id": "changeable",
+		"name": "Changeable",
+		"summary": "Broken cloud, a moderate wind. It may thicken through the afternoon.",
+		"weather": GameEnums.WeatherState.PARTLY_CLOUDY,
+		"wind": GameEnums.WindStrength.MODERATE,
+		"stability": 0.6,
+		"score": 1.05,
+	},
+	{
+		"id": "front",
+		"name": "Front coming in",
+		"summary": "Cloud building, the wind rising. Snow and poor visibility are hours away, not days.",
+		"weather": GameEnums.WeatherState.CLOUDY,
+		"wind": GameEnums.WindStrength.MODERATE,
+		"stability": 0.3,
+		"score": 1.15,
+	},
+	{
+		"id": "storm",
+		"name": "Storm day",
+		"summary": "Snowing already, in a strong wind. It may close in to a whiteout.",
+		"weather": GameEnums.WeatherState.DETERIORATING,
+		"wind": GameEnums.WindStrength.STRONG,
+		"stability": 0.12,
+		"score": 1.3,
+	},
+]
+
+const DEFAULT_CLIMB := "steady"
+const DEFAULT_WEATHER := "changeable"
+
+## The climb and weather window chosen for this day ("": conditions built by
+## hand, as tests and tools do)
+@export var climb_id: String = ""
+@export var weather_id: String = ""
 
 # =============================================================================
 # TIME CONDITIONS
@@ -82,6 +173,64 @@ func _init() -> void:
 		gear_state = GearState.create_standard_loadout()
 
 
+## The day a player chose at the hut: a climb (CLIMBS) and a weather window
+## (WEATHER_WINDOWS), by id. Unknown ids give the defaults.
+static func create_for_day(climb: String = DEFAULT_CLIMB, window: String = DEFAULT_WEATHER) -> StartConditions:
+	var conditions := StartConditions.new()
+	conditions.apply_climb(climb)
+	conditions.apply_weather_window(window)
+	return conditions
+
+
+## A climb by id (the default climb for an unknown id)
+static func climb_option(id: String) -> Dictionary:
+	return _option(CLIMBS, id, DEFAULT_CLIMB)
+
+
+## A weather window by id (the default window for an unknown id)
+static func weather_option(id: String) -> Dictionary:
+	return _option(WEATHER_WINDOWS, id, DEFAULT_WEATHER)
+
+
+static func _option(options: Array[Dictionary], id: String, fallback: String) -> Dictionary:
+	var chosen: Dictionary = {}
+	for option in options:
+		if option["id"] == id:
+			return option
+		if option["id"] == fallback:
+			chosen = option
+	return chosen
+
+
+## Arrive on the summit the way this climb went: the hour, the daylight left
+## and the state of the body
+func apply_climb(id: String) -> void:
+	var option := climb_option(id)
+	climb_id = option["id"]
+	time_of_day = option["time_of_day"]
+	daylight_remaining = maxf(0.0, calculate_sunset() - time_of_day)
+	if body_state != null:
+		body_state.fatigue = option["fatigue"]
+		body_state.hydration = option["hydration"]
+
+
+## Go in this weather window: the sky and wind at the start, and how settled
+func apply_weather_window(id: String) -> void:
+	var option := weather_option(id)
+	weather_id = option["id"]
+	weather = option["weather"]
+	wind_strength = option["wind"]
+	weather_stability = option["stability"]
+
+
+## What a route finished on this day counts for in the logbook (1 = a
+## settled day; conditions built by hand count as that)
+func get_weather_score_factor() -> float:
+	if weather_id.is_empty():
+		return 1.0
+	return float(weather_option(weather_id)["score"])
+
+
 ## Create default/easy conditions
 static func create_easy() -> StartConditions:
 	var conditions := StartConditions.new()
@@ -137,6 +286,8 @@ static func create_moderate() -> StartConditions:
 func apply_route_mode(mode: GameEnums.RouteMode) -> void:
 	route_mode = mode
 	if mode == GameEnums.RouteMode.FULL_ROUTE:
+		# The climb is still to do: how it goes is up to the player now
+		climb_id = ""
 		time_of_day = 5.0
 		daylight_remaining = 13.0
 		if body_state != null:
@@ -329,6 +480,8 @@ func duplicate_conditions() -> StartConditions:
 	copy.mountain_id = mountain_id
 	copy.knowledge_level = knowledge_level
 	copy.route_mode = route_mode
+	copy.climb_id = climb_id
+	copy.weather_id = weather_id
 	copy.known_routes = known_routes.duplicate()
 	copy.known_hazards = known_hazards.duplicate()
 	copy.body_state = body_state.duplicate_state()

@@ -535,8 +535,9 @@ func _on_planning_complete(route: PackedVector3Array) -> void:
 	else:
 		loadout = GearState.create_standard_loadout()
 
-	# Create start conditions
-	var conditions := StartConditions.create_moderate()
+	# The day chosen at the hut: how the climb went and the weather window
+	var conditions := StartConditions.create_for_day(planning_screen.climb_id, planning_screen.weather_id) \
+		if planning_screen != null else StartConditions.create_for_day()
 	conditions.gear_state = loadout
 	conditions.mountain_id = mountain.id
 	conditions.knowledge_level = mountain_db.get_knowledge_level(mountain.id)
@@ -658,10 +659,9 @@ func _setup_environment(run: RunContext) -> void:
 	weather_service = ServiceLocator.get_service("WeatherService") as WeatherService
 
 	# Seed the run's environment from the start conditions
-	var config := EnvironmentService.EnvironmentConfig.new()
-	config.start_hour = run.start_conditions.time_of_day
-	config.difficulty = run.start_conditions.get_difficulty_score()
-	config.start_weather = run.start_conditions.weather
+	var mountain_db := ServiceLocator.get_service("MountainDatabase") as MountainDatabase
+	var mountain: MountainDatabase.MountainData = mountain_db.get_mountain(run.mountain_id) if mountain_db != null else null
+	var config := EnvironmentService.EnvironmentConfig.from_conditions(run.start_conditions, mountain)
 	config.start_elevation = _get_start_position().y
 	environment_service.initialize_run(config)
 

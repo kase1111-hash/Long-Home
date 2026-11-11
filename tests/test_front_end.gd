@@ -14,6 +14,11 @@ extends SceneTree
 ##     a bad settings file cannot put the game in a bad state, they survive a
 ##     restart, and the settings screen's controls read and write them
 ##
+##   - the day chosen at the hut: the climbs and weather windows are trades
+##     (no option is simply better), the planning screen's pickers set the
+##     day, the run starts at that hour, in that shape and in that weather,
+##     and the day's weather moves on from it a step at a time, worse on a
+##     less settled day and on a mountain whose weather turns fast
 ##   - the film crew's drone: it takes off beside the climber and stays with
 ##     them (walking, moved far away, in a storm), B switches the screen to
 ##     its camera and back, and a fatal sequence is watched through it, in
@@ -59,7 +64,8 @@ func _run() -> void:
 	await _wait(5)
 	await _test_lifetime_record()
 	await _test_settings()
-	if not await _start_descent():
+	_test_day_options()
+	if not await _plan_the_day_and_start():
 		_finish("could not start a descent")
 		return
 	await _test_drone()
@@ -325,8 +331,89 @@ func _test_settings() -> void:
 # ON THE MOUNTAIN
 # =============================================================================
 
-func _start_descent() -> bool:
+## The day's choices as data: each climb and weather window is a trade, and
+## the conditions built from them say what the tables say
+func _test_day_options() -> void:
+	var conditions_script: GDScript = load("res://src/core/data/start_conditions.gd") as GDScript
+	var climbs: Array = conditions_script.CLIMBS
+	var windows: Array = conditions_script.WEATHER_WINDOWS
+	_expect(climbs.size() >= 3 and windows.size() >= 3, "there are climbs and weather windows to choose from (%d, %d)" % [climbs.size(), windows.size()])
+
+	# No climb is simply better: the earlier on top, the more it cost
+	var climbs_trade := true
+	for i in range(1, climbs.size()):
+		var earlier: Dictionary = climbs[i - 1]
+		var later: Dictionary = climbs[i]
+		if not (float(earlier["time_of_day"]) < float(later["time_of_day"]) \
+				and float(earlier["fatigue"]) > float(later["fatigue"]) \
+				and float(earlier["hydration"]) < float(later["hydration"])):
+			climbs_trade = false
+	_expect(climbs_trade, "every hour saved on the climb is paid for in fatigue and water")
+
+	# A harder window is less settled and counts for more
+	var windows_trade := true
+	for i in range(1, windows.size()):
+		var easier: Dictionary = windows[i - 1]
+		var harder: Dictionary = windows[i]
+		if not (float(easier["stability"]) > float(harder["stability"]) and float(easier["score"]) < float(harder["score"])):
+			windows_trade = false
+	_expect(windows_trade, "a less settled weather window counts for more in the logbook")
+	_expect(is_equal_approx(float(windows[0]["score"]), 1.0), "a settled day is the yardstick (x%.2f)" % float(windows[0]["score"]))
+
+	var day: Object = conditions_script.create_for_day("fast", "front")
+	var fast: Dictionary = conditions_script.climb_option("fast")
+	var front: Dictionary = conditions_script.weather_option("front")
+	_expect(day.climb_id == "fast" and day.weather_id == "front", "a day remembers the climb and the window it was built from")
+	_expect(is_equal_approx(day.time_of_day, float(fast["time_of_day"])) and is_equal_approx(day.body_state.fatigue, float(fast["fatigue"])) \
+		and is_equal_approx(day.body_state.hydration, float(fast["hydration"])), "the climb sets the hour on top and the state of the body")
+	_expect(is_equal_approx(day.daylight_remaining, day.calculate_sunset() - day.time_of_day),
+		"daylight left runs from the hour on top to sunset (%.1f h)" % day.daylight_remaining)
+	_expect(int(day.weather) == int(front["weather"]) and int(day.wind_strength) == int(front["wind"]) \
+		and is_equal_approx(day.weather_stability, float(front["stability"])), "the window sets the sky, the wind and how settled it is")
+	_expect(is_equal_approx(day.get_weather_score_factor(), float(front["score"])), "and what the day counts for (x%.2f)" % day.get_weather_score_factor())
+
+	var unknown: Object = conditions_script.create_for_day("no such climb", "no such window")
+	_expect(unknown.climb_id == conditions_script.DEFAULT_CLIMB and unknown.weather_id == conditions_script.DEFAULT_WEATHER,
+		"an unknown choice falls back to the default day")
+	var copy: Object = day.duplicate_conditions()
+	_expect(copy.climb_id == "fast" and copy.weather_id == "front", "a copy of the conditions keeps the day")
+
+	# A full route has the climb still to do
+	day.apply_route_mode(int(_enums.RouteMode["FULL_ROUTE"]))
+	_expect(day.climb_id == "" and is_equal_approx(day.time_of_day, 5.0) and day.body_state.fatigue < 0.1,
+		"a full route leaves base camp rested at 05:00 whatever climb was picked")
+	_expect(day.weather_id == "front", "and keeps its weather window")
+
+	# Conditions built by hand (tests, tools) are no day in particular
+	var plain: Object = conditions_script.create_moderate()
+	_expect(plain.climb_id == "" and plain.weather_id == "" and is_equal_approx(plain.get_weather_score_factor(), 1.0),
+		"conditions built by hand carry no day and no weather bonus")
+
+
+## The worst weather (rung of WeatherService.WEATHER_LADDER) in the first
+## hours of a generated day, averaged over many days drawn from fixed seeds
+func _mean_worst_weather(weather: Node, option: Dictionary, volatility: float, hours: float = 6.0, days: int = 150) -> float:
+	var total := 0.0
+	for d in range(days):
+		seed(4000 + d)
+		weather.generate_weather_windows(10.0, int(option["weather"]), int(option["wind"]), float(option["stability"]), volatility, 0.5)
+		var worst := 0
+		var at := 0.0
+		while at <= hours:
+			for window in weather.weather_windows:
+				if window.is_active(fposmod(10.0 + at, 24.0)):
+					worst = maxi(worst, int(weather.weather_rung(window.weather)))
+					break
+			at += 0.25
+		total += worst
+	return total / days
+
+
+## Choose the day on the planning screen the way a player does, confirm the
+## plan, and check the mountain is the one that was chosen
+func _plan_the_day_and_start() -> bool:
 	var states: Dictionary = _enums.GameState
+	var conditions_script: GDScript = load("res://src/core/data/start_conditions.gd") as GDScript
 	var mountain_db: Object = _locator.get_service("MountainDatabase")
 	if is_instance_valid(mountain_db):
 		mountain_db.select_mountain(MOUNTAIN)
@@ -335,15 +422,126 @@ func _start_descent() -> bool:
 	_state_manager.transition_to(int(states["LOADOUT_CONFIG"]))
 	await _wait(1)
 	_state_manager.transition_to(int(states["PLANNING"]))
-	await _wait(1)
-	var conditions: Resource = (load("res://src/core/data/start_conditions.gd") as GDScript).create_moderate()
-	conditions.mountain_id = MOUNTAIN
-	_state_manager.start_run(MOUNTAIN, conditions)
-	_state_manager.transition_to(int(states["DESCENT"]))
+	await _wait(10)
+
+	var planning: Control = _main.get("planning_screen")
+	_expect(planning != null and planning.visible, "the planning screen is up")
+	if planning == null:
+		return false
+	var climb_picker: OptionButton = planning.get("climb_picker")
+	var weather_picker: OptionButton = planning.get("weather_picker")
+	_expect(climb_picker != null and weather_picker != null, "the plan has a picker for the climb and one for the weather")
+	if climb_picker == null or weather_picker == null:
+		return false
+	_expect(climb_picker.item_count == conditions_script.CLIMBS.size() and weather_picker.item_count == conditions_script.WEATHER_WINDOWS.size(),
+		"the pickers list every climb and every window (%d, %d)" % [climb_picker.item_count, weather_picker.item_count])
+	_expect(planning.climb_id == conditions_script.DEFAULT_CLIMB and planning.weather_id == conditions_script.DEFAULT_WEATHER,
+		"a first visit starts on the default day (%s, %s)" % [planning.climb_id, planning.weather_id])
+	_expect(not climb_picker.disabled, "a descent chooses how the climb went")
+	var day_label: Label = planning.route_info_panel.get_node_or_null("DayPlanLabel")
+	var steady_plan := day_label.text if day_label != null else ""
+	_expect(steady_plan.contains("Start 12:00"), "the day plan starts at noon after a steady climb (%s)" % steady_plan.replace("\n", " / "))
+
+	# Pick the slow climb and the settled window, as the pickers do it
+	var slow := -1
+	for i in range(conditions_script.CLIMBS.size()):
+		if conditions_script.CLIMBS[i]["id"] == "slow":
+			slow = i
+	var changes: Array = []
+	planning.day_changed.connect(func(climb: String, window: String) -> void: changes.append([climb, window]))
+	climb_picker.select(slow)
+	climb_picker.item_selected.emit(slow)
+	weather_picker.select(0)
+	weather_picker.item_selected.emit(0)
+	await _wait(2)
+	_expect(planning.climb_id == "slow" and planning.weather_id == "settled", "picking changes the day (%s, %s)" % [planning.climb_id, planning.weather_id])
+	_expect(changes.size() == 2 and changes[1] == ["slow", "settled"], "and the screen says so (%s)" % str(changes))
+	var slow_plan := day_label.text if day_label != null else ""
+	_expect(slow_plan.contains("Start 14:30") and slow_plan != steady_plan, "the day plan follows the climb (%s)" % slow_plan.replace("\n", " / "))
+	var climb_note: Label = planning.get("climb_note")
+	var weather_note: Label = planning.get("weather_note")
+	_expect(climb_note != null and climb_note.text.contains("daylight"), "the climb's line says what it leaves of the day (%s)" % (climb_note.text if climb_note != null else ""))
+	_expect(weather_note != null and weather_note.text.contains("Clear") and not weather_note.text.contains("logbook"),
+		"a settled window promises no bonus (%s)" % (weather_note.text if weather_note != null else ""))
+	planning.set_day("slow", "storm")
+	_expect(weather_note != null and weather_note.text.contains("x1.30"), "a storm day says what it counts for (%s)" % (weather_note.text if weather_note != null else ""))
+	_expect(weather_picker.selected == conditions_script.WEATHER_WINDOWS.size() - 1, "the picker follows a day set from code")
+	planning.set_day("slow", "settled")
+
+	# The day survives leaving the screen and coming back
+	_state_manager.transition_to(int(states["LOADOUT_CONFIG"]))
+	await _wait(2)
+	_state_manager.transition_to(int(states["PLANNING"]))
+	await _wait(10)
+	_expect(planning.climb_id == "slow" and planning.weather_id == "settled" and climb_picker.selected == slow,
+		"the chosen day is still there after a look at the pack")
+
+	# Confirm: the run is that day
+	var waited := 0
+	while not planning.route_valid and waited < 600:
+		await process_frame
+		waited += 1
+	_expect(planning.route_valid, "the direct line is a plan that can be confirmed")
+	planning.confirm_button.pressed.emit()
 	await _wait(30)
 	if int(_state_manager.current_state) != int(states["DESCENT"]) \
 			or not is_instance_valid(_locator.get_service("PlayerController")):
 		return false
+	var run: Object = _state_manager.current_run
+	var chosen_climb: Dictionary = conditions_script.climb_option("slow")
+	var chosen_window: Dictionary = conditions_script.weather_option("settled")
+	_expect(run.start_conditions.climb_id == "slow" and run.start_conditions.weather_id == "settled", "the run carries the chosen day")
+	_expect(is_equal_approx(run.start_conditions.time_of_day, float(chosen_climb["time_of_day"])), "it starts at the hour the climb put you on top")
+	_expect(absf(run.body_state.fatigue - float(chosen_climb["fatigue"])) < 0.05 and absf(run.body_state.hydration - float(chosen_climb["hydration"])) < 0.05,
+		"in the shape the climb left you (fatigue %.2f, water %.2f)" % [run.body_state.fatigue, run.body_state.hydration])
+	_expect(run.start_conditions.avalanche != null, "with today's snowpack")
+	var time: Node = _locator.get_service("TimeService") as Node
+	_expect(time != null and absf(time.current_time - float(chosen_climb["time_of_day"])) < 0.2, "the clock on the mountain agrees (%.2f)" % (time.current_time if time != null else -1.0))
+
+	# The mountain's weather is the window that was chosen, not a draw
+	var weather: Node = _locator.get_service("WeatherService") as Node
+	_expect(weather != null, "the weather service is up")
+	if weather != null:
+		_expect(int(weather.current_weather) == int(chosen_window["weather"]) and not weather.is_transitioning,
+			"the descent starts in the weather chosen (%s)" % str(_enums.WeatherState.keys()[weather.current_weather]))
+		_expect(int(weather.current_wind_strength) == int(chosen_window["wind"]), "and in its wind (%s)" % str(_enums.WindStrength.keys()[weather.current_wind_strength]))
+		var windows: Array = weather.weather_windows
+		_expect(windows.size() >= 12 and int(windows[0].weather) == int(chosen_window["weather"]) and int(windows[0].wind_strength) == int(chosen_window["wind"]),
+			"the day's first window is that weather (%d windows)" % windows.size())
+		var steps_ok := true
+		var hours := 0.0
+		for i in range(windows.size()):
+			hours += fposmod(windows[i].end_time - windows[i].start_time, 24.0)
+			if i > 0:
+				if absi(int(weather.weather_rung(windows[i].weather)) - int(weather.weather_rung(windows[i - 1].weather))) > 1:
+					steps_ok = false
+				if absi(int(windows[i].wind_strength) - int(windows[i - 1].wind_strength)) > 1:
+					steps_ok = false
+		_expect(steps_ok, "weather and wind move a step at a time from window to window")
+		_expect(absf(hours - 24.0) < 0.01, "the windows cover the day (%.2f h)" % hours)
+
+		# How settled the day is decides how it goes, and the mountain bends it
+		var means: Array[float] = []
+		for option in conditions_script.WEATHER_WINDOWS:
+			means.append(_mean_worst_weather(weather, option, 0.3))
+		var ordered := true
+		for i in range(1, means.size()):
+			if means[i] <= means[i - 1] + 0.3:
+				ordered = false
+		_expect(ordered, "a less settled window turns out worse (worst weather in six hours, rungs: %s)" % str(means))
+		_expect(means[0] < 1.0, "a settled day mostly stays clear or nearly (%.2f)" % means[0])
+		var calm_mountain := _mean_worst_weather(weather, conditions_script.weather_option("changeable"), 0.1)
+		var wild_mountain := _mean_worst_weather(weather, conditions_script.weather_option("changeable"), 0.9)
+		_expect(wild_mountain > calm_mountain + 0.2, "the same window goes worse on a mountain whose weather turns fast (%.2f > %.2f)" % [wild_mountain, calm_mountain])
+		var ladder: Array = weather.WEATHER_LADDER
+		_expect(int(weather.step_weather(ladder[0], -1)) == int(ladder[0]) and int(weather.step_weather(ladder[ladder.size() - 1], 1)) == int(ladder[ladder.size() - 1]),
+			"the weather cannot get better than clear or worse than a whiteout")
+		_expect(int(weather.step_weather(int(_enums.WeatherState["STORM"]), -1)) == int(_enums.WeatherState["SNOW"]), "a storm eases to snowfall")
+		# Put the day the run is on back
+		seed(4000)
+		weather.reset_for_run(int(chosen_window["weather"]))
+		weather.generate_weather_windows(run.start_conditions.time_of_day, int(chosen_window["weather"]), int(chosen_window["wind"]), float(chosen_window["stability"]))
+		randomize()
 	_steady_the_mountain()
 	return true
 

@@ -91,6 +91,7 @@ func _run() -> void:
 	await _wait(SETTLE)
 	_shot("04_planning.png")
 	var planning_screen: Node = main_scene.get("planning_screen")
+	await _check_day_choice(planning_screen)
 	var confirm: Button = _find_button(planning_screen, "ConfirmButton")
 	_expect(confirm != null and not confirm.disabled, "Begin Descent is enabled without waypoints")
 	if confirm != null:
@@ -102,6 +103,9 @@ func _run() -> void:
 	await _wait(DESCENT_SETTLE)
 	var player: Node3D = _locator.get_service("PlayerController") as Node3D
 	_expect(player != null, "player exists in descent")
+	var day_weather: Node = _locator.get_service("WeatherService") as Node
+	_expect(day_weather != null and int(day_weather.current_weather) == int(_enums.WeatherState["CLEAR"]),
+		"the descent starts in the settled weather that was chosen")
 	_expect(_find_node(main_scene, "DescentGoal") != null, "base camp marker exists")
 	_expect(_find_node(main_scene, "EnvironmentVisuals") != null, "environment visuals exist")
 	_expect(_find_node(main_scene, "TerrainMeshes") != null, "terrain meshes exist")
@@ -379,6 +383,35 @@ func _check_loadout_summary(screen: Node) -> void:
 	var messages: Node = screen.get_node_or_null(content + "/ValidationMessages")
 	_expect(stats != null and stats.get_child_count() >= 2, "and what the loadout does to speed and warmth")
 	_expect(messages != null and messages.get_child_count() >= 1, "and whether the mountain's requirements are met")
+
+
+## The plan chooses the day: how the climb went and the weather window, each
+## with a line saying what it costs. (Every run used to start from one fixed
+## preset, in weather drawn at random.) Leaves the day on a steady climb in
+## settled weather.
+func _check_day_choice(planning: Node) -> void:
+	var climb: OptionButton = planning.get("climb_picker") if planning != null else null
+	var weather: OptionButton = planning.get("weather_picker") if planning != null else null
+	_expect(climb != null and climb.is_visible_in_tree() and climb.item_count >= 3, "the plan offers a choice of climbs")
+	_expect(weather != null and weather.is_visible_in_tree() and weather.item_count >= 3, "the plan offers a choice of weather windows")
+	if climb == null or weather == null:
+		return
+	var last := weather.item_count - 1
+	weather.select(last)
+	weather.item_selected.emit(last)
+	climb.select(0)
+	climb.item_selected.emit(0)
+	await _wait(SETTLE)
+	var weather_note: Label = planning.get("weather_note")
+	var climb_note: Label = planning.get("climb_note")
+	_expect(weather_note != null and weather_note.is_visible_in_tree() and weather_note.text.contains("logbook"),
+		"the hardest window says what it counts for")
+	_expect(climb_note != null and climb_note.is_visible_in_tree() and climb_note.text.contains("daylight"),
+		"the climb says how much of the day it leaves")
+	_shot("04b_planning_storm_day.png")
+	planning.set_day("steady", "settled")
+	await _wait(2)
+	_expect(weather.selected == 0 and planning.weather_id == "settled", "the day is back on settled weather")
 
 
 ## The main menu's Settings opens the settings screen: three pages, controls

@@ -135,7 +135,8 @@ func initialize_run(config: EnvironmentConfig) -> void:
 
 	# Start from this run's weather, not whatever the last run left behind
 	weather_service.reset_for_run(config.start_weather)
-	weather_service.generate_weather_windows(config.start_hour, config.difficulty)
+	weather_service.generate_weather_windows(config.start_hour, config.start_weather, config.start_wind,
+		config.weather_stability, config.weather_volatility, config.wind_exposure)
 
 	# Set initial elevation
 	player_elevation = config.start_elevation
@@ -489,22 +490,24 @@ class EnvironmentConditions:
 class EnvironmentConfig:
 	var start_hour: float = 8.0
 	var day_of_year: int = 180
-	var difficulty: float = 0.5
 	var start_elevation: float = 4000.0
+	## The weather and wind the run starts in, and how settled the day is (0-1)
 	var start_weather: GameEnums.WeatherState = GameEnums.WeatherState.CLEAR
+	var start_wind: GameEnums.WindStrength = GameEnums.WindStrength.LIGHT
+	var weather_stability: float = 0.6
+	## The mountain: how fast its weather turns and how open it is to the wind (0-1)
+	var weather_volatility: float = 0.3
+	var wind_exposure: float = 0.5
 
-	static func create_default() -> EnvironmentConfig:
-		return EnvironmentConfig.new()
-
-	static func create_challenging() -> EnvironmentConfig:
+	## The environment a run's start conditions describe, on a mountain
+	static func from_conditions(conditions: StartConditions, mountain: MountainDatabase.MountainData = null) -> EnvironmentConfig:
 		var config := EnvironmentConfig.new()
-		config.start_hour = 10.0
-		config.difficulty = 0.7
-		return config
-
-	static func create_extreme() -> EnvironmentConfig:
-		var config := EnvironmentConfig.new()
-		config.start_hour = 12.0
-		config.difficulty = 0.9
-		config.start_elevation = 5000.0
+		config.start_hour = conditions.time_of_day
+		config.day_of_year = conditions.day_of_year
+		config.start_weather = conditions.weather
+		config.start_wind = conditions.wind_strength
+		config.weather_stability = conditions.weather_stability
+		if mountain != null:
+			config.weather_volatility = mountain.weather_volatility
+			config.wind_exposure = mountain.wind_exposure
 		return config
