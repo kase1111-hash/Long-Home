@@ -458,10 +458,13 @@ func _check_map_replay(main_scene: Node) -> void:
 	_expect(replay.total_duration > 0.0, "and a day to play back (%.3f game hours)" % replay.total_duration)
 	await _wait(SETTLE * 2)
 	_shot("10b_map_replay.png")
-	replay.play_button.pressed.emit()  # the first press finishes drawing the line
-	replay.play_button.pressed.emit()  # the second starts the day playing
+	# While the line is still drawing itself, the first press only finishes it
+	if replay.is_drawing_path:
+		replay.play_button.pressed.emit()
+	replay.play_button.pressed.emit()
+	_expect(replay.is_playing, "Play starts the day playing")
 	await _wait(SETTLE * 3)
-	_expect(replay.playback_time > 0.0, "Play moves the playhead through the day")
+	_expect(replay.playback_time > 0.0, "and moves the playhead through it")
 	_press(replay, "close_button")
 	await _wait(SETTLE)
 	_expect(not replay.visible and post_game.visible, "Close returns to the post-game screen")

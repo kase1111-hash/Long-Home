@@ -14,6 +14,11 @@ extends SceneTree
 ##     a bad settings file cannot put the game in a bad state, they survive a
 ##     restart, and the settings screen's controls read and write them
 ##
+##   - the film crew's drone: it takes off beside the climber and stays with
+##     them (walking, moved far away, in a storm), B switches the screen to
+##     its camera and back, and a fatal sequence is watched through it, in
+##     one take, from a distance, with nothing else on the screen
+##
 ## The test never writes to the settings of whoever runs it: it turns the
 ## settings service's saving off, and where it tests saving it points the
 ## service at a file of its own.
@@ -23,9 +28,12 @@ extends SceneTree
 ## ServiceLocator or any project class_name at compile time (see
 ## tests/smoke_goal.gd).
 
+const MOUNTAIN := "knife_edge"
+
 var _state_manager: Node = null
 var _enums: Node = null
 var _locator: Node = null
+var _event_bus: Node = null
 var _main: Node = null
 var _failures: Array[String] = []
 var _checks: int = 0
@@ -39,7 +47,8 @@ func _run() -> void:
 	_state_manager = root.get_node_or_null("/root/GameStateManager")
 	_enums = root.get_node_or_null("/root/GameEnums")
 	_locator = root.get_node_or_null("/root/ServiceLocator")
-	if _state_manager == null or _enums == null or _locator == null:
+	_event_bus = root.get_node_or_null("/root/EventBus")
+	if _state_manager == null or _enums == null or _locator == null or _event_bus == null:
 		_finish("autoloads missing; run with --path <project root>")
 		return
 
@@ -50,6 +59,10 @@ func _run() -> void:
 	await _wait(5)
 	await _test_lifetime_record()
 	await _test_settings()
+	if not await _start_descent():
+		_finish("could not start a descent")
+		return
+	await _test_drone()
 	_finish("")
 
 
@@ -309,8 +322,181 @@ func _test_settings() -> void:
 
 
 # =============================================================================
+# ON THE MOUNTAIN
+# =============================================================================
+
+func _start_descent() -> bool:
+	var states: Dictionary = _enums.GameState
+	var mountain_db: Object = _locator.get_service("MountainDatabase")
+	if is_instance_valid(mountain_db):
+		mountain_db.select_mountain(MOUNTAIN)
+	_state_manager.transition_to(int(states["MOUNTAIN_SELECT"]))
+	await _wait(1)
+	_state_manager.transition_to(int(states["LOADOUT_CONFIG"]))
+	await _wait(1)
+	_state_manager.transition_to(int(states["PLANNING"]))
+	await _wait(1)
+	var conditions: Resource = (load("res://src/core/data/start_conditions.gd") as GDScript).create_moderate()
+	conditions.mountain_id = MOUNTAIN
+	_state_manager.start_run(MOUNTAIN, conditions)
+	_state_manager.transition_to(int(states["DESCENT"]))
+	await _wait(30)
+	if int(_state_manager.current_state) != int(states["DESCENT"]) \
+			or not is_instance_valid(_locator.get_service("PlayerController")):
+		return false
+	_steady_the_mountain()
+	return true
+
+
+## The test says what happens from here; the mountain's own dice are put away
+## (see _steady_the_mountain() in tests/test_audio.gd for why seed() is not
+## enough)
+func _steady_the_mountain() -> void:
+	var player: Node3D = _locator.get_service("PlayerController") as Node3D
+	player.posture.micro_slip_probability_scale = 0.0
+	var weather: Node = _locator.get_service("WeatherService") as Node
+	if weather != null:
+		weather.base_change_probability = 0.0
+		weather.weather_windows.clear()
+	var avalanches: Object = _locator.get_service("AvalancheSystem")
+	if is_instance_valid(avalanches):
+		avalanches.active = false
+
+
+# =============================================================================
+# THE FILM CREW'S DRONE
+# =============================================================================
+
+func _test_drone() -> void:
+	var drones: Node = _locator.get_service("DroneService") as Node
+	var player: Node3D = _locator.get_service("PlayerController") as Node3D
+	var terrain: Object = _locator.get_service("TerrainService")
+	var weather: Node = _locator.get_service("WeatherService") as Node
+	_expect(drones != null and drones.drone != null and drones.drone.is_active, "the film crew's drone is in the air for the descent")
+	if drones == null or drones.drone == null:
+		return
+	var drone: Node3D = drones.drone
+	var winds: Dictionary = _enums.WindStrength
+	weather._set_wind_strength(int(winds["MODERATE"]))
+	await _seconds(2.0)
+
+	# It used to be created at the world's origin, kilometres under the
+	# summit, and to spend the whole descent flying up toward the climber
+	var apart := drone.global_position.distance_to(player.global_position)
+	var clear: float = drone.global_position.y - terrain.get_height_at(drone.global_position)
+	_expect(apart < 60.0, "it takes off beside the climber (%.0f m away)" % apart)
+	_expect(clear > 1.5, "clear of the ground (%.1f m up)" % clear)
+	var climber_camera: Camera3D = player.camera_pivot.camera
+	_expect(root.get_viewport().get_camera_3d() == climber_camera and not drones.is_drone_view(),
+		"the descent starts in the climber's own view")
+
+	Input.action_press("move_forward")
+	await _seconds(8.0)
+	Input.action_release("move_forward")
+	apart = drone.global_position.distance_to(player.global_position)
+	_expect(apart < 60.0 and drone.controller.is_following, "it keeps station while the climber walks (%.0f m)" % apart)
+
+	# Moved a long way at once (a new run, a test): flown back, not left behind
+	# (short of base camp: arriving there would end the run)
+	var away: Vector3 = terrain.goal_position + (terrain.start_position - terrain.goal_position).normalized() * 80.0
+	away.y = terrain.get_height_at(away) + 0.3
+	_expect(away.distance_to(player.global_position) > 300.0, "there is ground a long way from the summit")
+	player.global_position = away
+	player.velocity = Vector3.ZERO
+	await _seconds(1.5)
+	apart = drone.global_position.distance_to(player.global_position)
+	_expect(apart < 60.0, "moved across the mountain, the climber has the drone with them again (%.0f m)" % apart)
+	var top: Vector3 = terrain.start_position
+	top.y = terrain.get_height_at(top) + 0.3
+	player.global_position = top
+	player.velocity = Vector3.ZERO
+	await _seconds(1.5)
+
+	# A storm throws it about but does not take it away
+	weather._set_wind_strength(int(winds["SEVERE"]))
+	await _seconds(8.0)
+	apart = drone.global_position.distance_to(player.global_position)
+	_expect(apart < 80.0, "in a severe wind it is still with the climber (%.0f m, wind %.0f m/s)" % [apart, weather.wind_speed])
+	weather._set_wind_strength(int(winds["MODERATE"]))
+	_expect(int(_state_manager.current_state) == int(_enums.GameState["DESCENT"]), "the descent is still on")
+
+	# B: the screen shows the drone's camera, and back
+	var hud: Node = _main.get("descent_hud")
+	var tag: Control = hud.find_child("ViewTag", true, false) as Control if hud != null else null
+	await _tap("drone_view")
+	await _wait(2)
+	_expect(drones.is_drone_view() and root.get_viewport().get_camera_3d() == drones.drone_camera,
+		"B puts the drone's camera on the screen")
+	_expect(tag != null and tag.visible, "and the HUD says whose camera it is")
+	await _tap("drone_view")
+	await _wait(2)
+	_expect(not drones.is_drone_view() and root.get_viewport().get_camera_3d() == climber_camera and tag != null and not tag.visible,
+		"B again gives the climber's own view back")
+
+	# A fatal sequence is watched through the drone, in one take
+	var phases: Dictionary = _enums.FatalPhase
+	_event_bus.fatal_event_started.emit(int(phases["MOMENT_OF_ERROR"]))
+	await _wait(3)
+	_expect(drones.fatal_view and root.get_viewport().get_camera_3d() == drones.drone_camera,
+		"a fatal event cuts to the drone's camera")
+	await _tap("drone_view")
+	await _wait(2)
+	_expect(root.get_viewport().get_camera_3d() == drones.drone_camera, "which B does not cut away from")
+	_expect(not drone.controller.is_following and drone.let_subject_go, "the drone stops keeping station on the climber")
+	var run_panel: Control = hud.find_child("RunPanel", true, false) as Control
+	_expect(run_panel != null and run_panel.modulate.a < 0.01 and tag.modulate.a < 0.01, "and the screen is cleared of text")
+	var before: Vector3 = drone.global_position
+	player.global_position += Vector3(0.0, -400.0, 0.0)
+	await _seconds(2.0)
+	_expect(drone.global_position.distance_to(before) < 40.0,
+		"the drone does not follow the climber into the void (moved %.0f m as they dropped 400)" % drone.global_position.distance_to(before))
+
+	# Sent somewhere over the climber, it goes to the side instead
+	player.global_position = top
+	player.velocity = Vector3.ZERO
+	await _wait(2)
+	drone.controller.set_target_position(player.global_position + Vector3(1.0, 30.0, 0.0), 0.5)
+	var sent: Vector3 = drone.controller.target_position if drone.controller.pending_move.is_empty() else drone.controller.pending_move["position"]
+	var aside := Vector2(sent.x - player.global_position.x, sent.z - player.global_position.z).length()
+	_expect(aside > 20.0, "and is never sent to hover over them (%.0f m to the side at %.0f m up)" % [aside, sent.y - player.global_position.y])
+
+	# The run ends the way a fatal one does, and the player goes home
+	_event_bus.fatal_event_completed.emit()
+	_state_manager.complete_run(int(_enums.ResolutionType["FATALITY"]), "test")
+	await _wait(5)
+	_state_manager.transition_to(int(_enums.GameState["POST_GAME"]))
+	await _wait(5)
+	_state_manager.transition_to(int(_enums.GameState["MAIN_MENU"]))
+	await _wait(5)
+	_expect(int(_state_manager.current_state) == int(_enums.GameState["MAIN_MENU"]), "the run is over and the menu is up")
+	_expect(not drones.is_drone_view() and not drones.fatal_view and not drone.let_subject_go,
+		"back at the menu, the next run will start in the climber's own view")
+
+
+# =============================================================================
 # HELPERS
 # =============================================================================
+
+func _seconds(seconds: float) -> void:
+	for i in range(int(ceil(seconds * 60.0))):
+		await physics_frame
+
+
+## Press and release an action as an input event, the way a key arrives.
+## Pushed into the viewport: without a window (headless) nothing delivers
+## Input.parse_input_event() to the scene.
+func _tap(action: String) -> void:
+	var event := InputEventAction.new()
+	event.action = action
+	event.pressed = true
+	root.push_input(event)
+	await physics_frame
+	await physics_frame
+	var release := InputEventAction.new()
+	release.action = action
+	release.pressed = false
+	root.push_input(release)
+
 
 func _wait(frames: int) -> void:
 	for i in range(frames):

@@ -41,6 +41,7 @@ const KEY_ROWS := [
 	["snow_pit", "Dig a snow pit"],
 	["check_self", "Check yourself"],
 	["open_map", "Map"],
+	["drone_view", "Watch through the film crew's drone"],
 ]
 
 ## Keys that are not actions in the input map

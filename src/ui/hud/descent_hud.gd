@@ -41,7 +41,9 @@ const HINTS_TOGGLE_FADE_TIME := 0.2
 const MESSAGE_FADE_IN := 0.3
 const MESSAGE_FADE_OUT := 0.6
 
-const HINTS_TEXT := "WASD move  ·  Mouse look  ·  Space glissade / arrest  ·  S brake  ·  R rope  ·  F crampons  ·  T skis  ·  G probe  ·  V snow pit  ·  Q/E lean  ·  M map  ·  C self-check  ·  Esc pause  ·  H hints"
+const HINTS_TEXT := "WASD move  ·  Mouse look  ·  Space glissade / arrest  ·  S brake  ·  R rope  ·  F crampons  ·  T skis  ·  G probe  ·  V snow pit  ·  Q/E lean  ·  M map  ·  C self-check  ·  B drone view  ·  Esc pause  ·  H hints"
+## Shown in a corner while the screen shows the film crew's drone camera
+const DRONE_VIEW_TEXT := "Drone camera  ·  B for your own"
 
 ## Contextual control reminders, shown in place of the general hints while
 ## the climber is doing something with its own controls
@@ -128,6 +130,8 @@ var _bottom_stack: VBoxContainer
 var _message_label: Label
 var _hints_panel: PanelContainer
 var _hints_label: Label
+var _view_tag: PanelContainer
+var _in_fatal_sequence: bool = false
 
 # =============================================================================
 # DATA SOURCES (resolved lazily, may be null at any time)
@@ -171,6 +175,7 @@ func _ready() -> void:
 
 	_build_run_panel()
 	_build_bottom_stack()
+	_build_view_tag()
 	_connect_signals()
 
 	_update_visibility(GameStateManager.current_state)
@@ -295,6 +300,36 @@ func _add_row(caption: String) -> Label:
 	return value_label
 
 
+## Top right: which camera this is, when it is not the climber's own
+func _build_view_tag() -> void:
+	_view_tag = PanelContainer.new()
+	_view_tag.name = "ViewTag"
+	_view_tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_view_tag.add_theme_stylebox_override("panel", _make_panel_style(HINTS_PANEL_COLOR, HINTS_PADDING_X, HINTS_PADDING_Y))
+	_view_tag.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_view_tag.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_view_tag.offset_left = -SCREEN_MARGIN
+	_view_tag.offset_right = -SCREEN_MARGIN
+	_view_tag.offset_top = SCREEN_MARGIN
+	_view_tag.visible = false
+	add_child(_view_tag)
+	_view_tag.add_child(_make_label("ViewTagLabel", DRONE_VIEW_TEXT, HINTS_FONT_SIZE, VALUE_COLOR))
+
+	# The drone service starts before the HUD in a normal game; not in every test
+	ServiceLocator.get_service_async("DroneService", func(service: Object) -> void:
+		var drones := service as DroneService
+		if drones == null:
+			return
+		drones.view_changed.connect(_on_view_changed)
+		_on_view_changed(drones.is_drone_view()))
+
+
+func _on_view_changed(through_drone: bool) -> void:
+	if _view_tag == null:
+		return
+	_view_tag.visible = through_drone
+
+
 func _build_bottom_stack() -> void:
 	_bottom_stack = VBoxContainer.new()
 	_bottom_stack.name = "BottomStack"
@@ -373,6 +408,29 @@ func _connect_signals() -> void:
 	EventBus.player_movement_changed.connect(_on_player_movement_changed)
 	EventBus.diegetic_message.connect(show_message)
 	EventBus.temperature_changed.connect(_on_temperature_changed)
+	EventBus.fatal_event_started.connect(_on_fatal_event_started)
+	EventBus.descent_ready.connect(_on_descent_ready)
+
+
+## A fatal sequence is watched with nothing on the screen but the mountain
+## ("no text, no marker"): the readout and the hints go
+func _on_fatal_event_started(_phase: GameEnums.FatalPhase) -> void:
+	_in_fatal_sequence = true
+	_apply_fatal_visibility()
+
+
+func _on_descent_ready() -> void:
+	_in_fatal_sequence = false
+	_apply_fatal_visibility()
+
+
+func _apply_fatal_visibility() -> void:
+	if _run_panel != null:
+		_run_panel.modulate.a = 0.0 if _in_fatal_sequence else 1.0
+	if _bottom_stack != null:
+		_bottom_stack.modulate.a = 0.0 if _in_fatal_sequence else 1.0
+	if _view_tag != null:
+		_view_tag.modulate.a = 0.0 if _in_fatal_sequence else 1.0
 
 
 func _on_game_state_changed(_old_state: GameEnums.GameState, new_state: GameEnums.GameState) -> void:

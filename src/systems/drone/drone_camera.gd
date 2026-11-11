@@ -26,8 +26,9 @@ signal exposure_changed(exposure: float)
 @export var default_fov: float = 60.0
 ## Wide shot FOV
 @export var wide_fov: float = 85.0
-## Tight/close shot FOV
-@export var tight_fov: float = 35.0
+## Tight/close shot FOV. Still a wide lens: "wide lenses only, no sniper zoom"
+## (SPEC-SHEET, camera language rules). It was 35, a telephoto.
+@export var tight_fov: float = 55.0
 ## FOV transition speed
 @export var fov_lerp_speed: float = 2.0
 

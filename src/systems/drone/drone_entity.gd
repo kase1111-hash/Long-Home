@@ -31,6 +31,9 @@ signal drone_grounded(reason: String)
 @export var deceleration: float = 12.0
 ## Vertical climb rate (m/s)
 @export var climb_rate: float = 5.0
+## Vertical descent rate (m/s): dropping costs nothing, and a sliding climber
+## loses height fast
+@export var descent_rate: float = 14.0
 ## Rotation speed (rad/s)
 @export var rotation_speed: float = 3.0
 
@@ -88,11 +91,29 @@ var wind_effect: Vector3 = Vector3.ZERO
 ## Is drone fighting constraints
 var is_constrained: bool = false
 
+## How much of its speed the drone uses to go where it is told (1 = all).
+## Holding against the wind is not slowed by this: a drone told to move
+## slowly is still flying.
+var speed_scale: float = 1.0
+
+## While true the drone neither closes on a subject that has gone out of range
+## nor is brought back to them. Set for a fatal sequence: the drone does not
+## follow the climber into the void.
+var let_subject_go: bool = false
+
 ## Current target position
 var target_position: Vector3 = Vector3.ZERO
 
 ## Current target velocity
 var target_velocity: Vector3 = Vector3.ZERO
+
+## Where the drone takes off from, relative to its subject (slope frame:
+## see DroneController.follow_offset)
+const TAKE_OFF_OFFSET := Vector3(5.0, 8.0, 10.0)
+## Beyond this many times the leash, the drone is brought back to its subject
+const REACQUIRE_FACTOR := 2.0
+## The most the wind can take of the spectator drone's speed
+const SPECTATOR_WIND_SHARE := 0.6
 
 ## Terrain service reference
 var terrain_service: TerrainService
@@ -130,7 +151,7 @@ func _connect_services() -> void:
 	ServiceLocator.get_service_async("TerrainService", func(s): terrain_service = s)
 	ServiceLocator.get_service_async("WeatherService", func(s): weather_service = s)
 	ServiceLocator.get_service_async("PlayerController", func(s):
-		subject = s
+		set_subject(s)
 		print("[DroneEntity] Tracking player")
 	)
 
@@ -145,13 +166,9 @@ func activate(start_mode: GameEnums.DroneMode = GameEnums.DroneMode.SPECTATOR) -
 	is_active = true
 	is_grounded = false
 
-	# Position near subject if available
-	if subject:
-		global_position = subject.global_position + Vector3(5, 8, 10)
-		look_at(subject.global_position, Vector3.UP)
-
-	# Start battery drain
-	battery.start_drain()
+	# Take off beside the subject, if there is one yet
+	reposition_to_subject()
+	_set_battery_for_mode()
 
 	EventBus.drone_mode_changed.emit(GameEnums.DroneMode.DISABLED, mode)
 	print("[DroneEntity] Activated in %s mode" % GameEnums.DroneMode.keys()[mode])
@@ -187,6 +204,8 @@ func set_mode(new_mode: GameEnums.DroneMode) -> void:
 			battery.set_drain_multiplier(2.0)  # Scout mode drains faster
 		GameEnums.DroneMode.DISABLED:
 			deactivate("mode_disabled")
+	if is_active:
+		_set_battery_for_mode()
 
 
 # =============================================================================
@@ -225,11 +244,19 @@ func _update_wind_effect(delta: float) -> void:
 	var wind := weather_service.get_wind_vector()
 	var wind_strength := wind.length()
 
-	# Wind effect increases with altitude
-	var altitude_factor := clampf(altitude_above_terrain / 50.0, 0.5, 2.0)
+	# Wind is stronger clear of the ground. (This ran from x0.5 to x2: a drone
+	# holding station beside a ridge, high above the slope below, met twice
+	# the wind the climber did and could not stay.)
+	var altitude_factor := clampf(0.7 + altitude_above_terrain / 100.0, 0.7, 1.3)
 
-	# Calculate wind force on drone
+	# How hard the air is carrying the drone (see _apply_movement for what it
+	# does about it)
 	wind_effect = wind * wind_resistance * altitude_factor
+	# The film crew's drone is flown by people whose job is to stay with the
+	# climber: in a storm it is thrown about but still makes headway. The
+	# climber's own scout drone has no such help.
+	if mode != GameEnums.DroneMode.SCOUT:
+		wind_effect = wind_effect.limit_length(max_speed * SPECTATOR_WIND_SHARE)
 
 	# Check if wind is too strong
 	if wind_strength > max_safe_wind:
@@ -238,7 +265,8 @@ func _update_wind_effect(delta: float) -> void:
 		constraint_hit.emit("high_wind")
 
 		# Battery drains faster fighting wind
-		battery.set_drain_multiplier(1.5)
+		if mode == GameEnums.DroneMode.SCOUT:
+			battery.set_drain_multiplier(1.5)
 
 
 func _update_altitude() -> void:
@@ -253,11 +281,16 @@ func _update_altitude() -> void:
 
 
 func _update_subject_distance() -> void:
-	if subject == null:
+	if not is_instance_valid(subject):
+		subject = null
 		subject_distance = 0.0
 		return
 
 	subject_distance = global_position.distance_to(subject.global_position)
+	# Hopelessly out of touch (the climber was moved, or a new run began
+	# elsewhere): be flown back to them rather than chase for minutes
+	if subject_distance > max_subject_distance * REACQUIRE_FACTOR and not let_subject_go:
+		reposition_to_subject()
 
 
 func _check_constraints() -> void:
@@ -275,7 +308,7 @@ func _check_constraints() -> void:
 		constraint_hit.emit("max_altitude")
 
 	# Subject distance constraints
-	if subject:
+	if subject and not let_subject_go:
 		if subject_distance > max_subject_distance:
 			_apply_distance_correction(true)
 			is_constrained = true
@@ -314,11 +347,15 @@ func _apply_movement(delta: float) -> void:
 	# Get input from controller
 	var input_velocity := controller.get_movement_input()
 
-	# Apply acceleration toward target
-	var target_vel := input_velocity * max_speed
-
-	# Add wind effect
-	target_vel += wind_effect
+	# The drone flies through moving air. To make the ground speed it wants it
+	# has to fly that minus the wind, and it can only fly so fast: wind it can
+	# out-fly costs it nothing but effort, and anything stronger carries it
+	# off. (The wind used to be added on top of whatever the drone asked for,
+	# so a moderate breeze blew it steadily away from its subject.)
+	var airspeed := input_velocity * max_speed * speed_scale - wind_effect
+	if airspeed.length() > max_speed:
+		airspeed = airspeed.normalized() * max_speed
+	var target_vel := airspeed + wind_effect
 
 	# Accelerate/decelerate
 	if target_vel.length() > 0.1:
@@ -333,7 +370,7 @@ func _apply_movement(delta: float) -> void:
 		velocity.x = horizontal_vel.x
 		velocity.z = horizontal_vel.z
 
-	velocity.y = clampf(velocity.y, -climb_rate, climb_rate)
+	velocity.y = clampf(velocity.y, -descent_rate, climb_rate)
 
 	# Move
 	move_and_slide()
@@ -345,7 +382,40 @@ func _apply_movement(delta: float) -> void:
 
 ## Set the subject to track
 func set_subject(new_subject: Node3D) -> void:
+	var changed := new_subject != subject
 	subject = new_subject
+	if not is_instance_valid(subject):
+		return
+	# The subject often arrives after the drone has been activated (the
+	# climber registers late): without this the drone stayed where it was
+	# created, at the world's origin, kilometres below the summit
+	if is_active and (changed or global_position.distance_to(subject.global_position) > max_subject_distance):
+		reposition_to_subject()
+
+
+## The battery is the scout drone's limit (the climber's own, in the pack).
+## The spectator drone is the film crew's: it is there for the whole day, or
+## it would have landed long before the moments it exists to film.
+func _set_battery_for_mode() -> void:
+	if mode == GameEnums.DroneMode.SCOUT:
+		battery.start_drain()
+	else:
+		battery.stop_drain()
+		battery.set_level(1.0)
+
+
+## Put the drone beside its subject, at a station clear of the ground,
+## stopped and looking at them
+func reposition_to_subject(offset: Vector3 = TAKE_OFF_OFFSET) -> void:
+	if not is_instance_valid(subject) or controller == null:
+		return
+	global_position = controller.station_for(offset)
+	velocity = Vector3.ZERO
+	subject_distance = global_position.distance_to(subject.global_position)
+	if subject_distance > 0.1:
+		look_at(subject.global_position, Vector3.UP)
+	if drone_camera != null:
+		drone_camera.look_at_position(subject.global_position)
 
 
 ## Move toward a target position
